@@ -1,7 +1,6 @@
 import functools
 import typing
 
-from absl import logging
 import jax
 import jax.numpy as jnp
 import jaxtyping
@@ -10,6 +9,7 @@ import tensorflow as tf
 from tensorflow_datasets import core as tfds_core
 
 from learning.core import mixin as _mixin
+from learning.utilities import logging
 
 # Constants
 NP_JAX_DTYPE_MAP = {
@@ -84,44 +84,46 @@ class TFDSDataModule(_mixin.DataMixin):
         """Downloads and prepares the dataset."""
         self.builder.download_and_prepare()
 
-    def train_dataloader(self) -> typing.Generator[PyTree, None, None]:
-        """Returns the training dataloader."""
-        self.rng, local_rng = jax.random.split(self.rng, num=2)
-        seed = local_rng[0].item()  # type: ignore[arg-type]
-        ds = self.prepare_sharded_dataset(
+        # Build and store the training dataset
+        train_seed = jax.random.fold_in(
+            self.rng,
+            jax.process_index(),
+        )[0].item()
+        self.train_ds = self.prepare_sharded_dataset(
             split="train",
             shuffle_files=True,
-            shuffle_seed=seed,
+            shuffle_seed=train_seed,
         )
-        for batch in ds.as_numpy_iterator():
+
+        # Build and store the validation/test datasets
+        val_split = "test"
+        if "validation" in self.builder.info.splits:
+            val_split = "validation"
+        else:
+            logging.rank_zero_warning(
+                "Dataset does not have a validation split. "
+                "Using the test split for validation."
+            )
+        self.val_ds = self.prepare_sharded_dataset(
+            split=val_split, shuffle_files=False
+        )
+        self.test_ds = self.prepare_sharded_dataset(
+            split="test", shuffle_files=False
+        )
+
+    def train_dataloader(self) -> typing.Generator[PyTree, None, None]:
+        """Returns the training dataloader."""
+        for batch in self.train_ds.as_numpy_iterator():
             yield convert_to_jax_array(batch)
 
     def val_dataloader(self) -> typing.Generator[PyTree, None, None]:
         """Returns the validation dataloader."""
-        if "validation" not in self.builder.info.splits:
-            logging.warning(
-                "Dataset does not have a validation split. "
-                "Using the test split for validation."
-            )
-            ds = self.prepare_sharded_dataset(
-                split="test",
-                shuffle_files=False,
-            )
-        else:
-            ds = self.prepare_sharded_dataset(
-                split="validation",
-                shuffle_files=False,
-            )
-        for batch in ds.as_numpy_iterator():
+        for batch in self.val_ds.as_numpy_iterator():
             yield convert_to_jax_array(batch)
 
     def test_dataloader(self) -> typing.Generator[PyTree, None, None]:
         """Returns the test dataloader."""
-        ds = self.prepare_sharded_dataset(
-            split="test",
-            shuffle_files=False,
-        )
-        for batch in ds.as_numpy_iterator():
+        for batch in self.test_ds.as_numpy_iterator():
             yield convert_to_jax_array(batch)
 
     def prepare_sharded_dataset(
@@ -167,13 +169,10 @@ class TFDSDataModule(_mixin.DataMixin):
             # shuffle the dataset
             if shuffle_seed is not None:
                 # NOTE: shuffle the dataset if a seed is given
-                local_seed = jax.random.fold_in(
-                    jax.random.PRNGKey(shuffle_seed),
-                    jax.process_index(),
-                )[0]
                 local_dataset = local_dataset.shuffle(
                     buffer_size=self.shuffle_buffer_size,
-                    seed=local_seed,
+                    seed=shuffle_seed,
+                    reshuffle_each_iteration=True,
                 )
 
             # apply optional preprocessing pipeline

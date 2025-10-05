@@ -13,7 +13,8 @@ ml_py_binary(
         "tensorflow",
         ":config",
         ":train",
-        "//learning/utilities:rank_zero",
+        "//learning:all_config",
+        "//learning/utilities:logging",
     ],
 )
 
@@ -41,6 +42,7 @@ ml_py_library(
     name = "train",
     srcs = ["train.py"],
     deps = [
+        "clu",
         "fiddle",
         "flax",
         "jax",
@@ -48,6 +50,6 @@ ml_py_library(
         "optax",
         ":config",
         ":mixin",
-        "//learning/utilities:rank_zero",
+        "//learning/utilities:logging",
     ],
 )

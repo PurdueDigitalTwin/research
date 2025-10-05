@@ -13,7 +13,7 @@ import tensorflow as tf
 
 from learning.core import config as _config
 from learning.core import train as _train
-from learning.utilities import rank_zero
+from learning.utilities import logging
 
 # Constants
 _CONFIG = fdl_flags.DEFINE_fiddle_config(
@@ -36,23 +36,23 @@ def main(argv: typing.List[str]) -> int:
     if len(argv) > 1:
         raise app.UsageError("Too many command-line arguments.")
 
-    rank_zero.rank_zero_info("Running on host: %s", platform.node())
+    logging.rank_zero_info("Running on host: %s", platform.node())
 
     # disable GPU/TPU for TensorFlow
     tf.config.set_visible_devices([], "GPU")
     tf.config.set_visible_devices([], "TPU")
 
     # initialize JAX runtime
-    rank_zero.rank_zero_info(
+    logging.rank_zero_info(
         "Running with JAX backend: %s",
         jax.default_backend(),
     )
-    rank_zero.rank_zero_info(
+    logging.rank_zero_info(
         "Running on JAX process %d / %d",
         jax.process_index() + 1,
         jax.process_count(),
     )
-    rank_zero.rank_zero_info("Running with JAX devices: %r", jax.devices())
+    logging.rank_zero_info("Running with JAX devices: %r", jax.devices())
 
     # setup experiment info
     clu.platform.work_unit().set_task_status(
@@ -70,10 +70,13 @@ def main(argv: typing.List[str]) -> int:
         "Expect `experiment` flag to be of type ExperimentConfig, "
         "but got %s." % type(experiment_cfg)
     )
-    rank_zero.rank_zero_info("Config:\n%s", experiment_cfg)
+    logging.rank_zero_info("Config:\n%s", experiment_cfg)
 
     if experiment_cfg.train:
-        _train.train_and_evaluate(config=experiment_cfg)
+        _train.train_and_evaluate(
+            config=experiment_cfg,
+            work_dir=_FLAGS.work_dir,
+        )
     else:
         raise NotImplementedError("Inference is not implemented yet.")
 

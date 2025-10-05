@@ -6,13 +6,13 @@ ml_py_library(
     name = "datamodule",
     srcs = ["datamodule.py"],
     deps = [
-        "absl-py",
         "jax",
         "jaxlib",
         "numpy",
         "tensorflow",
         "tensorflow_datasets",
         "//learning/core:mixin",
+        "//learning/utilities:logging",
     ],
 )
 
