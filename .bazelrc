@@ -11,7 +11,7 @@ build --action_env=SSL_CERT_FILE
 build --action_env=TFDS_DATA_DIR
 
 ## default platforms
-build --define ml_patform=cpu
+build --define ml_platform=cpu
 build --experimental_convenience_symlinks=ignore
 
 ## custom configurations
