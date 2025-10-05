@@ -1,6 +1,6 @@
 # research
 
-An monolithic source code repository for multi-language, multi-platform, reproducible, and scalable development and code management.
+A monolithic source code repository for multi-language, multi-platform, reproducible, and scalable development and code management.
 
 ## Repository Structure
 
