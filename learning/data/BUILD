@@ -67,7 +67,9 @@ ml_py_test(
 ml_py_library(
     name = "preprocess",
     srcs = ["preprocess.py"],
-    deps = [],
+    deps = [
+        "tensorflow",
+    ],
 )
 
 ml_py_test(
