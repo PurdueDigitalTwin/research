@@ -275,8 +275,7 @@ def train_and_evaluate(
                 if step % config.log_every_n_steps == 0:
                     lr = learning_rate_scheduler(step)
                     output_args = {
-                        "train/"
-                        + k.capitalize().replace("_", " "): sum(v) / len(v)
+                        f"train/{k.capitalize().replace('_', ' ')}": sum(v) / len(v)
                         for k, v in train_metrics.items()
                     }
                     output_args = dict(lr=lr) | output_args
