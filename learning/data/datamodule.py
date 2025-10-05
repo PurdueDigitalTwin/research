@@ -42,7 +42,7 @@ def convert_to_jax_array(example: PyTree) -> PyTree:
 
 
 class TFDSDataModule(_mixin.DataMixin):
-    """Base class for data module using Tensorflow Datasets (TFDS).
+    """Base class for data module using TensorFlow Datasets (TFDS).
 
     Attributes:
         batch_size (int): Batch size for data loading.
