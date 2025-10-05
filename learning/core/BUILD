@@ -13,6 +13,7 @@ ml_py_binary(
         "tensorflow",
         ":config",
         ":train",
+        "//learning:all_config",
         "//learning/utilities:rank_zero",
     ],
 )

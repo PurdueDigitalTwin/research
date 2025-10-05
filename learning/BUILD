@@ -1,4 +1,5 @@
 load("@rules_python//python:pip.bzl", "compile_pip_requirements")
+load(":defs.bzl", "ml_py_library")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -50,4 +51,13 @@ compile_pip_requirements(
         "--resolver=backtracking",
     ],
     requirements_txt = "requirements_tpu_lock.txt",
+)
+
+# add all configuration
+ml_py_library(
+    name = "all_config",
+    deps = [
+        "//learning/generative:config",
+        # add more config targets here
+    ],
 )
