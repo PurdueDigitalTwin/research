@@ -1,3 +1,3 @@
 <!-- markdownlint-disable MD041 -->
 
-../docs/README.md
+[Main Documentation](../docs/README.md)
