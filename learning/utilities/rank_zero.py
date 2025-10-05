@@ -22,6 +22,7 @@ def rank_zero_only(fn: typing.Callable) -> typing.Callable:
     def wrapper(*args, **kwargs):
         if jax.process_index() == 0:
             return fn(*args, **kwargs)
+        return None
 
     return wrapper
 
