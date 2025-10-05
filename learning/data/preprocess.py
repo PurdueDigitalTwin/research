@@ -60,18 +60,19 @@ def normalize(
     mean: typing.Union[float, typing.Sequence[float]],
     std: typing.Union[float, typing.Sequence[float]],
 ) -> typing.Dict[str, typing.Any]:
-    """Normalizes an image array to the range [0, 1].
+    """
+    Scales an image array to the range [0, 1] and then standardizes it by subtracting the mean and dividing by the standard deviation for each channel.
 
     Args:
         example (Dict[str, Any]): A dictionary containing an `image` key
             with a TensorFlow tensor.
         mean (Union[float, Sequence[float]]): A float or sequence of floats
-            representing the channel means,
+            representing the channel means.
         std (Union[float, Sequence[float]]): A float or sequence of floats
             representing the channel standard deviations.
 
     Returns:
-        Dict[str, Any]: A dictionary with the normalized image.
+        Dict[str, Any]: A dictionary with the image scaled to [0, 1] and standardized using the provided mean and std.
     """
     assert "image" in example, "Input dictionary must contain an 'image' key."
     image = example["image"]
