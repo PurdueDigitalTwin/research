@@ -6,7 +6,7 @@ load("@learning_tpu_3_10//:requirements.bzl", tpu_req = "requirement")
 load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
 
 def _select_requirement(name):
-    """Select from dependcy based on ML platform.
+    """Select from dependency based on ML platform.
 
     Args:
         name (str): name of the target to depend on.
