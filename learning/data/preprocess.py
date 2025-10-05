@@ -28,7 +28,7 @@ def chain(*args: typing.Any) -> typing.Callable:
 
     # ensure all arguments are callable
     for i, fn in enumerate(args):
-        if not isinstance(fn, typing.Callable):
+        if not callable(fn):
             raise TypeError(f"Argument {i} is not a callable: {type(fn)}")
 
     def _sequential(inputs: typing.Any) -> typing.Any:
