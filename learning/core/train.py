@@ -25,7 +25,7 @@ def shard(tree: PyTree) -> PyTree:
     """Helper function for `jax.pmap` to shard a pytree onto local devices.
 
     Args:
-        tree (PyTree):
+        tree (PyTree): A pytree (e.g., nested dict/list/tuple of arrays) containing data to be sharded across local devices.
     """
     _shape_prefix = (jax.local_device_count(), -1)
     return jax.tree_util.tree_map(
