@@ -88,7 +88,7 @@ class TFDSDataModule(_mixin.DataMixin):
         train_seed = jax.random.fold_in(
             self.rng,
             jax.process_index(),
-        )[0]
+        )[0].item()
         self.train_ds = self.prepare_sharded_dataset(
             split="train",
             shuffle_files=True,
