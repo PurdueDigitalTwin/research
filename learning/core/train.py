@@ -6,6 +6,7 @@ import functools
 import os
 import typing
 
+from clu import checkpoint
 from clu import metric_writers
 from clu import periodic_actions
 import fiddle as fdl
@@ -232,28 +233,36 @@ def train_and_evaluate(
     p_training_step = functools.partial(p_training_step, model)
     p_training_step = jax.pmap(p_training_step, axis_name="batch")
 
-    # resume from checkpoint
-    if config.resume:
-        raise NotImplementedError("Checkpoint resume not implemented yet.")
-
-    # prepare the metric writer
     log_dir = os.path.join(
         work_dir,
         config.name,
         datetime.now().strftime("%Y%m%d_%H%M%S"),
     )
+
+    # checkpointing
+    ckpt_dir = os.path.join(log_dir, "checkpoints")
+    checkpoint_mngr = checkpoint.MultihostCheckpoint(
+        multihost_base_directory=ckpt_dir,
+        max_to_keep=2,
+    )
+    if config.resume:
+        # TODO (juanwulu): Implement checkpoint resume functionality
+        raise NotImplementedError("Checkpoint resume not implemented yet.")
+
+    # prepare the metric writer
     writer = metric_writers.create_default_writer(
         logdir=log_dir,
         asynchronous=False,
     )
     # TODO (juanwulu): resolve the issue with `hparams`
     # writer.write_hparams(dataclasses.asdict(config))
+    progress_report = periodic_actions.ReportProgress(
+        num_train_steps=config.num_train_steps,
+        writer=writer,
+    )
     callbacks = [
         periodic_actions.Profile(logdir=log_dir),
-        periodic_actions.ReportProgress(
-            num_train_steps=config.num_train_steps,
-            writer=writer,
-        ),
+        progress_report,
     ]
 
     step = state.step
@@ -275,13 +284,14 @@ def train_and_evaluate(
                 if step % config.log_every_n_steps == 0:
                     lr = learning_rate_scheduler(step)
                     output_args = {
-                        f"train/{k.capitalize().replace('_', ' ')}": sum(v) / len(v)
+                        f"train/{k.capitalize().replace('_', ' ')}": sum(v)
+                        / len(v)
                         for k, v in train_metrics.items()
                     }
                     output_args = dict(lr=lr) | output_args
                     writer.write_scalars(step=step + 1, scalars=output_args)
-                step += 1
 
+                step += 1
                 if step % config.check_val_every_n_steps == 0:
                     logging.rank_zero_info("Running evaluation...")
                     eval_metrics = collections.defaultdict(list)
@@ -290,11 +300,16 @@ def train_and_evaluate(
                         _, outputs = p_training_step(state, batch)
                         for k, v in outputs.items():
                             eval_metrics[k].append(jax.device_get(v).mean())
-                    output_args = " | ".join(
-                        f"{k.capitalize()}: {sum(v) / len(v):.4f}"
+                    output_args = {
+                        f"eval/{k.capitalize().replace('_', ' ')}": sum(v)
+                        / len(v)
                         for k, v in eval_metrics.items()
-                    )
-                    logging.rank_zero_info("Eval | %s", output_args)
+                    }
+                    writer.write_scalars(step=step, scalars=output_args)
+                    logging.rank_zero_info("Evaluation completed. Saving...")
+                    with progress_report.timed("checkpointing"):
+                        checkpoint_mngr.save(jax_utils.unreplicate(state))
+                    logging.rank_zero_info("Checkpoint saved to %s", ckpt_dir)
 
             if step > config.num_train_steps:
                 break

@@ -48,6 +48,7 @@ ml_py_library(
         "jax",
         "jaxlib",
         "optax",
+        "orbax-checkpoint",
         ":config",
         ":mixin",
         "//learning/utilities:logging",
