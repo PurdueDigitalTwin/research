@@ -12,6 +12,7 @@ ml_py_library(
         "tensorflow",
         "tensorflow_datasets",
         "//learning/core:mixin",
+        "//learning/utilities:logging",
     ],
 )
 

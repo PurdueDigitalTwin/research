@@ -9,7 +9,7 @@ import tensorflow as tf
 from tensorflow_datasets import core as tfds_core
 
 from learning.core import mixin as _mixin
-from learning.utilities import rank_zero
+from learning.utilities import logging
 
 # Constants
 NP_JAX_DTYPE_MAP = {
@@ -100,7 +100,7 @@ class TFDSDataModule(_mixin.DataMixin):
         if "validation" in self.builder.info.splits:
             val_split = "validation"
         else:
-            rank_zero.rank_zero_warning(
+            logging.rank_zero_warning(
                 "Dataset does not have a validation split. "
                 "Using the test split for validation."
             )

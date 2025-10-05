@@ -14,7 +14,7 @@ ml_py_binary(
         ":config",
         ":train",
         "//learning:all_config",
-        "//learning/utilities:rank_zero",
+        "//learning/utilities:logging",
     ],
 )
 
@@ -49,6 +49,6 @@ ml_py_library(
         "optax",
         ":config",
         ":mixin",
-        "//learning/utilities:rank_zero",
+        "//learning/utilities:logging",
     ],
 )
