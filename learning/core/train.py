@@ -1,9 +1,13 @@
 import collections
 import copy
 import dataclasses
+from datetime import datetime
 import functools
+import os
 import typing
 
+from clu import metric_writers
+from clu import periodic_actions
 import fiddle as fdl
 from flax import jax_utils
 from flax import struct
@@ -160,7 +164,10 @@ def training_step(
     return new_state, metrics
 
 
-def train_and_evaluate(config: _config.ExperimentConfig) -> None:
+def train_and_evaluate(
+    config: _config.ExperimentConfig,
+    work_dir: str,
+) -> None:
     """Runs training and evaluation loop."""
     rng = jax.random.PRNGKey(config.seed)
 
@@ -225,8 +232,29 @@ def train_and_evaluate(config: _config.ExperimentConfig) -> None:
     p_training_step = functools.partial(p_training_step, model)
     p_training_step = jax.pmap(p_training_step, axis_name="batch")
 
+    # resume from checkpoint
     if config.resume:
         raise NotImplementedError("Checkpoint resume not implemented yet.")
+
+    # prepare the metric writer
+    log_dir = os.path.join(
+        work_dir,
+        config.name,
+        datetime.now().strftime("%Y%m%d_%H%M%S"),
+    )
+    writer = metric_writers.create_default_writer(
+        logdir=log_dir,
+        asynchronous=False,
+    )
+    # TODO (juanwulu): resolve the issue with `hparams`
+    # writer.write_hparams(dataclasses.asdict(config))
+    callbacks = [
+        periodic_actions.Profile(logdir=log_dir),
+        periodic_actions.ReportProgress(
+            num_train_steps=config.num_train_steps,
+            writer=writer,
+        ),
+    ]
 
     step = state.step
     state = jax_utils.replicate(state)
@@ -236,22 +264,23 @@ def train_and_evaluate(config: _config.ExperimentConfig) -> None:
         while True:
             for batch in datamodule.train_dataloader():
                 batch = shard(batch)
-                state, outputs = p_training_step(state, batch)
+                with jax.profiler.StepTraceAnnotation("train", step_num=step):
+                    state, outputs = p_training_step(state, batch)
                 for k, v in outputs.items():
                     train_metrics[k].append(jax.device_get(v).mean())
 
+                for cb in callbacks:
+                    cb(step)
+
                 if step % config.log_every_n_steps == 0:
                     lr = learning_rate_scheduler(step)
-                    output_args = " | ".join(
-                        f"{k.capitalize()}: {sum(v) / len(v):.4f}"
+                    output_args = {
+                        "train/"
+                        + k.capitalize().replace("_", " "): sum(v) / len(v)
                         for k, v in train_metrics.items()
-                    )
-                    logging.rank_zero_info(
-                        "Step: %d | LR: %.7f | %s",
-                        step + 1,
-                        lr,
-                        output_args,
-                    )
+                    }
+                    output_args = dict(lr=lr) | output_args
+                    writer.write_scalars(step=step + 1, scalars=output_args)
                 step += 1
 
                 if step % config.check_val_every_n_steps == 0:

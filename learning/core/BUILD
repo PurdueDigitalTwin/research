@@ -42,6 +42,7 @@ ml_py_library(
     name = "train",
     srcs = ["train.py"],
     deps = [
+        "clu",
         "fiddle",
         "flax",
         "jax",

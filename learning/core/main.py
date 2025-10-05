@@ -73,7 +73,10 @@ def main(argv: typing.List[str]) -> int:
     logging.rank_zero_info("Config:\n%s", experiment_cfg)
 
     if experiment_cfg.train:
-        _train.train_and_evaluate(config=experiment_cfg)
+        _train.train_and_evaluate(
+            config=experiment_cfg,
+            work_dir=_FLAGS.work_dir,
+        )
     else:
         raise NotImplementedError("Inference is not implemented yet.")
 
