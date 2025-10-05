@@ -1,7 +1,7 @@
 # build options
 build -c opt
 
-## environement variables
+## environment variables
 build --action_env=CURL_CA_BUNDLE
 build --action_env=CUDA_HOME
 build --action_env=GOOGLEAPPLICATIONCREDENTIALS
