@@ -60,8 +60,8 @@ def normalize(
     mean: typing.Union[float, typing.Sequence[float]],
     std: typing.Union[float, typing.Sequence[float]],
 ) -> typing.Dict[str, typing.Any]:
-    """
-    Scales an image array to the range [0, 1] and then standardizes it by subtracting the mean and dividing by the standard deviation for each channel.
+    """Scales an image array to the range [0, 1] and then standardizes it by subtracting the mean
+    and dividing by the standard deviation for each channel.
 
     Args:
         example (Dict[str, Any]): A dictionary containing an `image` key
