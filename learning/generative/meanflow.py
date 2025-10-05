@@ -280,7 +280,7 @@ class ConditionEmbed(nn.Module):
         rng: jax.random.KeyArray,
     ) -> jax.Array:
         """Drops class tokens for classifier-free guidance."""
-        return NotImplemented
+        raise NotImplementedError("This method is not yet implemented.")
 
 
 class ConditionalInstanceNorm(nn.Module):
