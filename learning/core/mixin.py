@@ -97,7 +97,7 @@ class ModelMixin:
         Args:
             deterministic (bool): Whether to run the model in deterministic
                 mode (e.g., disable dropout). Default is `False`.
-            param (FrozenDict): The model parameters.
+            params (FrozenDict): The model parameters.
             **kwargs: Keyword arguments consumed by the model.
 
         Returns:
