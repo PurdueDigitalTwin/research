@@ -2,6 +2,7 @@ import dataclasses
 import typing
 
 import fiddle as fdl
+from jax import numpy as jnp
 
 from learning.core import mixin as _mixin
 
@@ -29,7 +30,7 @@ class ExperimentConfig:
     ema_rate: float = 0.0
     """float: Rate for exponential moving average of parameters."""
 
-    # global training configurations
+    # data configurations
     batch_size: int = 32
     """int: Batch size for data loading."""
     deterministic: bool = True
@@ -38,8 +39,14 @@ class ExperimentConfig:
     """bool: Whether to drop the last incomplete batch in an epoch."""
     num_workers: int = 4
     """int: Number of sharded workers for parallel data loading."""
-    checkpoint_dir: str = "./logs/checkpoints"
-    """str: Top-level directory for saving checkpoints."""
+
+    # checkpointing configurations
+    checkpoint_dir: typing.Optional[str] = None
+    """Optional[str]: Directory for resuming from a checkpoint."""
+    checkpoint_max_to_keep: int = 1
+    """int: Maximum number of checkpoints to keep."""
+
+    # training configurations
     num_train_steps: int = 10_000
     """int: Number of training steps."""
     check_val_every_n_steps: int = 1_000
@@ -48,12 +55,18 @@ class ExperimentConfig:
     """Optional[str]: Gradient clipping method, 'norm', 'value', or `None`."""
     grad_clip_value: float = 1.0
     """float: Gradient clipping value."""
+
+    # other global configurations
     log_every_n_steps: int = 50
     """int: Frequency for logging to console and writing to loggers."""
-    precision: typing.Literal["bfloat16", "float32"] = "float32"
+    dtype: typing.Any = jnp.float32
+    """dtype: Data type for computations."""
+    param_dtype: typing.Any = jnp.float32
+    """dtype: Data type for model parameters."""
+    precision: typing.Any = jnp.float32
     """str: Numerical precision for training. One of 'bfloat16' or 'float32'."""
-    resume: bool = False
-    """bool: Whether to resume from the latest checkpoint."""
+    profile: bool = False
+    """bool: Whether to enable profiling."""
     seed: int = 42
     """int: Random seed """
     train: bool = True
@@ -79,11 +92,6 @@ class ExperimentConfig:
         )
         if self.ema_rate < 0.0 or self.ema_rate > 1.0:
             raise ValueError("The `ema_rate` must be in the range [0.0, 1.0].")
-        if self.precision not in ("bfloat16", "float32"):
-            raise ValueError(
-                f"Unsupported precision {self.precision}. "
-                "Supported precisions are 'bfloat16' and 'float32'."
-            )
 
     def __repr__(self) -> str:
         """String representation of the class."""

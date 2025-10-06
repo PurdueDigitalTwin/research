@@ -23,6 +23,8 @@ ml_py_library(
     srcs = ["config.py"],
     deps = [
         "fiddle",
+        "jax",
+        "jaxlib",
         ":mixin",
     ],
 )
