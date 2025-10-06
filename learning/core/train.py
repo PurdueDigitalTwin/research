@@ -245,7 +245,7 @@ def train_and_evaluate(
         multihost_base_directory=ckpt_dir,
         max_to_keep=2,
     )
-    if config.resume:
+    if config.checkpoint_dir:
         # TODO (juanwulu): Implement checkpoint resume functionality
         raise NotImplementedError("Checkpoint resume not implemented yet.")
 
@@ -256,69 +256,88 @@ def train_and_evaluate(
     )
     # TODO (juanwulu): resolve the issue with `hparams`
     # writer.write_hparams(dataclasses.asdict(config))
+    callbacks = []
     progress_report = periodic_actions.ReportProgress(
         num_train_steps=config.num_train_steps,
         writer=writer,
     )
-    callbacks = [
-        periodic_actions.Profile(logdir=log_dir),
-        progress_report,
-    ]
+    if jax.process_index() == 0:
+        # ensure only executing callbacks on rank zero
+        callbacks.append(progress_report)
+        if config.profile:
+            callbacks.append(
+                periodic_actions.Profile(
+                    logdir=log_dir,
+                    num_profile_steps=5,
+                )
+            )
 
     step = state.step
     state = jax_utils.replicate(state)
     train_metrics = collections.defaultdict(list)
     logging.rank_zero_info("=========== Training initiated ===========")
-    try:
-        while True:
-            for batch in datamodule.train_dataloader():
-                batch = shard(batch)
-                with jax.profiler.StepTraceAnnotation("train", step_num=step):
-                    state, outputs = p_training_step(state, batch)
-                for k, v in outputs.items():
-                    train_metrics[k].append(jax.device_get(v).mean())
+    with metric_writers.ensure_flushes(writer):
+        try:
+            while True:
+                for batch in datamodule.train_dataloader():
+                    batch = shard(batch)
+                    with jax.profiler.StepTraceAnnotation(
+                        "train", step_num=step
+                    ):
+                        state, outputs = p_training_step(state, batch)
+                    for k, v in outputs.items():
+                        train_metrics[k].append(jax.device_get(v).mean())
 
-                for cb in callbacks:
-                    cb(step)
+                    for cb in callbacks:
+                        cb(step)
 
-                if step % config.log_every_n_steps == 0:
-                    lr = learning_rate_scheduler(step)
-                    output_args = {
-                        f"train/{k.capitalize().replace('_', ' ')}": sum(v)
-                        / len(v)
-                        for k, v in train_metrics.items()
-                    }
-                    output_args = dict(lr=lr) | output_args
-                    writer.write_scalars(step=step + 1, scalars=output_args)
+                    if step % config.log_every_n_steps == 0:
+                        lr = learning_rate_scheduler(step)
+                        output_args = {
+                            f"train/{k.replace('_', ' ')}": sum(v) / len(v)
+                            for k, v in train_metrics.items()
+                        }
+                        output_args = dict(lr=lr) | output_args
+                        writer.write_scalars(
+                            step=step + 1, scalars=output_args
+                        )
+                    step += 1
 
-                step += 1
-                if step % config.check_val_every_n_steps == 0:
-                    logging.rank_zero_info("Running evaluation...")
-                    eval_metrics = collections.defaultdict(list)
-                    for batch in datamodule.val_dataloader():
-                        batch = shard(batch)
-                        _, outputs = p_training_step(state, batch)
-                        for k, v in outputs.items():
-                            eval_metrics[k].append(jax.device_get(v).mean())
-                    output_args = {
-                        f"eval/{k.capitalize().replace('_', ' ')}": sum(v)
-                        / len(v)
-                        for k, v in eval_metrics.items()
-                    }
-                    writer.write_scalars(step=step, scalars=output_args)
-                    logging.rank_zero_info("Evaluation completed. Saving...")
-                    with progress_report.timed("checkpointing"):
-                        checkpoint_mngr.save(jax_utils.unreplicate(state))
-                    logging.rank_zero_info("Checkpoint saved to %s", ckpt_dir)
+                    if step % config.check_val_every_n_steps == 0:
+                        logging.rank_zero_info("Running evaluation...")
+                        eval_metrics = collections.defaultdict(list)
+                        for batch in datamodule.val_dataloader():
+                            batch = shard(batch)
+                            _, outputs = p_training_step(state, batch)
+                            for k, v in outputs.items():
+                                eval_metrics[k].append(
+                                    jax.device_get(v).mean()
+                                )
+                        output_args = {
+                            f"eval/{k.replace('_', ' ')}": sum(v) / len(v)
+                            for k, v in eval_metrics.items()
+                        }
+                        writer.write_scalars(step=step, scalars=output_args)
+                        logging.rank_zero_info(
+                            "Evaluation completed. Saving..."
+                        )
+                        with progress_report.timed("checkpointing"):
+                            filepath = checkpoint_mngr.save(
+                                state=jax_utils.unreplicate(state)
+                            )
+                        logging.rank_zero_info(
+                            "Checkpoint saved to %s",
+                            filepath,
+                        )
 
-            if step > config.num_train_steps:
-                break
-    except Exception as e:
-        logging.rank_zero_info("Exception occurred during training: %s", e)
-        raise e
-    finally:
-        state = jax_utils.unreplicate(state)
-        logging.rank_zero_info(
-            "Training finished. Final step: %d",
-            state.step,
-        )
+                if step > config.num_train_steps:
+                    break
+        except Exception as e:
+            logging.rank_zero_info("Exception occurred during training: %s", e)
+            raise e
+        finally:
+            state = jax_utils.unreplicate(state)
+            logging.rank_zero_info(
+                "Training finished. Final step: %d",
+                state.step,
+            )
