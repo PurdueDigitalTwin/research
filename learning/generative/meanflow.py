@@ -629,11 +629,16 @@ class MeanFlowUNetModel(_mixin.ModelMixin):
         loss = jnp.mean(loss)
 
         # calculate velocity loss for monitoring
-        velocity_loss = jnp.sum(jnp.square(u - v), axis=(-1, -2, -3))
+        velocity_loss = jnp.where(
+            jnp.equal(t, r)[..., None, None, None],
+            jnp.square(u - v),
+            jnp.zeros_like(u),
+        )
+        velocity_loss = jnp.sum(velocity_loss, axis=(-1, -2, -3)).mean()
 
         return MeanFlowOutputs(
             loss=loss,
-            velocity_loss=jnp.mean(velocity_loss),
+            velocity_loss=velocity_loss,
             output=u,
         )
 
