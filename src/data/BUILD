@@ -11,8 +11,8 @@ ml_py_library(
         "numpy",
         "tensorflow",
         "tensorflow_datasets",
-        "//learning/core:mixin",
-        "//learning/utilities:logging",
+        "//src/core:mixin",
+        "//src/utilities:logging",
     ],
 )
 
@@ -36,7 +36,7 @@ ml_py_test(
         "jax",
         "jaxlib",
         ":cifar",
-        "//learning/core:mixin",
+        "//src/core:mixin",
     ],
 )
 
@@ -60,7 +60,7 @@ ml_py_test(
         "jax",
         "jaxlib",
         ":mnist",
-        "//learning/core:mixin",
+        "//src/core:mixin",
     ],
 )
 

@@ -2,10 +2,9 @@ import sys
 
 import chex
 import jax.numpy as jnp
-import pytest
-
 from learning.core import mixin as _mixin
 from learning.data import mnist
+import pytest
 
 
 @pytest.mark.parametrize("batch_size", [1, 4])

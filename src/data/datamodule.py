@@ -4,12 +4,11 @@ import typing
 import jax
 import jax.numpy as jnp
 import jaxtyping
+from learning.core import mixin as _mixin
+from learning.utilities import logging
 import numpy as np
 import tensorflow as tf
 from tensorflow_datasets import core as tfds_core
-
-from learning.core import mixin as _mixin
-from learning.utilities import logging
 
 # Constants
 NP_JAX_DTYPE_MAP = {

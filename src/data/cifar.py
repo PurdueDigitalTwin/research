@@ -3,9 +3,8 @@ import typing
 from jax import numpy as jnp
 from jax import random
 import jaxtyping
-import tensorflow_datasets as tfds
-
 from learning.data import datamodule
+import tensorflow_datasets as tfds
 
 # Constants
 PyTree = jaxtyping.PyTree
