@@ -3,7 +3,6 @@ import typing
 
 import fiddle as fdl
 from jax import numpy as jnp
-
 from learning.core import mixin as _mixin
 
 

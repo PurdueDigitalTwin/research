@@ -9,11 +9,10 @@ from fiddle import absl_flags as fdl_flags
 import fiddle as fdl
 import flax
 import jax
-import tensorflow as tf
-
 from learning.core import config as _config
 from learning.core import train as _train
 from learning.utilities import logging
+import tensorflow as tf
 
 # Constants
 _CONFIG = fdl_flags.DEFINE_fiddle_config(

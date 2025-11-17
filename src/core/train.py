@@ -15,11 +15,10 @@ from flax import struct
 from flax.core import frozen_dict
 import jax
 import jaxtyping
-import optax
-
 from learning.core import config as _config
 from learning.core import mixin as _mixin
 from learning.utilities import logging
+import optax
 
 # Constants
 PyTree = jaxtyping.PyTree

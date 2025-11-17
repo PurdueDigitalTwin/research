@@ -13,8 +13,8 @@ ml_py_binary(
         "tensorflow",
         ":config",
         ":train",
-        "//learning:all_config",
-        "//learning/utilities:logging",
+        "//src:all_config",
+        "//src/utilities:logging",
     ],
 )
 
@@ -53,6 +53,6 @@ ml_py_library(
         "orbax-checkpoint",
         ":config",
         ":mixin",
-        "//learning/utilities:logging",
+        "//src/utilities:logging",
     ],
 )
