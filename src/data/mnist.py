@@ -3,10 +3,9 @@ import typing
 from jax import numpy as jnp
 from jax import random
 import jaxtyping
+from learning.data import datamodule
 import tensorflow as tf
 import tensorflow_datasets as tfds
-
-from learning.data import datamodule
 
 # Type Aliases
 TF_FN = typing.Callable[
