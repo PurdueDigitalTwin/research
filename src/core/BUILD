@@ -1,42 +1,54 @@
-load("//learning:defs.bzl", "ml_py_binary", "ml_py_library")
+load("//third_party/ml_infra_v1:defs.bzl", "ml_py_library")
 
-package(default_visibility = ["//learning:__subpackages__"])
-
-ml_py_binary(
-    name = "main",
-    srcs = ["main.py"],
-    deps = [
-        "absl-py",
-        "clu",
-        "fiddle",
-        "flax",
-        "tensorflow",
-        ":config",
-        ":train",
-        "//src:all_config",
-        "//src/utilities:logging",
-    ],
-)
+package(default_visibility = ["//visibility:public"])
 
 ml_py_library(
     name = "config",
     srcs = ["config.py"],
     deps = [
         "fiddle",
-        "jax",
-        "jaxlib",
-        ":mixin",
+        "optax",
+        ":data",
+        ":model",
     ],
 )
 
 ml_py_library(
-    name = "mixin",
-    srcs = ["mixin.py"],
+    name = "data",
+    srcs = ["data.py"],
+)
+
+ml_py_library(
+    name = "evaluate",
+    srcs = ["evaluate.py"],
+    deps = [
+        "clu",
+        "jax",
+        ":data",
+        ":model",
+        "//src/utilities:logging",
+    ],
+)
+
+ml_py_library(
+    name = "model",
+    srcs = ["model.py"],
+    deps = [
+        "chex",
+        "flax",
+        "jaxtyping",
+        ":train_state",
+    ],
+)
+
+ml_py_library(
+    name = "train_state",
+    srcs = ["train_state.py"],
     deps = [
         "flax",
         "jax",
-        "jaxlib",
         "jaxtyping",
+        "optax",
     ],
 )
 
@@ -45,14 +57,12 @@ ml_py_library(
     srcs = ["train.py"],
     deps = [
         "clu",
-        "fiddle",
         "flax",
         "jax",
-        "jaxlib",
-        "optax",
-        "orbax-checkpoint",
-        ":config",
-        ":mixin",
+        "jaxtyping",
+        ":data",
+        ":model",
+        ":train_state",
         "//src/utilities:logging",
     ],
 )
