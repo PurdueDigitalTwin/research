@@ -1,4 +1,5 @@
 from datetime import datetime
+import functools
 import os
 import platform
 import typing
@@ -10,11 +11,13 @@ from clu import platform as clu_platform
 from fiddle import absl_flags
 import fiddle as fdl
 import jax
+import jaxtyping
 import optax
 import tensorflow as tf
 
 from src.core import config as _config
 from src.core import evaluate as _evaluate
+from src.core import model as _model
 from src.core import train as _train
 from src.core import train_state as _train_state
 from src.utilities import logging
@@ -32,12 +35,47 @@ flags.DEFINE_string(
     help="Directory to store the experiment results.",
     required=True,
 )
+PyTree = jaxtyping.PyTree
 
 
 # toggle off GPU/TPU for TensorFlow
 tf.config.experimental.set_visible_devices([], "GPU")
 tf.config.experimental.set_visible_devices([], "TPU")
 assert not tf.config.experimental.get_visible_devices("GPU")
+
+
+def evaluation_step(rngs: jax.Array) -> _model.StepOutputs:
+    r"""Conduct a single evaluation step and compute metrics."""
+    raise NotImplementedError
+
+
+def training_step(
+    rngs: jax.Array,
+    model: _model.Model,
+    state: _train_state.TrainState,
+    batch: typing.Dict[str, typing.Any],
+    **kwargs,
+) -> typing.Tuple[_train_state.TrainState, _model.StepOutputs]:
+    r"""Conduct a single training step and update train state."""
+    local_rng = jax.random.fold_in(rngs, state.step)
+    local_rng = jax.random.fold_in(local_rng, jax.lax.axis_index("batch"))
+
+    def loss_fn(params: PyTree) -> typing.Tuple[jax.Array, _model.StepOutputs]:
+        loss, outputs = model.compute_loss(
+            rngs=local_rng,
+            params=params,
+            deterministic=False,
+            **batch,
+            **kwargs,
+        )
+        return loss, outputs
+
+    grad_fn = jax.value_and_grad(loss_fn, argnums=0, has_aux=True)
+    (_, outputs), grads = grad_fn(state.params)
+    grads = jax.lax.pmean(grads, axis_name="batch")
+    new_state = state.apply_gradients(grads=grads)
+
+    return new_state, outputs
 
 
 def main(_: typing.List[str]) -> int:
@@ -148,10 +186,12 @@ def main(_: typing.List[str]) -> int:
         return 1
 
     if exp_config.mode == "train":
+        p_training_step = functools.partial(training_step, model=model)
         _train.run(
-            model=model,
             state=state,
             datamodule=datamodule,
+            training_step=p_training_step,
+            evaluation_step=evaluation_step,
             num_train_steps=exp_config.trainer.num_train_steps,
             writer=writer,
             work_dir=log_dir,
