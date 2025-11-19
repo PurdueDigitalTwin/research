@@ -206,13 +206,13 @@ def run(
                         )
 
                 # logging on the end of epoch
-                logging.rank_zero_info("Epoch %d done.", epoch)
+                logging.rank_zero_info("Epoch %d done.", epoch + 1)
                 scalar_output = {
                     f"train/{k.replace('_', ' ')}_epoch": sum(v) / len(v)
                     for k, v in train_metrics.items()
                 }
                 writer.write_scalars(
-                    step=epoch,
+                    step=epoch + 1,
                     scalars=scalar_output,
                 )
                 epoch += 1
