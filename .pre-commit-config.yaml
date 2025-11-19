@@ -7,25 +7,15 @@ repos:
     hooks:
       # list of supported hooks: https://pre-commit.com/hooks.html
       - id: trailing-whitespace
-        stages: [commit]
       - id: end-of-file-fixer
-        stages: [commit]
       - id: check-docstring-first
-        stages: [commit]
       - id: check-yaml
-        stages: [commit]
       - id: debug-statements
-        stages: [commit]
       - id: detect-private-key
-        stages: [commit]
       - id: check-executables-have-shebangs
-        stages: [commit]
       - id: check-toml
-        stages: [commit]
       - id: check-case-conflict
-        stages: [commit]
       - id: check-added-large-files
-        stages: [commit]
 
   # bazel formatting
   - repo: https://github.com/keith/pre-commit-buildifier
@@ -68,7 +58,7 @@ repos:
 
   # python docstring formatting
   - repo: https://github.com/myint/docformatter
-    rev: v1.7.4
+    rev: v1.7.7
     hooks:
       - id: docformatter
         args:
@@ -82,7 +72,7 @@ repos:
 
   # python docstring coverage checking
   - repo: https://github.com/econchick/interrogate
-    rev: 1.5.0 # or master if you're bold
+    rev: 1.7.0 # or master if you're bold
     hooks:
       - id: interrogate
         args:
