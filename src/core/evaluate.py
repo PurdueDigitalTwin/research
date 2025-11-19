@@ -7,14 +7,14 @@ from clu import periodic_actions
 import jax
 import jaxtyping
 
-from src.core import data as _data
+from src.core import datamodule as _datamodule
 from src.core import model as _model
 from src.utilities import logging
 
 
 def run(
     model: _model.Model,
-    datamodule: _data.DataModule,
+    datamodule: _datamodule.DataModule,
     params: jaxtyping.PyTree,
     writer: metric_writers.MetricWriter,
     work_dir: str,
@@ -88,9 +88,9 @@ def run(
                     _scalars = {}
                     for k, v in outputs.scalars.items():
                         eval_metrics[k].append(jax.device_get(v).mean())
-                        _scalars[
-                            f"eval/{k.replace('_', ' ')}"
-                        ] = jax.device_get(v).mean()
+                        _scalars[f"eval/{k.replace('_', ' ')}"] = (
+                            jax.device_get(v).mean()
+                        )
                     writer.write_scalars(
                         step=step + 1,
                         scalars=_scalars,

@@ -4,7 +4,7 @@ import typing
 import fiddle as fdl
 import optax
 
-from src.core import data as _data
+from src.core import datamodule as _datamodule
 from src.core import model as _model
 
 
@@ -20,7 +20,7 @@ class DataConfig:
         drop_remainder (bool): Whether to drop the last incomplete batch.
     """
 
-    module: fdl.Partial[_data.DataModule]
+    module: fdl.Partial[_datamodule.DataModule]
     batch_size: int = 32
     num_workers: int = 4
     deterministic: bool = True

@@ -9,7 +9,7 @@ from flax import jax_utils
 import jax
 import jaxtyping
 
-from src.core import data as _data
+from src.core import datamodule as _datamodule
 from src.core import model as _model
 from src.core import train_state as _train_state
 from src.utilities import logging
@@ -55,7 +55,7 @@ def _shard(tree: jaxtyping.PyTree) -> jaxtyping.PyTree:
 def run(
     model: _model.Model,
     state: _train_state.TrainState,
-    datamodule: _data.DataModule,
+    datamodule: _datamodule.DataModule,
     num_train_steps: int,
     checkpoint_manager: checkpoint.Checkpoint,
     writer: metric_writers.MetricWriter,
