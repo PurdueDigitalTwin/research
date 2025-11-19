@@ -45,6 +45,8 @@ class TrainerConfig:
 
     Attributes:
         num_train_steps (int): Total number of training steps.
+        checkpoint_every_n_steps (Optional[int]): Frequency of checkpointing.
+            If `None`, defaults to `eval_every_n_steps`.
         log_every_n_steps (int): Frequency of logging training metrics.
         eval_every_n_steps (int): Frequency of evaluation during training.
         checkpoint_dir (Optional[str]): Directory of checkpoint to resume from.
@@ -53,6 +55,7 @@ class TrainerConfig:
     """
 
     num_train_steps: int = 10_000
+    checkpoint_every_n_steps: typing.Optional[int] = None
     log_every_n_steps: int = 50
     eval_every_n_steps: int = 1_000
     checkpoint_dir: typing.Optional[str] = None
