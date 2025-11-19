@@ -5,16 +5,16 @@ import typing
 import chex
 from flax import linen as nn
 import jax
-import jax.numpy as jnp
+from jax import numpy as jnp
 import pytest
 
-from learning.generative.model import refinenet
+from src.projects.generative.model import refinenet
 
 
 @pytest.mark.parametrize("out_channels", [1, 3])
 @pytest.mark.parametrize("dtype", [jnp.float32, jnp.bfloat16])
 def test_conv_1x1(out_channels: int, dtype: typing.Any) -> None:
-    """Test 1x1 convolution builder."""
+    r"""Test 1x1 convolution builder."""
     layer = refinenet._conv_1x1(
         out_channels=out_channels,
         name="conv1",
@@ -40,7 +40,7 @@ def test_conv_1x1(out_channels: int, dtype: typing.Any) -> None:
 @pytest.mark.parametrize("out_channels", [1, 3])
 @pytest.mark.parametrize("dtype", [jnp.float32, jnp.bfloat16])
 def test_conv_3x3(out_channels: int, dtype: typing.Any) -> None:
-    """Test 3x3 convolution builder."""
+    r"""Test 3x3 convolution builder."""
     layer = refinenet._conv_3x3(
         out_channels=out_channels,
         name="conv3",
@@ -71,7 +71,7 @@ def test_dilated_conv_3x3(
     dilation: int,
     dtype: typing.Any,
 ) -> None:
-    """Test dilated 3x3 convolution builder."""
+    r"""Test dilated 3x3 convolution builder."""
     layer = refinenet._dilated_conv_3x3(
         out_channels=out_channels,
         dilation=dilation,
@@ -106,7 +106,7 @@ def test_conditional_instance_norm_2d_plus(
     use_bias: bool,
     dtype: typing.Any,
 ) -> None:
-    """Test `ConditionalInstanceNorm2dPlus` layer."""
+    r"""Test `ConditionalInstanceNorm2dPlus` layer."""
     layer = refinenet.ConditionalInstanceNorm2dPlus(
         features=features,
         num_classes=num_classes,
@@ -136,7 +136,7 @@ def test_conditional_instance_norm_2d_plus(
     chex.assert_type(variables["params"]["embed"]["embedding"], dtype)
     test_output = layer.apply(
         variables,
-        jnp.ones((1, 32, 32, features)),
+        jnp.ones((1, 32, 32, features), dtype=dtype),
         jnp.ones((1,), dtype=jnp.int32),
     )
     chex.assert_type(test_output, dtype)
@@ -151,7 +151,7 @@ def test_conv_mean_pool(
     kernel_size: int,
     dtype: typing.Any,
 ) -> None:
-    """Test `ConvMeanPool` layer."""
+    r"""Test `ConvMeanPool` layer."""
     layer = refinenet.ConvMeanPool(
         features=features,
         kernel_size=kernel_size,
@@ -188,7 +188,7 @@ def test_conditional_residual_block(
     resample: typing.Optional[str],
     dtype: typing.Any,
 ) -> None:
-    """Test `ConditionalResidualBlock` module."""
+    r"""Test `ConditionalResidualBlock` module."""
     if resample not in (None, "down"):
         with pytest.raises(ValueError):
             block = refinenet.ConditionalResidualBlock(
@@ -357,7 +357,7 @@ def test_conditional_residual_block(
 @pytest.mark.parametrize("features", [1, 3])
 @pytest.mark.parametrize("dtype", [jnp.float32, jnp.bfloat16])
 def test_conditional_rcu_block(features: int, dtype: typing.Any) -> None:
-    """Test the `ConditionalRCUBlock` module."""
+    r"""Test the `ConditionalRCUBlock` module."""
     block = refinenet.ConditionalRCUBlock(
         features=features,
         norm_module=functools.partial(
@@ -451,20 +451,20 @@ def test_conditional_msf_block(features: int, dtype: typing.Any) -> None:
     test_output = block.apply(
         variables,
         inputs=[
-            jnp.ones((2, 32, 32, 3), dtype=jnp.float32),
-            jnp.ones((2, 16, 16, 8), dtype=jnp.float32),
+            jnp.ones((2, 32, 32, 3), dtype=dtype),
+            jnp.ones((2, 16, 16, 8), dtype=dtype),
         ],
         cond=jnp.ones((2,), dtype=jnp.int32),
         shape=(28, 28),
     )
-    chex.assert_type(test_output, jnp.float32)
+    chex.assert_type(test_output, dtype)
     chex.assert_shape(test_output, (2, 28, 28, features))
 
 
 @pytest.mark.parametrize("features", [1, 3])
 @pytest.mark.parametrize("dtype", [jnp.float32, jnp.bfloat16])
 def test_conditional_crp_block(features: int, dtype: typing.Any) -> None:
-    """Test the `ConditionalCRPBlock` module."""
+    r"""Test the `ConditionalCRPBlock` module."""
     block = refinenet.ConditionalCRPBlock(
         features=features,
         norm_module=functools.partial(
@@ -486,18 +486,15 @@ def test_conditional_crp_block(features: int, dtype: typing.Any) -> None:
             variables["params"][f"convs.{i:d}"]["kernel"],
             (3, 3, features, features),
         )
-        chex.assert_type(
-            variables["params"][f"convs.{i:d}"]["kernel"],
-            jnp.float32,
-        )
+        chex.assert_type(variables["params"][f"convs.{i:d}"]["kernel"], dtype)
         assert variables["params"][f"convs.{i:d}"].get("bias") is None
 
     test_output = block.apply(
         variables,
-        jnp.ones((1, 32, 32, features), dtype=jnp.float32),
+        jnp.ones((1, 32, 32, features), dtype=dtype),
         jnp.ones((1,), dtype=jnp.int32),
     )
-    chex.assert_type(test_output, jnp.float32)
+    chex.assert_type(test_output, dtype)
     chex.assert_shape(test_output, (1, 32, 32, features))
 
 
@@ -509,10 +506,10 @@ def test_conditional_refine_block(
     dtype: typing.Any,
     is_last_block: bool,
 ) -> None:
-    """Test the `ConditionalRefineBlock` module."""
+    r"""Test the `ConditionalRefineBlock` module."""
     test_inputs = [
-        jnp.ones((2, 32, 32, 3), dtype=jnp.float32),
-        jnp.ones((2, 16, 16, 8), dtype=jnp.float32),
+        jnp.ones((2, 32, 32, 3), dtype=dtype),
+        jnp.ones((2, 16, 16, 8), dtype=dtype),
     ]
     block = refinenet.ConditionalRefineBlock(
         in_features=[3, 8],
@@ -534,7 +531,7 @@ def test_conditional_refine_block(
         _ = block.init(
             jax.random.PRNGKey(0),
             inputs=[
-                jnp.ones((2, 32, 32, 3), dtype=jnp.float32),
+                jnp.ones((2, 32, 32, 3), dtype=dtype),
             ],
             cond=jnp.ones((2,), dtype=jnp.int32),
             output_shape=(28, 28),
@@ -551,12 +548,13 @@ def test_conditional_refine_block(
         cond=jnp.ones((2,), dtype=jnp.int32),
         output_shape=(28, 28),
     )
-    chex.assert_type(test_output, jnp.float32)
+    chex.assert_type(test_output, dtype)
     chex.assert_shape(test_output, (2, 28, 28, features))
 
 
-def test_conditional_refinenet() -> None:
-    """Integrated test for the `ConditionalRefineNet` module."""
+@pytest.mark.parametrize("dtype", [jnp.float32, jnp.bfloat16])
+def test_conditional_refinenet(dtype: typing.Any) -> None:
+    r"""Integrated test for the `ConditionalRefineNet` module."""
     model = refinenet.ConditionalRefineNet(
         in_channels=3,
         image_size=32,
@@ -565,17 +563,17 @@ def test_conditional_refinenet() -> None:
             refinenet.ConditionalInstanceNorm2dPlus,
             num_classes=10,
         ),
-        dtype=jnp.float32,
-        param_dtype=jnp.float32,
+        dtype=dtype,
+        param_dtype=dtype,
     )
     assert isinstance(model, nn.Module)
     with pytest.raises(AssertionError):
         _ = model.init(
             jax.random.PRNGKey(0),
-            jnp.ones((2, 28, 28, 1), dtype=jnp.float32),
+            jnp.ones((2, 28, 28, 1), dtype=dtype),
             jnp.ones((2,), dtype=jnp.int32),
         )
-    test_input = jnp.ones((2, 32, 32, 3), dtype=jnp.float32)
+    test_input = jnp.ones((2, 32, 32, 3), dtype=dtype)
     variables = model.init(
         jax.random.PRNGKey(0),
         test_input,
@@ -586,7 +584,7 @@ def test_conditional_refinenet() -> None:
         test_input,
         jnp.ones((2,), dtype=jnp.int32),
     )
-    chex.assert_type(test_output, jnp.float32)
+    chex.assert_type(test_output, dtype)
     chex.assert_shape(test_output, (2, 32, 32, 3))
 
 

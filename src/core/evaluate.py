@@ -88,9 +88,9 @@ def run(
                     _scalars = {}
                     for k, v in outputs.scalars.items():
                         eval_metrics[k].append(jax.device_get(v).mean())
-                        _scalars[f"eval/{k.replace('_', ' ')}"] = (
-                            jax.device_get(v).mean()
-                        )
+                        _scalars[
+                            f"eval/{k.replace('_', ' ')}"
+                        ] = jax.device_get(v).mean()
                     writer.write_scalars(
                         step=step + 1,
                         scalars=_scalars,
