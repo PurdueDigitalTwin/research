@@ -366,6 +366,209 @@ class HuggingFaceImageDataModule(HuggingFaceDataModule):
 
 # ==============================================================================
 # Common datasets
+class CIFAR10DataModule(HuggingFaceImageDataModule):
+    r"""CIFAR-10 Image Classification Dataset.
+
+    The CIFAR-10 dataset consists of :math:`60,000` 32x32 colour images in
+    :math:`10` classes, with :math:`6,000` images per class. There are
+    :math:`50,000` training images and :math:`10,000` test images. The dataset
+    is divided into five training batches and one test batch, each with
+    :math:`10,000` images. The test batch contains exactly :math:`1000`
+    randomly-selected images from each class. The training batches contain the
+    remaining images in random order, but some training batches may contain
+    more images from one class than another. Between them, the training batches
+    contain exactly :math:`5000` images from each class.
+
+    Args:
+        batch_size (int): The batch size for data loading.
+        deterministic (bool, optional): Whether the dataloaders are
+            deterministic. Defaults to `True`.
+        drop_remainder (bool, optional): Whether to drop the last incomplete
+            batch. Defaults to `True`.
+        num_workers (int, optional): Number of shards for distributed loading.
+            Defaults to `4`.
+        resize (int, optional): The size to resize the shortest edge of the
+            image to before cropping. Defaults to `224`.
+        resample (int, optional): Resampling filter to use when resizing
+            images. Defaults to `3` (PIL.Image.BICUBIC).
+        seed (int, optional): Random seed for shuffling. Defaults to `42`.
+        shuffle_buffer_size (int, optional): Buffer size for random shuffling.
+            Defaults to `10_000`.
+        streaming (bool, optional): Whether to stream the dataset using the
+            `datasets` library. Defaults to `False`.
+    """
+
+    def __init__(
+        self,
+        batch_size: int,
+        deterministic: bool = True,
+        drop_remainder: bool = True,
+        num_workers: int = 4,
+        resize: int = 224,
+        resample: int = 3,
+        seed: int = 42,
+        shuffle_buffer_size: int = 10_000,
+        streaming: bool = False,
+        transform: typing.Optional[typing.Callable] = None,
+        target_transform: typing.Optional[typing.Callable] = None,
+    ) -> None:
+        self._hf_dataset = datasets.load_dataset(
+            path="uoft-cs/cifar10",
+            token=os.getenv("HF_TOKEN", None),
+            revision="0b2714987fa478483af9968de7c934580d0bb9a2",
+            streaming=streaming,
+        )
+        super().__init__(
+            batch_size=batch_size,
+            deterministic=deterministic,
+            drop_remainder=drop_remainder,
+            num_workers=num_workers,
+            resize=resize,
+            resample=resample,
+            seed=seed,
+            shuffle_buffer_size=shuffle_buffer_size,
+            transform=transform,
+            target_transform=target_transform,
+        )
+
+    @property
+    def hf_dataset(self) -> datasets.DatasetDict:
+        r"""datasets.DatasetDict: The HuggingFace dataset object."""
+        return self._hf_dataset  # type: ignore
+
+    @property
+    def feature_key(self) -> str:
+        r"""str: The key in the dataset features to use as input."""
+        return "img"
+
+    @property
+    def target_key(self) -> str:
+        r"""str: The key in the dataset features to use as target."""
+        return "label"
+
+    @property
+    def output_signature(self) -> typing.Tuple[tf.TensorSpec, tf.TensorSpec]:
+        r"""Tuple[tf.TensorSpec, tf.TensorSpec]: Tensor specifications."""
+        return (
+            tf.TensorSpec(shape=(224, 224, 3), dtype=tf.uint8),  # type: ignore
+            tf.TensorSpec(shape=(), dtype=tf.int64),  # type: ignore
+        )
+
+    @property
+    @typing_extensions.override
+    def num_val_examples(self) -> int:
+        r"""int: Number of validation examples."""
+        # NOTE: using test set as validation set by default
+        return len(self.hf_dataset["test"])  # type: ignore
+
+    @typing_extensions.override
+    def eval_dataloader(self) -> typing.Generator[PyTree, None, None]:
+        r"""Returns an iterable over the validation dataset."""
+        ds = self._create_dataset(split="test")
+        for data in ds.as_numpy_iterator():
+            yield jax.tree_util.tree_map(lambda x: jnp.asarray(x), data)
+
+
+class CIFAR100DataModule(HuggingFaceImageDataModule):
+    r"""CIFAR-100 Image Classification Dataset.
+
+    The CIFAR-100 dataset consists of :math:`60,000` 32x32 colour images in
+    :math:`100` classes, with :math:`600` images per class. There are
+    :math:`500` training images and :math:`100` testing images per class.
+    There are :math:`50,000` training images and :math:`10,000` test images.
+    The :math:`100` classes are grouped into :math:`20` superclasses.
+    There are two labels per image - fine label and coarse label (superclass).
+
+    Args:
+        batch_size (int): The batch size for data loading.
+        deterministic (bool, optional): Whether the dataloaders are
+            deterministic. Defaults to `True`.
+        drop_remainder (bool, optional): Whether to drop the last incomplete
+            batch. Defaults to `True`.
+        num_workers (int, optional): Number of shards for distributed loading.
+            Defaults to `4`.
+        resize (int, optional): The size to resize the shortest edge of the
+            image to before cropping. Defaults to `224`.
+        resample (int, optional): Resampling filter to use when resizing
+            images. Defaults to `3` (PIL.Image.BICUBIC).
+        seed (int, optional): Random seed for shuffling. Defaults to `42`.
+        shuffle_buffer_size (int, optional): Buffer size for random shuffling.
+            Defaults to `10_000`.
+        streaming (bool, optional): Whether to stream the dataset using the
+            `datasets` library. Defaults to `False`.
+    """
+
+    def __init__(
+        self,
+        batch_size: int,
+        deterministic: bool = True,
+        drop_remainder: bool = True,
+        num_workers: int = 4,
+        resize: int = 224,
+        resample: int = 3,
+        seed: int = 42,
+        shuffle_buffer_size: int = 10_000,
+        streaming: bool = False,
+        transform: typing.Optional[typing.Callable] = None,
+        target_transform: typing.Optional[typing.Callable] = None,
+    ) -> None:
+        self._hf_dataset = datasets.load_dataset(
+            path="uoft-cs/cifar100",
+            token=os.getenv("HF_TOKEN", None),
+            revision="aadb3af77e9048adbea6b47c21a81e47dd092ae5",
+            streaming=streaming,
+        )
+        super().__init__(
+            batch_size=batch_size,
+            deterministic=deterministic,
+            drop_remainder=drop_remainder,
+            num_workers=num_workers,
+            resize=resize,
+            resample=resample,
+            seed=seed,
+            shuffle_buffer_size=shuffle_buffer_size,
+            transform=transform,
+            target_transform=target_transform,
+        )
+
+    @property
+    def hf_dataset(self) -> datasets.DatasetDict:
+        r"""datasets.DatasetDict: The HuggingFace dataset object."""
+        return self._hf_dataset  # type: ignore
+
+    @property
+    def feature_key(self) -> str:
+        r"""str: The key in the dataset features to use as input."""
+        return "img"
+
+    @property
+    def target_key(self) -> str:
+        r"""str: The key in the dataset features to use as target."""
+        return "fine_label"
+
+    @property
+    def output_signature(self) -> typing.Tuple[tf.TensorSpec, tf.TensorSpec]:
+        r"""Tuple[tf.TensorSpec, tf.TensorSpec]: Tensor specifications."""
+        return (
+            tf.TensorSpec(shape=(224, 224, 3), dtype=tf.uint8),  # type: ignore
+            tf.TensorSpec(shape=(), dtype=tf.int64),  # type: ignore
+        )
+
+    @property
+    @typing_extensions.override
+    def num_val_examples(self) -> int:
+        r"""int: Number of validation examples."""
+        # NOTE: using test set as validation set by default
+        return len(self.hf_dataset["test"])  # type: ignore
+
+    @typing_extensions.override
+    def eval_dataloader(self) -> typing.Generator[PyTree, None, None]:
+        r"""Returns an iterable over the validation dataset."""
+        ds = self._create_dataset(split="test")
+        for data in ds.as_numpy_iterator():
+            yield jax.tree_util.tree_map(lambda x: jnp.asarray(x), data)
+
+
 class ImageNet1KDataModule(HuggingFaceImageDataModule):
     r"""ILSVRC2012 image dataset subset with :math:`1,000` classes.
 
