@@ -377,6 +377,14 @@ class MeanFlowUNetModule(nn.Module):
     """int: Number of channels in the latent feature maps."""
     num_classes: int
     """int: Number of conditioning classes."""
+    timestamp_sampler: str
+    """str: The distribution to sample timestamps from."""
+    timestamp_sampler_kwargs: typing.Dict[str, typing.Any]
+    """Dict[str, Any]: Keyword arguments for the timestamp sampler."""
+    timestamp_overlap_rate: float
+    """float: The minimum overlap rate between begin and end timestamps."""
+    adaptive_weight_power: typing.Optional[float] = None
+    """Optional[float]: The power for adaptive weight scaling."""
     use_cfg_embedding: bool = False
     """bool: Whether to use classifier-free guidance (CFG) embedding."""
     deterministic: typing.Optional[bool] = None
@@ -444,7 +452,7 @@ class MeanFlowUNetModule(nn.Module):
             end (jax.Array): End timestamp `t` of shape `(*, )`.
 
         Returns:
-            jax.Array: The predicted average velocity of shape `(*, H, W, C)`.
+            The predicted average velocity of shape `(*, H, W, C)`.
         """
         # sanity check for the input arrays
         batch_dims = image.shape[:-3]
@@ -477,6 +485,102 @@ class MeanFlowUNetModule(nn.Module):
         output = self.backbone(inputs=image, cond=cond)
 
         return output
+
+    def compute_loss(
+        self,
+        image: jax.Array,
+        label: jax.Array,
+    ) -> typing.Tuple[jax.Array, jax.Array]:
+        r"""Compute the `MeanFlow` loss.
+
+        Args:
+            image (jax.Array): Input images of shape `(*, H, W, C)`.
+            label (jax.Array): Conditioning labels of shape `(*,)`.
+
+        Returns:
+            The mean flow loss and velocity loss.
+        """
+        batch_dims = image.shape[:-3]
+
+        # step 1: randomly sample begin and end timestamps
+        t, r = sample_t_r(
+            key=self.make_rng("timestamp"),
+            shape=batch_dims,
+            dtype=image.dtype,
+            distribution=self.timestamp_sampler,
+            **self.timestamp_sampler_kwargs,
+        )
+        t, r = jnp.maximum(t, r), jnp.minimum(t, r)
+        # ensure a portion of overlap between t and r
+        r_neq_t_mask = jnp.greater_equal(
+            jax.random.uniform(
+                key=self.make_rng("mask"),
+                shape=batch_dims,
+                dtype=image.dtype,
+                minval=0.0,
+                maxval=1.0,
+            ),
+            self.timestamp_overlap_rate,
+        )
+        r = jnp.where(r_neq_t_mask, t, r)
+
+        # sample noise e ~ N(0, I)
+        e = jax.random.normal(
+            key=self.make_rng("noise"),
+            shape=image.shape,
+            dtype=image.dtype,
+        )
+
+        # generate intermediate z(t)
+        z = jnp.add(
+            (1 - t[..., None, None, None]) * image,
+            t[..., None, None, None] * e,
+        )
+
+        # calculate velocity v
+        v = e - image
+
+        def u_fn(
+            z_t: jax.Array,
+            r_val: jax.Array,
+            t_val: jax.Array,
+        ) -> typing.Any:
+            b_arg, e_arg = t_val - r_val, t_val
+
+            return self(
+                image=z_t,
+                label=label,
+                begin=b_arg,
+                end=e_arg,
+                deterministic=False,
+            )
+
+        u, dudt = jax.jvp(
+            u_fn,
+            (z, r, t),
+            (v, jnp.zeros_like(r), jnp.ones_like(t)),
+        )
+        u_target = jax.lax.stop_gradient(
+            v
+            - jnp.clip(t - r, a_min=0.0, a_max=1.0)[..., None, None, None]
+            * dudt
+        )
+
+        # step 3: compute the loss
+        loss = jnp.sum(jnp.square(u - u_target), axis=(-1, -2, -3))
+        if self.adaptive_weight_power is not None:
+            ada_wt = jnp.power(loss + 1e-2, self.adaptive_weight_power)
+            loss = loss / jax.lax.stop_gradient(ada_wt)
+        loss = jnp.mean(loss)
+
+        velocity_loss = jnp.where(
+            jnp.equal(t, r)[..., None, None, None],
+            jnp.square(u - v),
+            jnp.zeros_like(u),
+        )
+        velocity_loss = jnp.sum(velocity_loss, axis=(-1, -2, -3)).mean()
+
+        return loss, velocity_loss
 
 
 class MeanFlowUNetModel(_model.Model):
@@ -532,15 +636,15 @@ class MeanFlowUNetModel(_model.Model):
         self.in_channels = in_channels
         self.image_size = image_size
         self.timestamp_cond = timestamp_cond
-        self.timestamp_sampler = timestamp_sampler
-        self.timestamp_sampler_kwargs = timestamp_sampler_kwargs
-        self.timestamp_overlap_rate = timestamp_overlap_rate
-        self.adaptive_weight_power = adaptive_weight_power
         self._network = MeanFlowUNetModule(
             in_channels=in_channels,
             image_size=image_size,
             latent_channels=latent_channels,
             num_classes=num_classes,
+            timestamp_sampler=timestamp_sampler,
+            timestamp_sampler_kwargs=timestamp_sampler_kwargs,
+            timestamp_overlap_rate=timestamp_overlap_rate,
+            adaptive_weight_power=adaptive_weight_power,
             use_cfg_embedding=use_cfg_embedding,
             dropout_rate=dropout_rate,
             name="unet",
@@ -625,112 +729,31 @@ class MeanFlowUNetModel(_model.Model):
         local_rng = jax.random.fold_in(rngs, jax.process_index())
         local_rng = jax.random.fold_in(local_rng, state.step)
 
-        def _loss_fn(
-            params: PyTree,
-            batch: typing.Any,
-            local_rng: jax.Array,
-        ) -> typing.Tuple[jax.Array, jax.Array]:
-            tr_rng = jax.random.fold_in(local_rng, 0)
-            mask_rng = jax.random.fold_in(local_rng, 1)
-            e_rng = jax.random.fold_in(local_rng, 2)
+        tr_rng = jax.random.fold_in(local_rng, 0)
+        mask_rng = jax.random.fold_in(local_rng, 1)
+        e_rng = jax.random.fold_in(local_rng, 2)
 
-            image, label = batch["image"], batch["label"]
-            batch_dims = image.shape[:-3]
+        image, label = batch["image"], batch["label"]
 
-            # step 1: randomly sample begin and end timestamps
-            t, r = sample_t_r(
-                key=tr_rng,
-                shape=batch_dims,
-                dtype=image.dtype,
-                distribution=self.timestamp_sampler,
-                **self.timestamp_sampler_kwargs,
+        def _loss_fn(params: PyTree) -> typing.Tuple[jax.Array, jax.Array]:
+            loss, velocity_loss = self.network.apply(
+                variables={"params": params},
+                image=image,
+                label=label,
+                rngs={
+                    "timestamp": tr_rng,
+                    "mask": mask_rng,
+                    "noise": e_rng,
+                },
+                method=self.network.compute_loss,
             )
-            t, r = jnp.maximum(t, r), jnp.minimum(t, r)
-            # ensure a portion of overlap between t and r
-            r_neq_t_mask = jnp.greater_equal(
-                jax.random.uniform(
-                    key=mask_rng,
-                    shape=batch_dims,
-                    dtype=image.dtype,
-                    minval=0.0,
-                    maxval=1.0,
-                ),
-                self.timestamp_overlap_rate,
-            )
-            r = jnp.where(r_neq_t_mask, t, r)
-
-            # sample noise e ~ N(0, I)
-            e = jax.random.normal(
-                key=e_rng,
-                shape=image.shape,
-                dtype=image.dtype,
-            )
-
-            # generate intermediate z(t)
-            z = jnp.add(
-                (1 - t[..., None, None, None]) * image,
-                t[..., None, None, None] * e,
-            )
-
-            # calculate velocity v
-            v = e - image
-
-            def u_fn(
-                p: PyTree,
-                z_t: jax.Array,
-                r_val: jax.Array,
-                t_val: jax.Array,
-            ) -> typing.Any:
-                if self.timestamp_cond == "t_and_r":
-                    b_arg, e_arg = r_val, t_val
-                elif self.timestamp_cond == "t_and_t_minus_r":
-                    b_arg, e_arg = t_val - r_val, t_val
-                elif self.timestamp_cond == "t_minus_r":
-                    b_arg, e_arg = t_val - r_val, None
-                else:
-                    # Fallback
-                    b_arg, e_arg = t_val - r_val, t_val
-
-                return self.network.apply(
-                    variables={"params": p},
-                    image=z_t,
-                    label=label,
-                    begin=b_arg,
-                    end=e_arg,
-                    deterministic=False,
-                )
-
-            params_tangent = jax.tree_util.tree_map(jnp.zeros_like, params)
-            u, dudt = jax.jvp(
-                u_fn,
-                (params, z, r, t),
-                (params_tangent, v, jnp.zeros_like(r), jnp.ones_like(t)),
-            )
-            u_target = jax.lax.stop_gradient(
-                v
-                - jnp.clip(t - r, a_min=0.0, a_max=1.0)[..., None, None, None]
-                * dudt
-            )
-
-            # step 3: compute the loss
-            loss = jnp.sum(jnp.square(u - u_target), axis=(-1, -2, -3))
-            if self.adaptive_weight_power > 0.0:
-                ada_wt = jnp.power(loss + 1e-2, self.adaptive_weight_power)
-                loss = loss / jax.lax.stop_gradient(ada_wt)
-            loss = jnp.mean(loss)
-
-            # calculate velocity loss for monitoring
-            velocity_loss = jnp.where(
-                jnp.equal(t, r)[..., None, None, None],
-                jnp.square(u - v),
-                jnp.zeros_like(u),
-            )
-            velocity_loss = jnp.sum(velocity_loss, axis=(-1, -2, -3)).mean()
+            assert isinstance(loss, jax.Array)
+            assert isinstance(velocity_loss, jax.Array)
 
             return loss, velocity_loss
 
         grad_fn = jax.value_and_grad(_loss_fn, argnums=0, has_aux=True)
-        (loss, velocity_loss), grads = grad_fn(state.params, batch, local_rng)
+        (loss, velocity_loss), grads = grad_fn(state.params)
         grads = jax.lax.pmean(grads, axis_name="batch")
         loss = jax.lax.pmean(loss, axis_name="batch")
         velocity_loss = jax.lax.pmean(velocity_loss, axis_name="batch")
