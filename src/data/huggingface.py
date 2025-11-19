@@ -359,6 +359,91 @@ class HuggingFaceImageDataModule(HuggingFaceDataModule):
 
 # ==============================================================================
 # Common datasets
+class ImageNet1KDataModule(HuggingFaceImageDataModule):
+    r"""ILSVRC2012 image dataset subset with :math:`1,000` classes.
+
+    The ILSVRC 2012, commonly known as 'ImageNet', is a large-scale image
+    classification dataset organized according to the `WordNet` hierarchy. Each
+    meaningful concept in WordNet, possibly described by multiple words or word phrases, is called a "synonym set" or "synset". This dataset is most commonly used **subset** of the larger ImageNet dataset, spanning over
+    :math:`1,000` object categories and containing over :math:`1,281,167`
+    training, :math:`50,000` validation, and :math:`100,000` testing images.
+
+    Args:
+        batch_size (int): The batch size for data loading.
+        deterministic (bool, optional): Whether the dataloaders are
+            deterministic. Defaults to `True`.
+        drop_remainder (bool, optional): Whether to drop the last incomplete
+            batch. Defaults to `True`.
+        num_workers (int, optional): Number of shards for distributed loading.
+            Defaults to `4`.
+        resize (int, optional): The size to resize the shortest edge of the
+            image to before cropping. Defaults to `224`.
+        resample (int, optional): Resampling filter to use when resizing
+            images. Defaults to `3` (PIL.Image.BICUBIC).
+        seed (int, optional): Random seed for shuffling. Defaults to `42`.
+        shuffle_buffer_size (int, optional): Buffer size for random shuffling.
+            Defaults to `10_000`.
+        streaming (bool, optional): Whether to stream the dataset using the
+            `datasets` library. Defaults to `False`.
+    """
+
+    def __init__(
+        self,
+        batch_size: int,
+        deterministic: bool = True,
+        drop_remainder: bool = True,
+        num_workers: int = 4,
+        resize: int = 224,
+        resample: int = 3,
+        seed: int = 42,
+        shuffle_buffer_size: int = 10_000,
+        streaming: bool = False,
+        transform: typing.Optional[typing.Callable] = None,
+        target_transform: typing.Optional[typing.Callable] = None,
+    ) -> None:
+        self._hf_dataset = datasets.load_dataset(
+            path="ILSVRC/imagenet-1k",
+            token=os.getenv("HF_TOKEN", None),
+            revision="49e2ee26f3810fb5a7536bbf732a7b07389a47b5",
+            streaming=streaming,
+        )
+        super().__init__(
+            batch_size=batch_size,
+            deterministic=deterministic,
+            drop_remainder=drop_remainder,
+            num_workers=num_workers,
+            resize=resize,
+            resample=resample,
+            seed=seed,
+            shuffle_buffer_size=shuffle_buffer_size,
+            transform=transform,
+            target_transform=target_transform,
+        )
+
+    @property
+    def hf_dataset(self) -> datasets.DatasetDict:
+        r"""datasets.DatasetDict: The HuggingFace dataset object."""
+        return self._hf_dataset  # type: ignore
+
+    @property
+    def feature_key(self) -> str:
+        r"""str: The key in the dataset features to use as input."""
+        return "image"
+
+    @property
+    def target_key(self) -> str:
+        r"""str: The key in the dataset features to use as target."""
+        return "label"
+
+    @property
+    def output_signature(self) -> typing.Tuple[tf.TensorSpec, tf.TensorSpec]:
+        r"""Tuple[tf.TensorSpec, tf.TensorSpec]: Tensor specifications."""
+        return (
+            tf.TensorSpec(shape=(224, 224, 3), dtype=tf.uint8),  # type: ignore
+            tf.TensorSpec(shape=(), dtype=tf.int64),  # type: ignore
+        )
+
+
 class MNISTDataModule(HuggingFaceImageDataModule):
     r"""MNIST Handwritten Digit Dataset.
 
@@ -460,5 +545,6 @@ class MNISTDataModule(HuggingFaceImageDataModule):
 __all__ = [
     "HuggingFaceDataModule",
     "HuggingFaceImageDataModule",
+    "ImageNet1KDataModule",
     "MNISTDataModule",
 ]
