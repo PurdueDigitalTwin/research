@@ -16,22 +16,8 @@ from src.core import model as _model
 from src.core import train_state as _train_state
 from src.utilities import logging
 
-
-def _create_step_fn(
-    model: _model.Model,
-    rng: typing.Any,
-) -> typing.Tuple[jax.Array, typing.Callable, typing.Callable]:
-    """Creates the step functions for training and evaluation."""
-    # create training step function
-    rng, train_rng = jax.random.split(rng, num=2)
-    p_training_step = functools.partial(model.training_step, rngs=train_rng)
-    p_training_step = jax.pmap(p_training_step, axis_name="batch")
-
-    rng, eval_rng = jax.random.split(rng, num=2)
-    p_evaluation_step = functools.partial(model.evaluation_step, rngs=eval_rng)
-    p_evaluation_step = jax.pmap(p_evaluation_step, axis_name="batch")
-
-    return rng, p_training_step, p_evaluation_step
+EVAL_STEP_OUTPUT = _model.StepOutputs
+TRAIN_STEP_OUTPUT = typing.Tuple[_train_state.TrainState, _model.StepOutputs]
 
 
 def _shard(tree: jaxtyping.PyTree) -> jaxtyping.PyTree:
@@ -55,9 +41,10 @@ def _shard(tree: jaxtyping.PyTree) -> jaxtyping.PyTree:
 
 
 def run(
-    model: _model.Model,
     state: _train_state.TrainState,
     datamodule: _data.DataModule,
+    training_step: typing.Callable[..., TRAIN_STEP_OUTPUT],
+    evaluation_step: typing.Callable[..., EVAL_STEP_OUTPUT],
     num_train_steps: int,
     writer: metric_writers.MetricWriter,
     work_dir: str,
@@ -70,9 +57,9 @@ def run(
     """Runs training and evaluation loop with given model and dataloaders.
 
     Args:
-        model (Model): The model to run.
-        train_dataloader (Any): The training dataloaders.
-        eval_dataloader (Any): The evaluation dataloaders.
+        datamodule (DataModule): The data module for loading data.
+        training_step (Callable): The training step function.
+        evaluation_step (Callable): The evaluation step function.
         num_train_steps (int): Number of training steps.
         checkpoint_manager (Checkpoint): The checkpoint manager.
         writer (MetricWriter): The metric writer for logging.
@@ -88,14 +75,21 @@ def run(
         Integer status code.
     """
     _status = 0
-    logging.rank_zero_debug(f"running {model.__class__.__name__} fit stage...")
 
     if checkpoint_every_n_steps is None:
         checkpoint_every_n_steps = eval_every_n_steps
-    rng, p_training_step, p_evaluation_step = _create_step_fn(
-        model=model,
-        rng=rng,
-    )
+
+    logging.rank_zero_info("Compiling training step function...")
+    rng, train_rng = jax.random.split(rng, num=2)
+    p_training_step = functools.partial(training_step, rngs=train_rng)
+    p_training_step = jax.pmap(p_training_step, axis_name="batch")
+    logging.rank_zero_info("Compiling training step function... DONE!")
+
+    logging.rank_zero_info("Compiling evaluation step function...")
+    rng, eval_rng = jax.random.split(rng, num=2)
+    p_evaluation_step = functools.partial(evaluation_step, rngs=eval_rng)
+    p_evaluation_step = jax.pmap(p_evaluation_step, axis_name="batch")
+    logging.rank_zero_info("Compiling evaluation step function... DONE!")
 
     hooks = []
     report_progress = periodic_actions.ReportProgress(
