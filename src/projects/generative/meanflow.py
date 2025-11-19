@@ -689,49 +689,59 @@ class MeanFlowUNetModel(_model.Model):
         del kwargs  # unused
 
         local_rng = jax.random.fold_in(rngs, jax.process_index())
-        tr_rng = jax.random.fold_in(local_rng, 0)
-        mask_rng = jax.random.fold_in(local_rng, 1)
-        e_rng = jax.random.fold_in(local_rng, 2)
+        local_rng = jax.random.fold_in(local_rng, state.step)
 
-        image, label = batch["image"], batch["label"]
-        batch_dims = image.shape[:-3]
+        def _loss_fn(
+            params: PyTree,
+            batch: typing.Any,
+            local_rng: jax.Array,
+        ) -> typing.Tuple[jax.Array, jax.Array]:
+            tr_rng = jax.random.fold_in(local_rng, 0)
+            mask_rng = jax.random.fold_in(local_rng, 1)
+            e_rng = jax.random.fold_in(local_rng, 2)
 
-        # step 1: randomly sample begin and end timestamps
-        t, r = sample_t_r(
-            key=tr_rng,
-            shape=batch_dims,
-            dtype=image.dtype,
-            distribution=self.timestamp_sampler,
-            **self.timestamp_sampler_kwargs,
-        )
-        t, r = jnp.maximum(t, r), jnp.minimum(t, r)
-        # ensure a portion of overlap between t and r
-        r_neq_t_mask = jnp.greater_equal(
-            jax.random.uniform(
-                key=mask_rng,
+            image, label = batch["image"], batch["label"]
+            batch_dims = image.shape[:-3]
+
+            # step 1: randomly sample begin and end timestamps
+            t, r = sample_t_r(
+                key=tr_rng,
                 shape=batch_dims,
                 dtype=image.dtype,
-                minval=0.0,
-                maxval=1.0,
-            ),
-            self.timestamp_overlap_rate,
-        )
-        r = jnp.where(r_neq_t_mask, t, r)
+                distribution=self.timestamp_sampler,
+                **self.timestamp_sampler_kwargs,
+            )
+            t, r = jnp.maximum(t, r), jnp.minimum(t, r)
+            # ensure a portion of overlap between t and r
+            r_neq_t_mask = jnp.greater_equal(
+                jax.random.uniform(
+                    key=mask_rng,
+                    shape=batch_dims,
+                    dtype=image.dtype,
+                    minval=0.0,
+                    maxval=1.0,
+                ),
+                self.timestamp_overlap_rate,
+            )
+            r = jnp.where(r_neq_t_mask, t, r)
 
-        # sample noise e ~ N(0, I)
-        e = jax.random.normal(key=e_rng, shape=image.shape, dtype=image.dtype)
+            # sample noise e ~ N(0, I)
+            e = jax.random.normal(
+                key=e_rng,
+                shape=image.shape,
+                dtype=image.dtype,
+            )
 
-        # generate intermediate z(t)
-        z = jnp.add(
-            (1 - t[..., None, None, None]) * image,
-            t[..., None, None, None] * e,
-        )
+            # generate intermediate z(t)
+            z = jnp.add(
+                (1 - t[..., None, None, None]) * image,
+                t[..., None, None, None] * e,
+            )
 
-        # calculate velocity v
-        v = e - image
+            # calculate velocity v
+            v = e - image
 
-        # step 2: compute the loss
-        def _loss_fn(params: PyTree) -> typing.Tuple[jax.Array, jax.Array]:
+            # # compute the Jaxobian-vector product
             drdt = jnp.zeros_like(r)
             dtdt = jnp.ones_like(t)
             u, dudt = jax.jvp(
@@ -767,7 +777,8 @@ class MeanFlowUNetModel(_model.Model):
             return loss, velocity_loss
 
         grad_fn = jax.value_and_grad(_loss_fn, argnums=0, has_aux=True)
-        (loss, velocity_loss), grads = grad_fn(state.params)
+        (loss, velocity_loss), grads = grad_fn(state.params, batch, local_rng)
+        grads = jax.lax.pmean(grads, axis_name="batch")
         loss = jax.lax.pmean(loss, axis_name="batch")
         velocity_loss = jax.lax.pmean(velocity_loss, axis_name="batch")
         new_state = state.apply_gradients(grads=grads)
