@@ -1,4 +1,4 @@
-load("//third_party/ml_infra_v1:defs.bzl", "ml_py_library")
+load("//third_party:defs.bzl", "ml_py_library")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -14,8 +14,8 @@ ml_py_library(
 )
 
 ml_py_library(
-    name = "data",
-    srcs = ["data.py"],
+    name = "datamodule",
+    srcs = ["datamodule.py"],
 )
 
 ml_py_library(
