@@ -316,14 +316,11 @@ class HuggingFaceImageDataModule(HuggingFaceDataModule):
             shard_index: int,
             num_workers: int,
             dataset: tf.data.Dataset,
+            local_seed: typing.Optional[int] = None,
         ) -> tf.data.Dataset:
             r"""Shards the input TensorFlow dataset for parallel loading."""
             local_ds = dataset.shard(num_shards=num_workers, index=shard_index)
-            if shuffle_seed is not None:
-                local_seed = random.fold_in(
-                    random.PRNGKey(shuffle_seed),
-                    jax.process_index(),
-                )[0]
+            if local_seed is not None:
                 local_ds = local_ds.shuffle(
                     buffer_size=self.shuffle_buffer_size,
                     seed=int(local_seed),  # type: ignore
@@ -343,12 +340,22 @@ class HuggingFaceImageDataModule(HuggingFaceDataModule):
 
             return local_ds
 
+        if shuffle_seed is not None:
+            local_seed = random.fold_in(
+                random.PRNGKey(shuffle_seed),
+                jax.process_index(),
+            )[0]
+            local_seed = int(local_seed)  # type: ignore
+        else:
+            local_seed = None
+
         indices = tf.data.Dataset.range(self.num_workers)
         out = indices.interleave(
             map_func=functools.partial(
                 __make_shard_dataset,
                 num_workers=self.num_workers,
                 dataset=ds,
+                local_seed=local_seed,
             ),
             deterministic=self.deterministic,
             num_parallel_calls=tf.data.AUTOTUNE,
