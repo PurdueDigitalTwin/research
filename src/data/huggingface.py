@@ -37,10 +37,11 @@ class HuggingFaceDataModule(datamodule.DataModule):
 
     Args:
         batch_size (int): The batch size for data loading.
-        deterministic (bool): Whether enforce deterministic loading behavior.
+        deterministic (bool): Whether to enforce deterministic loading behavior.
         drop_remainder (bool): Whether to drop the last incomplete batch.
         num_workers (int): Number of shards for distributed loading.
         seed (int): Random seed for shuffling.
+        shuffle_buffer_size (int): Buffer size for shuffling the dataset.
         transform (Optional[Callable], optional): An optional function to
             transform the input features. Defaults to `None`.
         target_transform (Optional[Callable], optional): An optional function
@@ -105,8 +106,6 @@ class HuggingFaceDataModule(datamodule.DataModule):
         shuffle_seed: typing.Optional[int] = None,
     ) -> tf.data.Dataset:
         r"""Create an `tf.data.Dataset` from the HuggingFace dataset object.
-
-        `Pillow` images. Override this method for custom dataset processing.
 
         Args:
             split (str): The dataset split to create.
@@ -206,10 +205,6 @@ class HuggingFaceDataModule(datamodule.DataModule):
 class HuggingFaceImageDataModule(HuggingFaceDataModule):
     r"""Data module for HuggingFace image datasets.
 
-    Attributes:
-        path (str): The path to the HuggingFace dataset.
-        revision (str): The revision of the dataset for version control.
-
     Args:
         batch_size (int): The batch size for data loading.
         deterministic (bool): Whether the dataloaders are deterministic.
@@ -220,8 +215,6 @@ class HuggingFaceImageDataModule(HuggingFaceDataModule):
         transform (Optional[Callable], optional): An optional function to
             transform the input images. Defaults to `None`.
         seed (int, optional): Random seed for shuffling. Defaults to `42`.
-        streaming (bool, optional): Whether to stream the dataset using the
-            `datasets` library. Defaults to `False`.
     """
 
     def __init__(
@@ -755,6 +748,8 @@ class MNISTDataModule(HuggingFaceImageDataModule):
 __all__ = [
     "HuggingFaceDataModule",
     "HuggingFaceImageDataModule",
+    "CIFAR10DataModule",
+    "CIFAR100DataModule",
     "ImageNet1KDataModule",
     "MNISTDataModule",
 ]
