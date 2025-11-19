@@ -2,11 +2,12 @@
 build -c opt
 
 ## environment variables
-build --action_env=CURL_CA_BUNDLE
 build --action_env=CUDA_HOME
+build --action_env=LD_LIBRARY_PATH
 build --action_env=GOOGLEAPPLICATIONCREDENTIALS
 build --action_env=HF_HOME
-build --action_env=LD_LIBRARY_PATH
+build --action_env=HF_TOKEN
+build --action_env=CURL_CA_BUNDLE
 build --action_env=SSL_CERT_FILE
 build --action_env=TFDS_DATA_DIR
 
