@@ -1,9 +1,10 @@
 import sys
 
-from learning.data import preprocess
 import numpy as np
 import pytest
 import tensorflow as tf
+
+from src.data import preprocess
 
 
 def test_chain() -> None:
