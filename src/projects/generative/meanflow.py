@@ -2,7 +2,6 @@ import typing
 
 import chex
 from flax import linen as nn
-from flax.core import frozen_dict
 import jax
 from jax import numpy as jnp
 from jax._src import typing as jax_typing
@@ -598,72 +597,7 @@ class MeanFlowUNetModel(_model.Model):
         **kwargs,
     ) -> _model.StepOutputs:
         del kwargs  # unused
-
-        local_rng = jax.random.fold_in(rngs, jax.process_index())
-        e_rng = jax.random.fold_in(local_rng, 0)
-
-        image, label = batch["image"], batch["label"]
-
-        batch_dims = image.shape[:-3]
-        dims = chex.Dimensions(
-            H=self.image_size,
-            W=self.image_size,
-            C=self.in_channels,
-        )
-        chex.assert_shape(image, (*batch_dims, *dims["HWC"]))
-        chex.assert_shape(label, batch_dims)
-
-        r = jnp.zeros(batch_dims, dtype=image.dtype)
-        t = jnp.ones(batch_dims, dtype=image.dtype)
-        sample = jnp.subtract(
-            image,
-            jnp.einsum(
-                "...,...n->...n",
-                (t - r),
-                self._u_fn(
-                    label=label,
-                    params=params,
-                    deterministic=True,
-                )(image, r, t),
-            ),
-        )
-
-        drdt = jnp.zeros_like(r)
-        dtdt = jnp.ones_like(t)
-        e = jax.random.normal(key=e_rng, shape=image.shape, dtype=image.dtype)
-        v = e - image
-        u, dudt = jax.jvp(
-            self._u_fn(
-                label=label,
-                params=params,
-                deterministic=True,
-            ),
-            (e, r, t),
-            (v, drdt, dtdt),
-        )
-        u_target = jax.lax.stop_gradient(
-            v
-            - jnp.clip(t - r, a_min=0.0, a_max=1.0)[..., None, None, None]
-            * dudt,
-        )
-        loss = jnp.sum(jnp.square(u - u_target), axis=(-1, -2, -3))
-
-        if self.adaptive_weight_power > 0.0:
-            ada_wt = jnp.power(loss + 1e-2, self.adaptive_weight_power)
-            loss = loss / jax.lax.stop_gradient(ada_wt)
-        loss = jnp.mean(loss)
-
-        velocity_loss = jnp.where(
-            jnp.equal(t, r)[..., None, None, None],
-            jnp.square(u - v),
-            jnp.zeros_like(u),
-        )
-        velocity_loss = jnp.sum(velocity_loss, axis=(-1, -2, -3)).mean()
-
-        return _model.StepOutputs(
-            scalars={"loss": loss, "velocity_loss": velocity_loss},
-            images={"samples": sample},
-        )
+        raise NotImplementedError("Evaluation not implemented yet.")
 
     @typing_extensions.override
     def predict_step(
@@ -741,17 +675,36 @@ class MeanFlowUNetModel(_model.Model):
             # calculate velocity v
             v = e - image
 
-            # # compute the Jaxobian-vector product
-            drdt = jnp.zeros_like(r)
-            dtdt = jnp.ones_like(t)
-            u, dudt = jax.jvp(
-                self._u_fn(
+            def u_fn(
+                p: PyTree,
+                z_t: jax.Array,
+                r_val: jax.Array,
+                t_val: jax.Array,
+            ) -> typing.Any:
+                if self.timestamp_cond == "t_and_r":
+                    b_arg, e_arg = r_val, t_val
+                elif self.timestamp_cond == "t_and_t_minus_r":
+                    b_arg, e_arg = t_val - r_val, t_val
+                elif self.timestamp_cond == "t_minus_r":
+                    b_arg, e_arg = t_val - r_val, None
+                else:
+                    # Fallback
+                    b_arg, e_arg = t_val - r_val, t_val
+
+                return self.network.apply(
+                    variables={"params": p},
+                    image=z_t,
                     label=label,
-                    params=params,
+                    begin=b_arg,
+                    end=e_arg,
                     deterministic=False,
-                ),
-                (z, r, t),
-                (v, drdt, dtdt),
+                )
+
+            params_tangent = jax.tree_util.tree_map(jnp.zeros_like, params)
+            u, dudt = jax.jvp(
+                u_fn,
+                (params, z, r, t),
+                (params_tangent, v, jnp.zeros_like(r), jnp.ones_like(t)),
             )
             u_target = jax.lax.stop_gradient(
                 v
@@ -789,50 +742,3 @@ class MeanFlowUNetModel(_model.Model):
                 scalars={"loss": loss, "velocity_loss": velocity_loss},
             ),
         )
-
-    def _u_fn(
-        self,
-        *,
-        label: jax.Array,
-        params: frozen_dict.FrozenDict,
-        deterministic: bool = True,
-    ) -> typing.Callable[[jax.Array, jax.Array, jax.Array], typing.Any]:
-        r"""Returns the average velocity function `u(z_t, r, t)`."""
-        if self.timestamp_cond == "t_and_r":
-            return lambda z_t, r, t: self.network.apply(
-                variables={"params": params},
-                image=z_t,
-                label=label,
-                begin=r,
-                end=t,
-                deterministic=deterministic,
-            )
-        elif self.timestamp_cond == "t_and_t_minus_r":
-            return lambda z_t, r, t: self.network.apply(
-                variables={"params": params},
-                image=z_t,
-                label=label,
-                begin=t - r,
-                end=t,
-                deterministic=deterministic,
-            )
-        elif self.timestamp_cond == "t_and_r_and_t_minus_r":
-            # TODO: implement this
-            raise NotImplementedError(
-                "Conditioning on (t, r, t - r) is not implemented yet."
-            )
-        elif self.timestamp_cond == "t_minus_r":
-            return lambda z_t, r, t: self.network.apply(
-                variables={"params": params},
-                image=z_t,
-                label=label,
-                begin=t - r,
-                end=None,
-                deterministic=deterministic,
-            )
-        else:
-            raise ValueError(
-                f"Unsupported timestamp condition: {self.timestamp_cond}. "
-                'Must be one of ["t_and_r", "t_and_t_minus_r", '
-                '"t_and_r_and_t_minus_r", "t_minus_r"].'
-            )

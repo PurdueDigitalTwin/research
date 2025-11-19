@@ -53,6 +53,7 @@ def meanflow_unet_cifar_10() -> _config.ExperimentConfig:
         trainer=_config.TrainerConfig(
             num_train_steps=800_000,
             log_every_n_steps=5,
+            eval_every_n_steps=1_000_000,  # NOTE: never evaluate now
             max_checkpoints_to_keep=3,
             profile=False,
         ),
