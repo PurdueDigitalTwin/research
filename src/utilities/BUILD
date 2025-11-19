@@ -1,6 +1,6 @@
-load("//learning:defs.bzl", "ml_py_library")
+load("//third_party:defs.bzl", "ml_py_library")
 
-package(default_visibility = ["//learning:__subpackages__"])
+package(default_visibility = ["//src:__subpackages__"])
 
 ml_py_library(
     name = "logging",
@@ -8,7 +8,6 @@ ml_py_library(
     deps = [
         "absl-py",
         "jax",
-        "jaxlib",
     ],
 )
 
@@ -17,6 +16,5 @@ ml_py_library(
     srcs = ["rank_zero.py"],
     deps = [
         "jax",
-        "jaxlib",
     ],
 )
