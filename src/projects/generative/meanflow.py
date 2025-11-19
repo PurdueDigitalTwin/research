@@ -4,31 +4,17 @@ import chex
 from flax import linen as nn
 from flax.core import frozen_dict
 import jax
-import jax.core as jax_core
-import jax.numpy as jnp
+from jax import numpy as jnp
+from jax._src import typing as jax_typing
 import jaxtyping
 import typing_extensions
 
-from learning.core import mixin as _mixin
-from learning.generative.model import refinenet
+from src.core import model as _model
+from src.core import train_state as _train_state
+from src.projects.generative.model import refinenet
 
 # Type Aliases
 PyTree = jaxtyping.PyTree
-
-
-# ==============================================================================
-# Data Structures
-# ==============================================================================
-@chex.dataclass
-class MeanFlowOutputs:
-    """Generic output structure from a `MeanFlow` model."""
-
-    loss: typing.Optional[jax.Array] = None
-    """jax.Array: The training loss."""
-    velocity_loss: typing.Optional[jax.Array] = None
-    """jax.Array: The velocity loss for monitoring."""
-    output: typing.Optional[jax.Array] = None
-    """jax.Array: The model output."""
 
 
 # ==============================================================================
@@ -36,17 +22,17 @@ class MeanFlowOutputs:
 # ==============================================================================
 def sample_t_r(
     *,
-    key: jax.random.KeyArray,
-    shape: jax_core.Shape,
+    key: jax.Array,
+    shape: jax_typing.Shape,
     dtype: typing.Any,
-    distribution: typing.Literal["uniform", "lognormal"],
+    distribution: str,
     **kwargs,
 ) -> typing.Tuple[jax.Array, jax.Array]:
     """Samples begin and end timestamps randomly from a given distribution.
 
     Attributes:
-        key (jax.random.KeyArray): JAX random key.
-        shape (jax_core.Shape): The shape of the output arrays.
+        key (jax.Array): JAX random key.
+        shape (jax.typing.Shape): The shape of the output arrays.
         dtype (dtype): The dtype of the output arrays.
         distribution (str): The distribution to sample from.
             One of `["uniform", "lognormal"]`.
@@ -78,8 +64,8 @@ def sample_t_r(
     elif distribution == "lognormal":
 
         def _lognormal(
-            key: jax.random.KeyArray,
-            shape: jax_core.Shape,
+            key: jax.Array,
+            shape: jax_typing.Shape,
             dtype: typing.Any,
             mean: float,
             stddev: float,
@@ -277,7 +263,7 @@ class ConditionEmbed(nn.Module):
     def _drop_token(
         cond: jax.Array,
         dropout_rate: float,
-        rng: jax.random.KeyArray,
+        rng: jax.Array,
     ) -> jax.Array:
         """Drops class tokens for classifier-free guidance."""
         raise NotImplementedError("This method is not yet implemented.")
@@ -398,13 +384,15 @@ class MeanFlowUNetModule(nn.Module):
     """Optional[bool]: Whether to run deterministically."""
     dropout_rate: float = 0.0
     """float: Dropout rate for the classifier-free guidance."""
-    dtype: typing.Any = jnp.float32
+    dtype: typing.Any = None
     """typing.Any: The dtype of the computation."""
-    param_dtype: typing.Any = jnp.float32
+    param_dtype: typing.Any = None
     """typing.Any: The dtype of the parameters."""
+    precision: typing.Any = None
+    """typing.Any: The precision of the computation."""
 
     def setup(self) -> None:
-        """Instantiate a `MeanFlowUNetModel` module."""
+        r"""Instantiate a `MeanFlowUNetModel` module."""
         self.backbone = refinenet.ConditionalRefineNet(
             in_channels=self.in_channels,
             image_size=self.image_size,
@@ -478,19 +466,43 @@ class MeanFlowUNetModule(nn.Module):
         )
 
         y_emb = self.label_embed(label, deterministic=m_deterministic)
-        r_emb = self.r_embed(begin)
-        t_emb = self.t_embed(end)
+        if begin is not None:
+            r_emb = self.r_embed(begin)
+        else:
+            r_emb = jnp.zeros_like(y_emb)
+        if end is not None:
+            t_emb = self.t_embed(end)
+        else:
+            t_emb = jnp.zeros_like(y_emb)
         cond = t_emb + r_emb + y_emb
         output = self.backbone(inputs=image, cond=cond)
 
         return output
 
 
-class MeanFlowUNetModel(_mixin.ModelMixin):
-    """`MeanFlow` generative model with a U-Net backbone."""
+class MeanFlowUNetModel(_model.Model):
+    r"""`MeanFlow` generative model with a U-Net backbone.
 
-    module_class = MeanFlowUNetModule
-    """Type[nn.Module]: The class of the model module."""
+    Args:
+        in_channels (int): Number of channels in the input images.
+        image_size (int): Height and width of the (square) input images.
+        latent_channels (int): Number of channels in the latent feature maps.
+        num_classes (int): Number of conditioning classes.
+        use_cfg_embedding (bool): Whether to use classifier-free guidance (CFG).
+        dropout_rate (float): Dropout rate for the classifier-free guidance.
+        dtype (dtype): The dtype of the computation (default: float32).
+        param_dtype (dtype): The dtype of the parameters (default: float32).
+        timestamp_cond (Literal): The type of timestamp conditioning.
+            One of `["t_and_r", "t_and_t_minus_r",
+            "t_and_r_and_t_minus_r", "t_minus_r"]`.
+        timestamp_sampler (str): The distribution to sample timestamps from.
+            One of `["uniform", "lognormal"]`.
+        timestamp_sampler_kwargs (Dict[str, Any]): Additional keyword arguments
+            for the timestamp sampler.
+        timestamp_overlap_rate (float): The minimum overlap rate between
+            begin and end timestamps.
+        adaptive_weight_power (float): The power for adaptive weight scaling.
+    """
 
     def __init__(
         self,
@@ -500,8 +512,9 @@ class MeanFlowUNetModel(_mixin.ModelMixin):
         num_classes: int,
         use_cfg_embedding: bool,
         dropout_rate: float,
-        dtype: typing.Any = jnp.float32,
-        param_dtype: typing.Any = jnp.float32,
+        dtype: typing.Any = None,
+        param_dtype: typing.Any = None,
+        precision: typing.Any = None,
         timestamp_cond: typing.Literal[
             "t_and_r",
             "t_and_t_minus_r",
@@ -524,7 +537,7 @@ class MeanFlowUNetModel(_mixin.ModelMixin):
         self.timestamp_sampler_kwargs = timestamp_sampler_kwargs
         self.timestamp_overlap_rate = timestamp_overlap_rate
         self.adaptive_weight_power = adaptive_weight_power
-        self._module = MeanFlowUNetModule(
+        self._network = MeanFlowUNetModule(
             in_channels=in_channels,
             image_size=image_size,
             latent_channels=latent_channels,
@@ -534,40 +547,156 @@ class MeanFlowUNetModel(_mixin.ModelMixin):
             name="unet",
             dtype=dtype,
             param_dtype=param_dtype,
+            precision=precision,
+        )
+
+    @property
+    @typing_extensions.override
+    def network(self) -> MeanFlowUNetModule:
+        r"""MeanFlowUNetModule: The U-Net neural network module."""
+        return self._network
+
+    def init(
+        self,
+        *,
+        batch: typing.Any,
+        rngs: typing.Any,
+        **kwargs,
+    ) -> PyTree:
+        del batch  # unused
+
+        # create dummy inputs
+        dummy_inputs = {
+            "image": jnp.zeros(
+                (1, self.image_size, self.image_size, self.in_channels),
+                dtype=jnp.float32,
+            ),
+            "label": jnp.zeros((1,), dtype=jnp.int32),
+            "begin": jnp.zeros((1,), dtype=jnp.float32),
+            "end": jnp.zeros((1,), dtype=jnp.float32),
+        }
+        variables = self.network.init(
+            rngs=rngs,
+            image=dummy_inputs["image"],
+            label=dummy_inputs["label"],
+            begin=dummy_inputs["begin"],
+            end=dummy_inputs["end"],
+            deterministic=True,
+        )
+        _tabulate_fn = nn.summary.tabulate(self.network, rngs=rngs)
+        print(_tabulate_fn(**dummy_inputs, deterministic=True))
+
+        return variables["params"]
+
+    @typing_extensions.override
+    def evaluation_step(
+        self,
+        *,
+        params: PyTree,
+        batch: typing.Any,
+        rngs: typing.Any,
+        **kwargs,
+    ) -> _model.StepOutputs:
+        del kwargs  # unused
+
+        local_rng = jax.random.fold_in(rngs, jax.process_index())
+        e_rng = jax.random.fold_in(local_rng, 0)
+
+        image, label = batch["image"], batch["label"]
+
+        batch_dims = image.shape[:-3]
+        dims = chex.Dimensions(
+            H=self.image_size,
+            W=self.image_size,
+            C=self.in_channels,
+        )
+        chex.assert_shape(image, (*batch_dims, *dims["HWC"]))
+        chex.assert_shape(label, batch_dims)
+
+        r = jnp.zeros(batch_dims, dtype=image.dtype)
+        t = jnp.ones(batch_dims, dtype=image.dtype)
+        sample = jnp.subtract(
+            image,
+            jnp.einsum(
+                "...,...n->...n",
+                (t - r),
+                self._u_fn(
+                    label=label,
+                    params=params,
+                    deterministic=True,
+                )(image, r, t),
+            ),
+        )
+
+        drdt = jnp.zeros_like(r)
+        dtdt = jnp.ones_like(t)
+        e = jax.random.normal(key=e_rng, shape=image.shape, dtype=image.dtype)
+        v = e - image
+        u, dudt = jax.jvp(
+            self._u_fn(
+                label=label,
+                params=params,
+                deterministic=True,
+            ),
+            (e, r, t),
+            (v, drdt, dtdt),
+        )
+        u_target = jax.lax.stop_gradient(
+            v
+            - jnp.clip(t - r, a_min=0.0, a_max=1.0)[..., None, None, None]
+            * dudt,
+        )
+        loss = jnp.sum(jnp.square(u - u_target), axis=(-1, -2, -3))
+
+        if self.adaptive_weight_power > 0.0:
+            ada_wt = jnp.power(loss + 1e-2, self.adaptive_weight_power)
+            loss = loss / jax.lax.stop_gradient(ada_wt)
+        loss = jnp.mean(loss)
+
+        velocity_loss = jnp.where(
+            jnp.equal(t, r)[..., None, None, None],
+            jnp.square(u - v),
+            jnp.zeros_like(u),
+        )
+        velocity_loss = jnp.sum(velocity_loss, axis=(-1, -2, -3)).mean()
+
+        return _model.StepOutputs(
+            scalars={"loss": loss, "velocity_loss": velocity_loss},
+            images={"samples": sample},
         )
 
     @typing_extensions.override
-    def compute_loss(
+    def predict_step(
         self,
         *,
-        rngs: typing.Union[
-            jax.random.KeyArray,
-            typing.Dict[str, jax.random.KeyArray],
-        ],
-        image: jax.Array,
-        label: jax.Array,
-        params: frozen_dict.FrozenDict,
-        deterministic: bool = False,
+        params: jaxtyping.PyTree,
+        batch: typing.Any,
+        rngs: typing.Any,
         **kwargs,
-    ) -> MeanFlowOutputs:
-        """Computes the loss given parameters and model inputs.
+    ) -> typing.Any:
+        # TODO (juanwulu): implement predict step
+        raise NotImplementedError("Predict step is not implemented yet.")
 
-        Args:
-            rngs (Union[jax.random.KeyArray, Dict[str, jax.random.KeyArray]]):
-                JAX random key or a dictionary of JAX random keys.
-            image (jax.Array): The input images of shape `(*, H, W, C)`.
-            label (jax.Array): The class labels of shape `(*,)`.
-            params (frozen_dict.FrozenDict): The model parameters.
-            deterministic (bool): Whether to run the model deterministically.
-            **kwargs: additional keyword arguments.
+    @typing_extensions.override
+    def training_step(
+        self,
+        *,
+        state: _train_state.TrainState,
+        batch: typing.Any,
+        rngs: typing.Any,
+        **kwargs,
+    ) -> typing.Tuple[_train_state.TrainState, _model.StepOutputs]:
+        del kwargs  # unused
 
-        Returns:
-            MeanFlowOutputs: The model outputs.
-        """
-        # NOTE: following the notation in Algorithm 1 of the source paper
-        # sample t and r
+        local_rng = jax.random.fold_in(rngs, jax.process_index())
+        tr_rng = jax.random.fold_in(local_rng, 0)
+        mask_rng = jax.random.fold_in(local_rng, 1)
+        e_rng = jax.random.fold_in(local_rng, 2)
+
+        image, label = batch["image"], batch["label"]
         batch_dims = image.shape[:-3]
-        rngs, tr_rng, mask_rng, e_rng = jax.random.split(rngs, num=4)
+
+        # step 1: randomly sample begin and end timestamps
         t, r = sample_t_r(
             key=tr_rng,
             shape=batch_dims,
@@ -589,150 +718,77 @@ class MeanFlowUNetModel(_mixin.ModelMixin):
         )
         r = jnp.where(r_neq_t_mask, t, r)
 
-        # sample e ~ N(0, I)
+        # sample noise e ~ N(0, I)
         e = jax.random.normal(key=e_rng, shape=image.shape, dtype=image.dtype)
 
-        # generate z_{t}
+        # generate intermediate z(t)
         z = jnp.add(
             (1 - t[..., None, None, None]) * image,
             t[..., None, None, None] * e,
         )
+
+        # calculate velocity v
         v = e - image
 
-        # applies Jacobian vector product
-        drdt = jnp.zeros_like(r)
-        dtdt = jnp.ones_like(t)
-
-        u, dudt = jax.jvp(
-            self.u_fn(
-                label=label,
-                params=params,
-                deterministic=deterministic,
-            ),
-            (z, r, t),
-            (v, drdt, dtdt),
-        )
-
-        # computes the target
-        u_target = jax.lax.stop_gradient(
-            v
-            - jnp.clip(t - r, a_min=0.0, a_max=1.0)[..., None, None, None]
-            * dudt
-        )
-        # NOTE: sum over all the pixels, following official implementation
-        loss = jnp.sum(jnp.square(u - u_target), axis=(-1, -2, -3))
-
-        # applies adaptive weight power
-        if self.adaptive_weight_power > 0.0:
-            ada_wt = jnp.power(loss + 1e-2, self.adaptive_weight_power)
-            loss = loss / jax.lax.stop_gradient(ada_wt)
-        loss = jnp.mean(loss)
-
-        # calculate velocity loss for monitoring
-        velocity_loss = jnp.where(
-            jnp.equal(t, r)[..., None, None, None],
-            jnp.square(u - v),
-            jnp.zeros_like(u),
-        )
-        velocity_loss = jnp.sum(velocity_loss, axis=(-1, -2, -3)).mean()
-
-        return MeanFlowOutputs(
-            loss=loss,
-            velocity_loss=velocity_loss,
-            output=u,
-        )
-
-    @typing_extensions.override
-    def forward(
-        self,
-        *,
-        rngs: typing.Union[
-            jax.random.KeyArray,
-            typing.Dict[str, jax.random.KeyArray],
-        ],
-        params: frozen_dict.FrozenDict,
-        image: jax.Array,
-        label: jax.Array,
-        begin: typing.Optional[jax.Array] = None,
-        end: typing.Optional[jax.Array] = None,
-        deterministic: bool = False,
-        **kwargs,
-    ) -> MeanFlowOutputs:
-        """Forward sampling with average velocity prediction.
-
-        Args:
-            params (frozen_dict.FrozenDict): The model parameters.
-            image (jax.Array): Input latent image `z_t` of shape `(*, H, W, C)`.
-            label (jax.Array): Conditioning labels of shape `(*,)`.
-            begin (jax.Array): Begin timestamp `r` of shape `(*, )`.
-            end (jax.Array): End timestamp `t` of shape `(*, )`.
-            deterministic (bool): Whether to run the model deterministically.
-            **kwargs: Additional keyword arguments.
-
-        Returns:
-            MeanFlowOutputs: The model outputs.
-        """
-        batch_dims = image.shape[:-3]
-        dims = chex.Dimensions(
-            H=self.image_size,
-            W=self.image_size,
-            C=self.in_channels,
-        )
-        chex.assert_shape(image, (*batch_dims, *dims["HWC"]))
-        chex.assert_shape(label, batch_dims)
-
-        if begin is None:
-            begin = jnp.zeros(batch_dims, dtype=image.dtype)
-        if end is None:
-            end = jnp.ones(batch_dims, dtype=image.dtype)
-        chex.assert_shape(begin, batch_dims)
-        assert jnp.all(begin >= 0) and jnp.all(
-            begin <= 1
-        ), "Invalid input `r`."
-        chex.assert_shape(end, batch_dims)
-        assert jnp.all(end >= 0) and jnp.all(end <= 1), "Invalid input `t`."
-        r, t = jnp.minimum(begin, end), jnp.maximum(
-            begin, end
-        )  # ensure r <= t
-
-        sample = jnp.subtract(
-            image,
-            jnp.einsum(
-                "...,...n->...n",
-                (t - r),
-                self.u_fn(
+        # step 2: compute the loss
+        def _loss_fn(params: PyTree) -> typing.Tuple[jax.Array, jax.Array]:
+            drdt = jnp.zeros_like(r)
+            dtdt = jnp.ones_like(t)
+            u, dudt = jax.jvp(
+                self._u_fn(
                     label=label,
                     params=params,
-                    deterministic=deterministic,
-                )(image, r, t),
+                    deterministic=False,
+                ),
+                (z, r, t),
+                (v, drdt, dtdt),
+            )
+            u_target = jax.lax.stop_gradient(
+                v
+                - jnp.clip(t - r, a_min=0.0, a_max=1.0)[..., None, None, None]
+                * dudt
+            )
+
+            # step 3: compute the loss
+            loss = jnp.sum(jnp.square(u - u_target), axis=(-1, -2, -3))
+            if self.adaptive_weight_power > 0.0:
+                ada_wt = jnp.power(loss + 1e-2, self.adaptive_weight_power)
+                loss = loss / jax.lax.stop_gradient(ada_wt)
+            loss = jnp.mean(loss)
+
+            # calculate velocity loss for monitoring
+            velocity_loss = jnp.where(
+                jnp.equal(t, r)[..., None, None, None],
+                jnp.square(u - v),
+                jnp.zeros_like(u),
+            )
+            velocity_loss = jnp.sum(velocity_loss, axis=(-1, -2, -3)).mean()
+
+            return loss, velocity_loss
+
+        grad_fn = jax.value_and_grad(_loss_fn, argnums=0, has_aux=True)
+        (loss, velocity_loss), grads = grad_fn(state.params)
+        loss = jax.lax.pmean(loss, axis_name="batch")
+        velocity_loss = jax.lax.pmean(velocity_loss, axis_name="batch")
+        new_state = state.apply_gradients(grads=grads)
+
+        return (
+            new_state,
+            _model.StepOutputs(
+                scalars={"loss": loss, "velocity_loss": velocity_loss},
             ),
         )
 
-        return MeanFlowOutputs(output=sample)
-
-    @property
-    def dummy_input(self) -> PyTree:
-        """PyTree: A dictionary mapping feature names to example arrays."""
-        return {
-            "image": jnp.zeros(
-                (1, self.image_size, self.image_size, self.in_channels),
-                dtype=jnp.float32,
-            ),
-            "label": jnp.zeros((1,), dtype=jnp.int32),
-            "begin": jnp.zeros((1,), dtype=jnp.float32),
-            "end": jnp.zeros((1,), dtype=jnp.float32),
-        }
-
-    def u_fn(
+    def _u_fn(
         self,
         *,
         label: jax.Array,
         params: frozen_dict.FrozenDict,
         deterministic: bool = True,
-    ) -> typing.Callable[[jax.Array, jax.Array, jax.Array], jax.Array]:
-        """Returns the average velocity function `u(z_t, r, t)`."""
+    ) -> typing.Callable[[jax.Array, jax.Array, jax.Array], typing.Any]:
+        r"""Returns the average velocity function `u(z_t, r, t)`."""
         if self.timestamp_cond == "t_and_r":
-            return lambda z_t, r, t: self._module.apply(
+            return lambda z_t, r, t: self.network.apply(
                 variables={"params": params},
                 image=z_t,
                 label=label,
@@ -741,7 +797,7 @@ class MeanFlowUNetModel(_mixin.ModelMixin):
                 deterministic=deterministic,
             )
         elif self.timestamp_cond == "t_and_t_minus_r":
-            return lambda z_t, r, t: self._module.apply(
+            return lambda z_t, r, t: self.network.apply(
                 variables={"params": params},
                 image=z_t,
                 label=label,
@@ -755,7 +811,7 @@ class MeanFlowUNetModel(_mixin.ModelMixin):
                 "Conditioning on (t, r, t - r) is not implemented yet."
             )
         elif self.timestamp_cond == "t_minus_r":
-            return lambda z_t, r, t: self._module.apply(
+            return lambda z_t, r, t: self.network.apply(
                 variables={"params": params},
                 image=z_t,
                 label=label,
