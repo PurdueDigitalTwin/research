@@ -1,5 +1,4 @@
 load("@rules_python//python:pip.bzl", "compile_pip_requirements")
-load(":defs.bzl", "ml_py_library")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -21,43 +20,40 @@ config_setting(
 
 # compile pip requirements into a lock file
 compile_pip_requirements(
-    name = "requirements_cpu",
+    name = "requirements_3_10_cpu",
     timeout = "moderate",
-    src = "requirements.in",
+    srcs = ["requirements.in"],
     extra_args = [
         "--allow-unsafe",
         "--resolver=backtracking",
     ],
-    requirements_txt = "requirements_lock.txt",
+    requirements_txt = "requirements_3_10_lock.txt",
 )
 
 compile_pip_requirements(
-    name = "requirements_cuda",
+    name = "requirements_3_10_cuda",
     timeout = "moderate",
-    src = "requirements_cuda.in",
+    srcs = [
+        "requirements.in",
+        "requirements_cuda.in",
+    ],
     extra_args = [
         "--allow-unsafe",
         "--resolver=backtracking",
     ],
-    requirements_txt = "requirements_cuda_lock.txt",
+    requirements_txt = "requirements_3_10_cuda_lock.txt",
 )
 
 compile_pip_requirements(
-    name = "requirements_tpu",
+    name = "requirements_3_10_tpu",
     timeout = "moderate",
-    src = "requirements_tpu.in",
+    srcs = [
+        "requirements.in",
+        "requirements_tpu.in",
+    ],
     extra_args = [
         "--allow-unsafe",
         "--resolver=backtracking",
     ],
-    requirements_txt = "requirements_tpu_lock.txt",
-)
-
-# add all configuration
-ml_py_library(
-    name = "all_config",
-    deps = [
-        "//learning/generative:config",
-        # add more config targets here
-    ],
+    requirements_txt = "requirements_3_10_tpu_lock.txt",
 )
