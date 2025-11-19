@@ -5,7 +5,6 @@ import typing
 
 from absl import app
 from absl import flags
-from clu import checkpoint
 from clu import metric_writers
 from clu import platform as clu_platform
 from fiddle import absl_flags
@@ -144,10 +143,6 @@ def main(_: typing.List[str]) -> int:
     )
     logging.rank_zero_info("Building train state... DONE!")
 
-    checkpoint_manager = checkpoint.MultihostCheckpoint(
-        os.path.join(log_dir, "checkpoints"),
-        max_to_keep=max(2, exp_config.trainer.max_checkpoints_to_keep),
-    )
     if exp_config.trainer.checkpoint_dir is not None:
         logging.rank_zero_error("Resuming from checkpoint not implemented.")
         return 1
@@ -158,10 +153,10 @@ def main(_: typing.List[str]) -> int:
             state=state,
             datamodule=datamodule,
             num_train_steps=exp_config.trainer.num_train_steps,
-            checkpoint_manager=checkpoint_manager,
             writer=writer,
             work_dir=log_dir,
             rng=rng,
+            checkpoint_every_n_steps=exp_config.trainer.checkpoint_every_n_steps,
             log_every_n_steps=exp_config.trainer.log_every_n_steps,
             eval_every_n_steps=exp_config.trainer.eval_every_n_steps,
             profile=exp_config.trainer.profile,
