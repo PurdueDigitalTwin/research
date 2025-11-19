@@ -2,6 +2,7 @@ import typing
 
 import chex
 from flax import linen as nn
+from flax.core import frozen_dict
 import jax
 from jax import numpy as jnp
 from jax._src import typing as jax_typing
@@ -9,7 +10,6 @@ import jaxtyping
 import typing_extensions
 
 from src.core import model as _model
-from src.core import train_state as _train_state
 from src.projects.generative.model import refinenet
 
 # Type Aliases
@@ -377,14 +377,6 @@ class MeanFlowUNetModule(nn.Module):
     """int: Number of channels in the latent feature maps."""
     num_classes: int
     """int: Number of conditioning classes."""
-    timestamp_sampler: str
-    """str: The distribution to sample timestamps from."""
-    timestamp_sampler_kwargs: typing.Dict[str, typing.Any]
-    """Dict[str, Any]: Keyword arguments for the timestamp sampler."""
-    timestamp_overlap_rate: float
-    """float: The minimum overlap rate between begin and end timestamps."""
-    adaptive_weight_power: typing.Optional[float] = None
-    """Optional[float]: The power for adaptive weight scaling."""
     use_cfg_embedding: bool = False
     """bool: Whether to use classifier-free guidance (CFG) embedding."""
     deterministic: typing.Optional[bool] = None
@@ -443,7 +435,7 @@ class MeanFlowUNetModule(nn.Module):
         end: typing.Optional[jax.Array] = None,
         deterministic: typing.Optional[bool] = None,
     ) -> jax.Array:
-        """Forward pass the `MeanFlowUNetModel`.
+        r"""Forward pass the `MeanFlowUNetModel`.
 
         Args:
             inputs (jax.Array): Input images of shape `(*, H, W, C)`.
@@ -485,102 +477,6 @@ class MeanFlowUNetModule(nn.Module):
         output = self.backbone(inputs=image, cond=cond)
 
         return output
-
-    def compute_loss(
-        self,
-        image: jax.Array,
-        label: jax.Array,
-    ) -> typing.Tuple[jax.Array, jax.Array]:
-        r"""Compute the `MeanFlow` loss.
-
-        Args:
-            image (jax.Array): Input images of shape `(*, H, W, C)`.
-            label (jax.Array): Conditioning labels of shape `(*,)`.
-
-        Returns:
-            The mean flow loss and velocity loss.
-        """
-        batch_dims = image.shape[:-3]
-
-        # step 1: randomly sample begin and end timestamps
-        t, r = sample_t_r(
-            key=self.make_rng("timestamp"),
-            shape=batch_dims,
-            dtype=image.dtype,
-            distribution=self.timestamp_sampler,
-            **self.timestamp_sampler_kwargs,
-        )
-        t, r = jnp.maximum(t, r), jnp.minimum(t, r)
-        # ensure a portion of overlap between t and r
-        r_neq_t_mask = jnp.greater_equal(
-            jax.random.uniform(
-                key=self.make_rng("mask"),
-                shape=batch_dims,
-                dtype=image.dtype,
-                minval=0.0,
-                maxval=1.0,
-            ),
-            self.timestamp_overlap_rate,
-        )
-        r = jnp.where(r_neq_t_mask, t, r)
-
-        # sample noise e ~ N(0, I)
-        e = jax.random.normal(
-            key=self.make_rng("noise"),
-            shape=image.shape,
-            dtype=image.dtype,
-        )
-
-        # generate intermediate z(t)
-        z = jnp.add(
-            (1 - t[..., None, None, None]) * image,
-            t[..., None, None, None] * e,
-        )
-
-        # calculate velocity v
-        v = e - image
-
-        def u_fn(
-            z_t: jax.Array,
-            r_val: jax.Array,
-            t_val: jax.Array,
-        ) -> typing.Any:
-            b_arg, e_arg = t_val - r_val, t_val
-
-            return self(
-                image=z_t,
-                label=label,
-                begin=b_arg,
-                end=e_arg,
-                deterministic=False,
-            )
-
-        u, dudt = jax.jvp(
-            u_fn,
-            (z, r, t),
-            (v, jnp.zeros_like(r), jnp.ones_like(t)),
-        )
-        u_target = jax.lax.stop_gradient(
-            v
-            - jnp.clip(t - r, a_min=0.0, a_max=1.0)[..., None, None, None]
-            * dudt
-        )
-
-        # step 3: compute the loss
-        loss = jnp.sum(jnp.square(u - u_target), axis=(-1, -2, -3))
-        if self.adaptive_weight_power is not None:
-            ada_wt = jnp.power(loss + 1e-2, self.adaptive_weight_power)
-            loss = loss / jax.lax.stop_gradient(ada_wt)
-        loss = jnp.mean(loss)
-
-        velocity_loss = jnp.where(
-            jnp.equal(t, r)[..., None, None, None],
-            jnp.square(u - v),
-            jnp.zeros_like(u),
-        )
-        velocity_loss = jnp.sum(velocity_loss, axis=(-1, -2, -3)).mean()
-
-        return loss, velocity_loss
 
 
 class MeanFlowUNetModel(_model.Model):
@@ -636,15 +532,15 @@ class MeanFlowUNetModel(_model.Model):
         self.in_channels = in_channels
         self.image_size = image_size
         self.timestamp_cond = timestamp_cond
+        self.timestamp_sampler = timestamp_sampler
+        self.timestamp_sampler_kwargs = timestamp_sampler_kwargs
+        self.timestamp_overlap_rate = timestamp_overlap_rate
+        self.adaptive_weight_power = adaptive_weight_power
         self._network = MeanFlowUNetModule(
             in_channels=in_channels,
             image_size=image_size,
             latent_channels=latent_channels,
             num_classes=num_classes,
-            timestamp_sampler=timestamp_sampler,
-            timestamp_sampler_kwargs=timestamp_sampler_kwargs,
-            timestamp_overlap_rate=timestamp_overlap_rate,
-            adaptive_weight_power=adaptive_weight_power,
             use_cfg_embedding=use_cfg_embedding,
             dropout_rate=dropout_rate,
             name="unet",
@@ -692,76 +588,160 @@ class MeanFlowUNetModel(_model.Model):
         return variables["params"]
 
     @typing_extensions.override
-    def evaluation_step(
+    def compute_loss(
         self,
         *,
-        params: PyTree,
-        batch: typing.Any,
         rngs: typing.Any,
+        image: jax.Array,
+        label: jax.Array,
+        params: frozen_dict.FrozenDict,
+        deterministic: bool = False,
+        **kwargs,
+    ) -> typing.Tuple[jax.Array, _model.StepOutputs]:
+        r"""Computes the loss given parameters and model inputs.
+
+        Args:
+            rngs (Union[jax.random.KeyArray, Dict[str, jax.random.KeyArray]]):
+                JAX random key or a dictionary of JAX random keys.
+            image (jax.Array): The input images of shape `(*, H, W, C)`.
+            label (jax.Array): The class labels of shape `(*,)`.
+            params (frozen_dict.FrozenDict): The model parameters.
+            deterministic (bool): Whether to run the model deterministically.
+            **kwargs: additional keyword arguments.
+
+        Returns:
+            The computed loss and other outputs.
+        """
+        del kwargs  # unused
+
+        # NOTE: following the notation in Algorithm 1 of the source paper
+        # sample t and r
+        batch_dims = image.shape[:-3]
+        tr_rng, mask_rng, e_rng = jax.random.split(rngs, num=3)
+        t, r = sample_t_r(
+            key=tr_rng,
+            shape=batch_dims,
+            dtype=image.dtype,
+            distribution=self.timestamp_sampler,
+            **self.timestamp_sampler_kwargs,
+        )
+        t, r = jnp.maximum(t, r), jnp.minimum(t, r)
+        # ensure a portion of overlap between t and r
+        r_neq_t_mask = jnp.greater_equal(
+            jax.random.uniform(
+                key=mask_rng,
+                shape=batch_dims,
+                dtype=image.dtype,
+                minval=0.0,
+                maxval=1.0,
+            ),
+            self.timestamp_overlap_rate,
+        )
+        r = jnp.where(r_neq_t_mask, t, r)
+
+        # sample e ~ N(0, I)
+        e = jax.random.normal(key=e_rng, shape=image.shape, dtype=image.dtype)
+
+        # generate z_{t}
+        z = jnp.add(
+            (1 - t[..., None, None, None]) * image,
+            t[..., None, None, None] * e,
+        )
+        v = e - image
+
+        # applies Jacobian vector product
+        def u_fn(
+            z_t: jax.Array,
+            r_in: jax.Array,
+            t_in: jax.Array,
+        ) -> jax.Array:
+            if self.timestamp_cond == "t_and_r":
+                b_arg, e_arg = r_in, t_in
+            elif self.timestamp_cond == "t_and_t_minus_r":
+                b_arg, e_arg = t_in - r_in, t_in
+            elif self.timestamp_cond == "t_and_r_and_t_minus_r":
+                raise NotImplementedError(
+                    "`t_and_r_and_t_minus_r` conditioning is not implemented."
+                )
+            elif self.timestamp_cond == "t_minus_r":
+                b_arg, e_arg = t_in - r_in, None
+            else:
+                raise ValueError(
+                    f"Unsupported timestamp conditioning: {self.timestamp_cond}."
+                )
+
+            out = self.network.apply(
+                variables={"params": params},
+                image=z_t,
+                label=label,
+                begin=b_arg,
+                end=e_arg,
+                deterministic=deterministic,
+            )
+            assert isinstance(out, jax.Array)
+
+            return out
+
+        drdt = jnp.zeros_like(r)
+        dtdt = jnp.ones_like(t)
+        u, dudt = jax.jvp(u_fn, (z, r, t), (v, drdt, dtdt))
+
+        # computes the target
+        u_target = jax.lax.stop_gradient(
+            v
+            - jnp.clip(t - r, a_min=0.0, a_max=1.0)[..., None, None, None]
+            * dudt
+        )
+        # NOTE: sum over all the pixels, following official implementation
+        loss = jnp.sum(jnp.square(u - u_target), axis=(-1, -2, -3))
+
+        # applies adaptive weight power
+        if self.adaptive_weight_power > 0.0:
+            ada_wt = jnp.power(loss + 1e-2, self.adaptive_weight_power)
+            loss = loss / jax.lax.stop_gradient(ada_wt)
+        loss = jnp.mean(loss)
+
+        # calculate velocity loss for monitoring
+        velocity_loss = jnp.where(
+            jnp.equal(t, r)[..., None, None, None],
+            jnp.square(u - v),
+            jnp.zeros_like(u),
+        )
+        velocity_loss = jnp.sum(velocity_loss, axis=(-1, -2, -3)).mean()
+
+        out = _model.StepOutputs(
+            scalars={"loss": loss, "velocity_loss": velocity_loss},
+        )
+
+        return loss, out
+
+    @typing_extensions.override
+    def forward(
+        self,
+        *,
+        rngs: typing.Any,
+        params: frozen_dict.FrozenDict,
+        image: jax.Array,
+        label: jax.Array,
+        begin: typing.Optional[jax.Array] = None,
+        end: typing.Optional[jax.Array] = None,
+        deterministic: bool = False,
         **kwargs,
     ) -> _model.StepOutputs:
-        del kwargs  # unused
-        raise NotImplementedError("Evaluation not implemented yet.")
+        r"""Forward sampling with average velocity prediction.
 
-    @typing_extensions.override
-    def predict_step(
-        self,
-        *,
-        params: jaxtyping.PyTree,
-        batch: typing.Any,
-        rngs: typing.Any,
-        **kwargs,
-    ) -> typing.Any:
-        # TODO (juanwulu): implement predict step
-        raise NotImplementedError("Predict step is not implemented yet.")
+        Args:
+            params (frozen_dict.FrozenDict): The model parameters.
+            image (jax.Array): Input latent image `z_t` of shape `(*, H, W, C)`.
+            label (jax.Array): Conditioning labels of shape `(*,)`.
+            begin (jax.Array): Begin timestamp `r` of shape `(*, )`.
+            end (jax.Array): End timestamp `t` of shape `(*, )`.
+            deterministic (bool): Whether to run the model deterministically.
+            **kwargs: Additional keyword arguments.
 
-    @typing_extensions.override
-    def training_step(
-        self,
-        *,
-        state: _train_state.TrainState,
-        batch: typing.Any,
-        rngs: typing.Any,
-        **kwargs,
-    ) -> typing.Tuple[_train_state.TrainState, _model.StepOutputs]:
+        Returns:
+            The output samples.
+        """
         del kwargs  # unused
 
-        local_rng = jax.random.fold_in(rngs, jax.process_index())
-        local_rng = jax.random.fold_in(local_rng, state.step)
-
-        tr_rng = jax.random.fold_in(local_rng, 0)
-        mask_rng = jax.random.fold_in(local_rng, 1)
-        e_rng = jax.random.fold_in(local_rng, 2)
-
-        image, label = batch["image"], batch["label"]
-
-        def _loss_fn(params: PyTree) -> typing.Tuple[jax.Array, jax.Array]:
-            loss, velocity_loss = self.network.apply(
-                variables={"params": params},
-                image=image,
-                label=label,
-                rngs={
-                    "timestamp": tr_rng,
-                    "mask": mask_rng,
-                    "noise": e_rng,
-                },
-                method=self.network.compute_loss,
-            )
-            assert isinstance(loss, jax.Array)
-            assert isinstance(velocity_loss, jax.Array)
-
-            return loss, velocity_loss
-
-        grad_fn = jax.value_and_grad(_loss_fn, argnums=0, has_aux=True)
-        (loss, velocity_loss), grads = grad_fn(state.params)
-        grads = jax.lax.pmean(grads, axis_name="batch")
-        loss = jax.lax.pmean(loss, axis_name="batch")
-        velocity_loss = jax.lax.pmean(velocity_loss, axis_name="batch")
-        new_state = state.apply_gradients(grads=grads)
-
-        return (
-            new_state,
-            _model.StepOutputs(
-                scalars={"loss": loss, "velocity_loss": velocity_loss},
-            ),
-        )
+        raise NotImplementedError

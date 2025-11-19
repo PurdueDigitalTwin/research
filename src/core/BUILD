@@ -36,8 +36,8 @@ ml_py_library(
     deps = [
         "chex",
         "flax",
+        "jax",
         "jaxtyping",
-        ":train_state",
     ],
 )
 
