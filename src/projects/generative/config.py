@@ -32,7 +32,7 @@ def meanflow_unet_cifar_10() -> _config.ExperimentConfig:
                 ),
             ),
             batch_size=1024,
-            num_workers=4,
+            num_workers=2,
             deterministic=True,
             drop_remainder=True,
         ),
@@ -50,7 +50,12 @@ def meanflow_unet_cifar_10() -> _config.ExperimentConfig:
             timestamp_overlap_rate=0.25,
             adaptive_weight_power=0.75,
         ),
-        trainer=_config.TrainerConfig(),
+        trainer=_config.TrainerConfig(
+            num_train_steps=800_000,
+            log_every_n_steps=5,
+            max_checkpoints_to_keep=3,
+            profile=False,
+        ),
         optimizer=_config.OptimizerConfig(
             lr_schedule=fdl.Config(optax.constant_schedule, value=6e-4),
             optimizer=fdl.Partial(optax.adam, b1=0.9, b2=0.999),
