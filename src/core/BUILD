@@ -14,8 +14,8 @@ ml_py_library(
 )
 
 ml_py_library(
-    name = "data",
-    srcs = ["data.py"],
+    name = "datamodule",
+    srcs = ["datamodule.py"],
 )
 
 ml_py_library(
