@@ -40,12 +40,13 @@ class HuggingFaceDataModule(datamodule.DataModule):
         deterministic (bool): Whether to enforce deterministic loading behavior.
         drop_remainder (bool): Whether to drop the last incomplete batch.
         num_workers (int): Number of shards for distributed loading.
-        seed (int): Random seed for shuffling.
         shuffle_buffer_size (int): Buffer size for shuffling the dataset.
         transform (Optional[Callable], optional): An optional function to
-            transform the input features. Defaults to `None`.
+            transform the input features. Default is `None`.
         target_transform (Optional[Callable], optional): An optional function
-            to transform the target features. Defaults to `None`.
+            to transform the target features. Default is `None`.
+        rng (jax.Array, optional): Random key for shuffling.
+            Default is `random.PRNGKey(42)`.
     """
 
     def __init__(
@@ -54,21 +55,17 @@ class HuggingFaceDataModule(datamodule.DataModule):
         deterministic: bool,
         drop_remainder: bool,
         num_workers: int,
-        seed: int,
         shuffle_buffer_size: int,
         transform: typing.Optional[typing.Callable] = None,
         target_transform: typing.Optional[typing.Callable] = None,
+        rng: jax.Array = random.PRNGKey(42),
     ) -> None:
         self._batch_size = batch_size
         self._deterministic = deterministic
         self._drop_remainder = drop_remainder
         self._num_workers = num_workers
-        self._seed = seed
         self._shuffle_buffer_size = shuffle_buffer_size
-        self._rng = random.fold_in(
-            random.PRNGKey(self._seed),
-            jax.process_index(),
-        )
+        self._rng = rng
         self._transform = transform
         self._target_transform = target_transform
 
@@ -155,11 +152,6 @@ class HuggingFaceDataModule(datamodule.DataModule):
         return len(self.hf_dataset["test"])  # type: ignore
 
     @property
-    def seed(self) -> int:
-        r"""int: Random seed for shuffling."""
-        return self._seed
-
-    @property
     def shuffle_buffer_size(self) -> int:
         r"""int: Buffer size for shuffling the dataset."""
         return self._shuffle_buffer_size
@@ -178,6 +170,11 @@ class HuggingFaceDataModule(datamodule.DataModule):
     def target_transform(self) -> typing.Optional[typing.Callable]:
         r"""Optional[Callable]: Transformation for the target features."""
         return self._target_transform
+
+    @property
+    def rng(self) -> jax.Array:
+        r"""jax.Array: Random key for shuffling."""
+        return self._rng
 
     def train_dataloader(self) -> typing.Generator[PyTree, None, None]:
         r"""Returns an iterable over the training dataset."""
@@ -214,7 +211,10 @@ class HuggingFaceImageDataModule(HuggingFaceDataModule):
         resample (int): Resampling filter to use for resizing images.
         transform (Optional[Callable], optional): An optional function to
             transform the input images. Defaults to `None`.
-        seed (int, optional): Random seed for shuffling. Defaults to `42`.
+        target_transform (Optional[Callable], optional): An optional function
+            to transform the target features. Defaults to `None`.
+        rng (jax.Array, optional): Random key for shuffling.
+            Default is `random.PRNGKey(42)`.
     """
 
     def __init__(
@@ -226,9 +226,9 @@ class HuggingFaceImageDataModule(HuggingFaceDataModule):
         resize: int,
         resample: int,
         shuffle_buffer_size: int,
-        seed: int,
         transform: typing.Optional[typing.Callable] = None,
         target_transform: typing.Optional[typing.Callable] = None,
+        rng: jax.Array = random.PRNGKey(42),
     ) -> None:
         r"""Instantiates a `HuggingFaceImageDataModule` object."""
         self._resize = resize
@@ -240,10 +240,23 @@ class HuggingFaceImageDataModule(HuggingFaceDataModule):
             drop_remainder=drop_remainder,
             num_workers=num_workers,
             shuffle_buffer_size=shuffle_buffer_size,
-            seed=seed,
             transform=transform,
             target_transform=target_transform,
+            rng=rng,
         )
+
+    @property
+    def image_shape(self) -> typing.Tuple[int, int, int]:
+        r"""Tuple[int, int, int]: The shape of the images."""
+        return (self._resize, self._resize, 3)
+
+    @property
+    def output_signature(self) -> typing.Dict[str, tf.TensorSpec]:
+        r"""Dict[str, tf.TensorSpec]: Tensor specifications."""
+        return {
+            "image": tf.TensorSpec(shape=self.image_shape, dtype=tf.uint8),  # type: ignore
+            "label": tf.TensorSpec(shape=(), dtype=tf.int64),  # type: ignore
+        }
 
     def _create_dataset(
         self,
@@ -298,7 +311,7 @@ class HuggingFaceImageDataModule(HuggingFaceDataModule):
                 bottom = (new_height + self._resize) / 2
                 image = image.crop((left, top, right, bottom))
 
-                yield image, target
+                yield {"image": image, "label": target}
 
         ds = tf.data.Dataset.from_generator(
             __hf_generator,
@@ -384,11 +397,12 @@ class CIFAR10DataModule(HuggingFaceImageDataModule):
             image to before cropping. Defaults to `224`.
         resample (int, optional): Resampling filter to use when resizing
             images. Defaults to `3` (PIL.Image.BICUBIC).
-        seed (int, optional): Random seed for shuffling. Defaults to `42`.
         shuffle_buffer_size (int, optional): Buffer size for random shuffling.
             Defaults to `10_000`.
         streaming (bool, optional): Whether to stream the dataset using the
             `datasets` library. Defaults to `False`.
+        rng (jax.Array, optional): Random key for shuffling.
+            Default is `random.PRNGKey(42)`.
     """
 
     def __init__(
@@ -399,11 +413,11 @@ class CIFAR10DataModule(HuggingFaceImageDataModule):
         num_workers: int = 4,
         resize: int = 224,
         resample: int = 3,
-        seed: int = 42,
         shuffle_buffer_size: int = 10_000,
         streaming: bool = False,
         transform: typing.Optional[typing.Callable] = None,
         target_transform: typing.Optional[typing.Callable] = None,
+        rng: jax.Array = random.PRNGKey(42),
     ) -> None:
         self._hf_dataset = datasets.load_dataset(
             path="uoft-cs/cifar10",
@@ -418,10 +432,10 @@ class CIFAR10DataModule(HuggingFaceImageDataModule):
             num_workers=num_workers,
             resize=resize,
             resample=resample,
-            seed=seed,
             shuffle_buffer_size=shuffle_buffer_size,
             transform=transform,
             target_transform=target_transform,
+            rng=rng,
         )
 
     @property
@@ -438,14 +452,6 @@ class CIFAR10DataModule(HuggingFaceImageDataModule):
     def target_key(self) -> str:
         r"""str: The key in the dataset features to use as target."""
         return "label"
-
-    @property
-    def output_signature(self) -> typing.Tuple[tf.TensorSpec, tf.TensorSpec]:
-        r"""Tuple[tf.TensorSpec, tf.TensorSpec]: Tensor specifications."""
-        return (
-            tf.TensorSpec(shape=(224, 224, 3), dtype=tf.uint8),  # type: ignore
-            tf.TensorSpec(shape=(), dtype=tf.int64),  # type: ignore
-        )
 
     @property
     @typing_extensions.override
@@ -489,6 +495,8 @@ class CIFAR100DataModule(HuggingFaceImageDataModule):
             Defaults to `10_000`.
         streaming (bool, optional): Whether to stream the dataset using the
             `datasets` library. Defaults to `False`.
+        rng (jax.Array, optional): Random key for shuffling.
+            Defaults to `random.PRNGKey(42)`.
     """
 
     def __init__(
@@ -499,11 +507,11 @@ class CIFAR100DataModule(HuggingFaceImageDataModule):
         num_workers: int = 4,
         resize: int = 224,
         resample: int = 3,
-        seed: int = 42,
         shuffle_buffer_size: int = 10_000,
         streaming: bool = False,
         transform: typing.Optional[typing.Callable] = None,
         target_transform: typing.Optional[typing.Callable] = None,
+        rng: jax.Array = random.PRNGKey(42),
     ) -> None:
         self._hf_dataset = datasets.load_dataset(
             path="uoft-cs/cifar100",
@@ -518,10 +526,10 @@ class CIFAR100DataModule(HuggingFaceImageDataModule):
             num_workers=num_workers,
             resize=resize,
             resample=resample,
-            seed=seed,
             shuffle_buffer_size=shuffle_buffer_size,
             transform=transform,
             target_transform=target_transform,
+            rng=rng,
         )
 
     @property
@@ -538,14 +546,6 @@ class CIFAR100DataModule(HuggingFaceImageDataModule):
     def target_key(self) -> str:
         r"""str: The key in the dataset features to use as target."""
         return "fine_label"
-
-    @property
-    def output_signature(self) -> typing.Tuple[tf.TensorSpec, tf.TensorSpec]:
-        r"""Tuple[tf.TensorSpec, tf.TensorSpec]: Tensor specifications."""
-        return (
-            tf.TensorSpec(shape=(224, 224, 3), dtype=tf.uint8),  # type: ignore
-            tf.TensorSpec(shape=(), dtype=tf.int64),  # type: ignore
-        )
 
     @property
     @typing_extensions.override
@@ -583,11 +583,12 @@ class ImageNet1KDataModule(HuggingFaceImageDataModule):
             image to before cropping. Defaults to `224`.
         resample (int, optional): Resampling filter to use when resizing
             images. Defaults to `3` (PIL.Image.BICUBIC).
-        seed (int, optional): Random seed for shuffling. Defaults to `42`.
         shuffle_buffer_size (int, optional): Buffer size for random shuffling.
             Defaults to `10_000`.
         streaming (bool, optional): Whether to stream the dataset using the
             `datasets` library. Defaults to `False`.
+        rng (jax.Array, optional): Random key for shuffling.
+            Default is `random.PRNGKey(42)`.
     """
 
     def __init__(
@@ -598,11 +599,11 @@ class ImageNet1KDataModule(HuggingFaceImageDataModule):
         num_workers: int = 4,
         resize: int = 224,
         resample: int = 3,
-        seed: int = 42,
         shuffle_buffer_size: int = 10_000,
         streaming: bool = False,
         transform: typing.Optional[typing.Callable] = None,
         target_transform: typing.Optional[typing.Callable] = None,
+        rng: jax.Array = random.PRNGKey(42),
     ) -> None:
         self._hf_dataset = datasets.load_dataset(
             path="ILSVRC/imagenet-1k",
@@ -617,10 +618,10 @@ class ImageNet1KDataModule(HuggingFaceImageDataModule):
             num_workers=num_workers,
             resize=resize,
             resample=resample,
-            seed=seed,
             shuffle_buffer_size=shuffle_buffer_size,
             transform=transform,
             target_transform=target_transform,
+            rng=rng,
         )
 
     @property
@@ -637,14 +638,6 @@ class ImageNet1KDataModule(HuggingFaceImageDataModule):
     def target_key(self) -> str:
         r"""str: The key in the dataset features to use as target."""
         return "label"
-
-    @property
-    def output_signature(self) -> typing.Tuple[tf.TensorSpec, tf.TensorSpec]:
-        r"""Tuple[tf.TensorSpec, tf.TensorSpec]: Tensor specifications."""
-        return (
-            tf.TensorSpec(shape=(224, 224, 3), dtype=tf.uint8),  # type: ignore
-            tf.TensorSpec(shape=(), dtype=tf.int64),  # type: ignore
-        )
 
 
 class MNISTDataModule(HuggingFaceImageDataModule):
@@ -667,11 +660,12 @@ class MNISTDataModule(HuggingFaceImageDataModule):
             image to before cropping. Defaults to `224`.
         resample (int, optional): Resampling filter to use when resizing
             images. Defaults to `3` (PIL.Image.BICUBIC).
-        seed (int, optional): Random seed for shuffling. Defaults to `42`.
         shuffle_buffer_size (int, optional): Buffer size for random shuffling.
             Defaults to `10_000`.
         streaming (bool, optional): Whether to stream the dataset using the
             `datasets` library. Defaults to `False`.
+        rng (jax.Array, optional): Random key for shuffling.
+            Default is `random.PRNGKey(42)`.
     """
 
     def __init__(
@@ -682,11 +676,11 @@ class MNISTDataModule(HuggingFaceImageDataModule):
         num_workers: int = 4,
         resize: int = 224,
         resample: int = 3,
-        seed: int = 42,
         shuffle_buffer_size: int = 10_000,
         streaming: bool = False,
         transform: typing.Optional[typing.Callable] = None,
         target_transform: typing.Optional[typing.Callable] = None,
+        rng: jax.Array = random.PRNGKey(42),
     ) -> None:
         self._hf_dataset = datasets.load_dataset(
             path="ylecun/mnist",
@@ -701,10 +695,10 @@ class MNISTDataModule(HuggingFaceImageDataModule):
             num_workers=num_workers,
             resize=resize,
             resample=resample,
-            seed=seed,
             shuffle_buffer_size=shuffle_buffer_size,
             transform=transform,
             target_transform=target_transform,
+            rng=rng,
         )
 
     @property
@@ -723,12 +717,10 @@ class MNISTDataModule(HuggingFaceImageDataModule):
         return "label"
 
     @property
-    def output_signature(self) -> typing.Tuple[tf.TensorSpec, tf.TensorSpec]:
-        r"""Tuple[tf.TensorSpec, tf.TensorSpec]: Tensor specifications."""
-        return (
-            tf.TensorSpec(shape=(224, 224, 3), dtype=tf.uint8),  # type: ignore
-            tf.TensorSpec(shape=(), dtype=tf.int64),  # type: ignore
-        )
+    @typing_extensions.override
+    def image_shape(self) -> typing.Tuple[int, int, int]:
+        r"""Tuple[int, int, int]: The shape of the images."""
+        return (self._resize, self._resize, 1)
 
     @property
     @typing_extensions.override
