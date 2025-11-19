@@ -1,6 +1,6 @@
-load("//learning:defs.bzl", "ml_py_library", "ml_py_test")
+load("//third_party:defs.bzl", "ml_py_binary", "ml_py_library")
 
-package(default_visibility = ["//learning:__subpackages__"])
+package(default_visibility = ["//src/projects/generative:__subpackages__"])
 
 ml_py_library(
     name = "config",
@@ -9,9 +9,28 @@ ml_py_library(
         "fiddle",
         "optax",
         ":meanflow",
-        "//learning/core:config",
-        "//learning/data:cifar",
-        "//learning/data:preprocess",
+        "//src/core:config",
+        "//src/data:huggingface",
+        "//src/data:preprocess",
+    ],
+)
+
+ml_py_binary(
+    name = "main",
+    srcs = ["main.py"],
+    deps = [
+        "absl-py",
+        "clu",
+        "fiddle",
+        "jax",
+        "optax",
+        "tensorflow",
+        ":config",
+        "//src/core:config",
+        "//src/core:evaluate",
+        "//src/core:train",
+        "//src/core:train_state",
+        "//src/utilities:logging",
     ],
 )
 
@@ -22,22 +41,10 @@ ml_py_library(
         "chex",
         "flax",
         "jax",
-        "jaxlib",
         "jaxtyping",
         "typing_extensions",
-        "//learning/core:mixin",
-        "//learning/generative/model:refinenet",
-    ],
-)
-
-ml_py_test(
-    name = "test_meanflow",
-    srcs = ["test_meanflow.py"],
-    deps = [
-        "chex",
-        "flax",
-        "jax",
-        "jaxlib",
-        ":meanflow",
+        "//src/core:model",
+        "//src/core:train_state",
+        "//src/projects/generative/model:refinenet",
     ],
 )

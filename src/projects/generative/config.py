@@ -3,31 +3,40 @@ import functools
 import fiddle as fdl
 import optax
 
-from learning.core import config as _config
-from learning.data import cifar
-from learning.data import preprocess
-from learning.generative import meanflow
+from src.core import config as _config
+from src.data import huggingface
+from src.data import preprocess
+from src.projects.generative import meanflow
 
 
+# ==============================================================================
 # MeanFlow Models
 def meanflow_unet_cifar_10() -> _config.ExperimentConfig:
     return _config.ExperimentConfig(
         name="meanflow_unet_cifar_10",
-        data=fdl.Partial(
-            cifar.CIFAR10DataModule,
-            preprocess_fn=preprocess.chain(
-                functools.partial(
-                    preprocess.filter_keys,
-                    keys=["image", "label"],
-                ),
-                functools.partial(
-                    preprocess.normalize,
-                    mean=(0.5, 0.5, 0.5),
-                    std=(0.5, 0.5, 0.5),
+        mode="train",
+        data=_config.DataConfig(
+            module=fdl.Partial(
+                huggingface.CIFAR10DataModule,
+                resize=32,
+                transform=preprocess.chain(
+                    functools.partial(
+                        preprocess.filter_keys,
+                        keys=["image", "label"],
+                    ),
+                    functools.partial(
+                        preprocess.normalize,
+                        mean=(0.5, 0.5, 0.5),
+                        std=(0.5, 0.5, 0.5),
+                    ),
                 ),
             ),
+            batch_size=1024,
+            num_workers=4,
+            deterministic=True,
+            drop_remainder=True,
         ),
-        model=fdl.Config(
+        model=fdl.Partial(
             meanflow.MeanFlowUNetModel,
             in_channels=3,
             image_size=32,
@@ -41,10 +50,10 @@ def meanflow_unet_cifar_10() -> _config.ExperimentConfig:
             timestamp_overlap_rate=0.25,
             adaptive_weight_power=0.75,
         ),
-        # TODO: implement the warmup in https://arxiv.org/abs/1706.02677
-        batch_size=1024,
-        lr_scheduler=fdl.Config(optax.constant_schedule, value=6e-4),
-        optimizer=fdl.Partial(optax.adam, b1=0.9, b2=0.999),
-        ema_rate=0.99995,
-        num_train_steps=800_000,
+        trainer=_config.TrainerConfig(),
+        optimizer=_config.OptimizerConfig(
+            lr_schedule=fdl.Config(optax.constant_schedule, value=6e-4),
+            optimizer=fdl.Partial(optax.adam, b1=0.9, b2=0.999),
+        ),
+        seed=42,
     )
