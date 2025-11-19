@@ -436,12 +436,9 @@ class HuggingFaceImageDataModule(HuggingFaceDataModule):
                 image = image.crop((left, top, right, bottom))
 
         if target_key is None:
-            return {feature_key: image}
+            return {"image": image}
         else:
-            return {
-                feature_key: image,
-                target_key: target,
-            }
+            return {"image": image, "label": target}
 
     def train_dataloader(self) -> typing.Generator[PyTree, None, None]:
         r"""Generator[PyTree]: Returns an iterable over the training data."""
