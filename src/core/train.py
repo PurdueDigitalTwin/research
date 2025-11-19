@@ -1,15 +1,17 @@
 import collections
 import functools
+import os
+import traceback
 import typing
 
-from clu import checkpoint
 from clu import metric_writers
 from clu import periodic_actions
 from flax import jax_utils
+from flax.training import checkpoints
 import jax
 import jaxtyping
 
-from src.core import datamodule as _datamodule
+from src.core import datamodule as _data
 from src.core import model as _model
 from src.core import train_state as _train_state
 from src.utilities import logging
@@ -55,9 +57,8 @@ def _shard(tree: jaxtyping.PyTree) -> jaxtyping.PyTree:
 def run(
     model: _model.Model,
     state: _train_state.TrainState,
-    datamodule: _datamodule.DataModule,
+    datamodule: _data.DataModule,
     num_train_steps: int,
-    checkpoint_manager: checkpoint.Checkpoint,
     writer: metric_writers.MetricWriter,
     work_dir: str,
     rng: typing.Any,
@@ -110,7 +111,7 @@ def run(
                     num_profile_steps=5,
                 )
             )
-    step, epoch = state.step, 0
+    step = state.step
     state = jax_utils.replicate(state)
     logging.rank_zero_info("Training...")
     with metric_writers.ensure_flushes(writer):
@@ -135,25 +136,23 @@ def run(
                     if outputs.scalars is not None:
                         for k, v in outputs.scalars.items():
                             train_metrics[k].append(jax.device_get(v).mean())
-                    step += 1
                     for hook in hooks:
                         hook(step)
                     if step % log_every_n_steps == 0:
                         if outputs.scalars is not None:
-                            scalar_output = {
-                                f"train/{k.replace('_', ' ')}_step": sum(v)
-                                / len(v)
-                                for k, v in outputs.scalars.items()
-                            }
                             writer.write_scalars(
                                 step=step,
-                                scalars=scalar_output,
+                                scalars={
+                                    f"train/{k}_step": sum(v) / len(v)
+                                    for k, v in outputs.scalars.items()
+                                },
                             )
                         if outputs.images is not None:
                             writer.write_images(
                                 step=step,
                                 images=outputs.images,
                             )
+                    step += 1
 
                     # evaluation
                     if (
@@ -182,7 +181,7 @@ def run(
                         writer.write_scalars(
                             step=step,
                             scalars={
-                                f"eval/{k.replace('_', ' ')}": sum(v) / len(v)
+                                f"eval/{k}": sum(v) / len(v)
                                 for k, v in eval_metrics.items()
                             },
                         )
@@ -195,32 +194,40 @@ def run(
                     # checkpointing
                     if step % checkpoint_every_n_steps == 0:
                         logging.rank_zero_info("Checkpointing...")
-                        # TODO (juanwulu): resolve the error (no __enter__)
-                        with report_progress.timed("checkpoint"):
-                            filepath = checkpoint_manager.save(
-                                state=jax_utils.unreplicate(state)
+                        if jax.process_index() == 0:
+                            with report_progress.timed("checkpoint"):
+                                filepath = checkpoints.save_checkpoint(
+                                    ckpt_dir=os.path.join(
+                                        work_dir,
+                                        "checkpoints",
+                                    ),
+                                    target=jax_utils.unreplicate(state),
+                                    keep=3,
+                                    overwrite=True,
+                                    prefix="ckpt-",
+                                    step=step,
+                                )
+                            logging.rank_zero_info(
+                                "Checkpoint saved to %s",
+                                filepath,
                             )
-                        logging.rank_zero_info(
-                            "Checkpoint saved to %s",
-                            filepath,
-                        )
 
                 # logging on the end of epoch
-                logging.rank_zero_info("Epoch %d done.", epoch + 1)
                 scalar_output = {
-                    f"train/{k.replace('_', ' ')}_epoch": sum(v) / len(v)
+                    f"train/{k}_epoch": sum(v) / len(v)
                     for k, v in train_metrics.items()
                 }
                 writer.write_scalars(
-                    step=epoch + 1,
+                    step=step,
                     scalars=scalar_output,
                 )
-                epoch += 1
 
         except Exception as e:
             logging.rank_zero_error(
                 "Exception occurred during training: %s", e
             )
+            error_trace = traceback.format_exc()
+            logging.rank_zero_error(error_trace)
             _status = 1
         finally:
             state = jax_utils.unreplicate(state)
