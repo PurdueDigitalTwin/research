@@ -682,16 +682,29 @@ class MeanFlowUNetModel(_model.Model):
 
             return out
 
-        drdt = jnp.zeros_like(r)
-        dtdt = jnp.ones_like(t)
-        u, dudt = jax.jvp(u_fn, (z, r, t), (v, drdt, dtdt))
+        # NOTE: following the original meanflow
+        # drdt = jnp.zeros_like(r)
+        # dtdt = jnp.ones_like(t)
+        # u, dudt = jax.jvp(u_fn, (z, r, t), (v, drdt, dtdt))
+        # u_target = jax.lax.stop_gradient(
+        #     v
+        #     - jnp.clip(t - r, a_min=0.0, a_max=1.0)[..., None, None, None]
+        #     * dudt
+        # )
 
-        # computes the target
+        # NOTE: following the symmetric meanflow
+        drdt = jnp.ones_like(r)
+        dtdt = - jnp.ones_like(t)
+        u, dudt = jax.jvp(u_fn, (z, r, t), (-v, drdt, dtdt))
         u_target = jax.lax.stop_gradient(
             v
             - jnp.clip(t - r, a_min=0.0, a_max=1.0)[..., None, None, None]
             * dudt
+            * 0.5
         )
+
+        # computes the target
+        
         # NOTE: sum over all the pixels, following official implementation
         loss = jnp.sum(jnp.square(u - u_target), axis=(-1, -2, -3))
 
