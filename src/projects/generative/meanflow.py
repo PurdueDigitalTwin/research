@@ -627,6 +627,7 @@ class MeanFlowUNetModel(_model.Model):
         )
         t, r = jnp.maximum(t, r), jnp.minimum(t, r)
         # ensure a portion of overlap between t and r
+        # NOTE: the following code randomly mask by uniform samples
         r_neq_t_mask = jnp.greater_equal(
             jax.random.uniform(
                 key=mask_rng,
@@ -683,28 +684,27 @@ class MeanFlowUNetModel(_model.Model):
             return out
 
         # NOTE: following the original meanflow
-        # drdt = jnp.zeros_like(r)
-        # dtdt = jnp.ones_like(t)
-        # u, dudt = jax.jvp(u_fn, (z, r, t), (v, drdt, dtdt))
-        # u_target = jax.lax.stop_gradient(
-        #     v
-        #     - jnp.clip(t - r, a_min=0.0, a_max=1.0)[..., None, None, None]
-        #     * dudt
-        # )
-
-        # NOTE: following the symmetric meanflow
-        drdt = jnp.ones_like(r)
-        dtdt = - jnp.ones_like(t)
-        u, dudt = jax.jvp(u_fn, (z, r, t), (-v, drdt, dtdt))
+        drdt = jnp.zeros_like(r)
+        dtdt = jnp.ones_like(t)
+        u, dudt = jax.jvp(u_fn, (z, r, t), (v, drdt, dtdt))
         u_target = jax.lax.stop_gradient(
             v
             - jnp.clip(t - r, a_min=0.0, a_max=1.0)[..., None, None, None]
             * dudt
-            * 0.5
         )
 
+        # NOTE: following the symmetric meanflow
+        # drdt = jnp.ones_like(r)
+        # dtdt = jnp.negative(jnp.ones_like(t))
+        # u, dudt = jax.jvp(u_fn, (z, r, t), (-v, drdt, dtdt))
+        # u_target = jax.lax.stop_gradient(
+        #     v
+        #     - jnp.clip(t - r, a_min=0.0, a_max=1.0)[..., None, None, None]
+        #     * dudt
+        #     * 0.5
+        # )
+
         # computes the target
-        
         # NOTE: sum over all the pixels, following official implementation
         loss = jnp.sum(jnp.square(u - u_target), axis=(-1, -2, -3))
 
