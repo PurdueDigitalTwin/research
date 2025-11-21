@@ -637,7 +637,7 @@ class MeanFlowUNetModel(_model.Model):
             ),
             self.timestamp_overlap_rate,
         )
-        r = jnp.where(r_neq_t_mask, t, r)
+        r = jnp.where(r_neq_t_mask, r, t)
 
         # sample e ~ N(0, I)
         e = jax.random.normal(key=e_rng, shape=image.shape, dtype=image.dtype)
