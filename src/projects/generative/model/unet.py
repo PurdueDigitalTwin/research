@@ -3,6 +3,7 @@ import typing
 import chex
 from flax import linen as nn
 import jax
+from jax import numpy as jnp
 
 
 class ResNetBlock(nn.Module):
@@ -270,4 +271,207 @@ class UpsampleBlock(nn.Module):
             )(out)
 
         chex.assert_shape(out, (*batch_dims, *dims["hwC"]))
+        return out
+
+
+class ScoreNet(nn.Module):
+    r"""U-Net architecture for score-function estimation.
+
+    This module is adapted from the original implementation of the U-Net
+    architecture from "Score-Based Generative Modeling through Stochastic
+    Differential Equations" by Yang Song et al. and the original implementation
+    is available at `https://github.com/yang-song/score_sde_pytorch`.
+
+    Args:
+        features (int): Base number of features for the latent representations.
+        ch_mults (typing.Sequence[int], optional): Sequence of multipliers
+            for the number of features at each level of the U-Net.
+        num_groups (int, optional): Number of groups for `GroupNorm`.
+        num_res_blocks (int, optional): Number of residual blocks per level.
+        attn_resolutions (typing.Sequence[int], optional): Sequence of
+            resolutions at which to apply attention mechanisms.
+        dropout_rate (float, optional): Dropout rate. Default is :math:`0.0`.
+        epsilon (float, optional): Small float added to variance to avoid
+            dividing by zero in `GroupNorm`. Default is :math:`1e-5`.
+        deterministic (bool, optional): If true, the model is run in
+            deterministic mode (e.g., no dropout). Defaults to `None`.
+        dtype (Any, optional): The dtype of the computation.
+        param_dtype (Any, optional): The dtype of the parameters.
+        precision (Any, optional): Numerical precision of the computation.
+    """
+
+    features: int
+    ch_mults: typing.Sequence[int] = (1, 2, 2, 2)
+    num_groups: int = 32
+    num_res_blocks: int = 4
+    attn_resolutions: typing.Sequence[int] = (16,)
+    dropout_rate: float = 0.0
+    epsilon: float = 1e-5
+    deterministic: typing.Optional[bool] = None
+    dtype: typing.Any = None
+    param_dtype: typing.Any = None
+    precision: typing.Any = None
+
+    @nn.compact
+    def __call__(
+        self,
+        inputs: jax.Array,
+        cond: jax.Array,
+        deterministic: typing.Optional[bool] = None,
+    ) -> jax.Array:
+        r"""Forward pass of the `ScoreNet`.
+
+        Args:
+            inputs (jax.Array): Input array of shape `(*, H, W, C_in)`.
+            cond (jax.Array): Conditioning array of shape `(*, C_cond)`.
+            deterministic (bool, optional): If true, the model is run in
+                deterministic mode (e.g., no dropout). Defaults to `None`.
+
+        Returns:
+            Output array of shape `(*, H, W, C_out)`, where `C_out` is the
+                number of channels in the input.
+        """
+        m_deterministic = nn.merge_param(
+            "deterministic",
+            self.deterministic,
+            deterministic,
+        )
+        batch_dims = inputs.shape[:-3]
+        dims = chex.Dimensions(
+            H=inputs.shape[-3],
+            W=inputs.shape[-2],
+            C=inputs.shape[-1],
+        )
+        skips = []
+
+        # forward pass the input convolution
+        conv_in = nn.Conv(
+            features=self.features,
+            kernel_size=(3, 3),
+            strides=(1, 1),
+            padding=(1, 1),
+            kernel_init=jax.nn.initializers.variance_scaling(
+                scale=1.0,
+                mode="fan_avg",
+                distribution="uniform",
+            ),
+            bias_init=jax.nn.initializers.zeros,
+            dtype=self.dtype,
+            name="conv_in",
+        )
+        out = conv_in(inputs)
+        skips.append(out)
+
+        # forward pass the downsampling path
+        for level, mult in enumerate(self.ch_mults):
+            out_ch = self.features * mult
+            for i in range(self.num_res_blocks):
+                res_block = ResNetBlock(
+                    features=out_ch,
+                    num_groups=self.num_groups,
+                    dropout_rate=self.dropout_rate,
+                    epsilon=self.epsilon,
+                    dtype=self.dtype,
+                    param_dtype=self.param_dtype,
+                    precision=self.precision,
+                    name=f"down_resnet_{level + 1:d}_{i + 1:d}",
+                )
+                out = res_block(
+                    inputs=out,
+                    cond=cond,
+                    deterministic=m_deterministic,
+                )
+                if out.shape[-3] in self.attn_resolutions:
+                    # TODO (juanwulu): Attention block would go here
+                    raise NotImplementedError
+                skips.append(out)
+            if level != len(self.ch_mults) - 1:
+                downsample = DownsampleBlock(
+                    with_conv=True,
+                    dtype=self.dtype,
+                    param_dtype=self.param_dtype,
+                    name=f"downsample_{level + 1:d}",
+                )
+                out = downsample(out)
+                skips.append(out)
+
+        # forward pass the middle blocks
+        block = ResNetBlock(
+            features=out.shape[-1],
+            num_groups=self.num_groups,
+            epsilon=self.epsilon,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            precision=self.precision,
+            name="mid_resnet_1",
+        )
+        out = block(out, cond=cond, deterministic=m_deterministic)
+        # TODO (juanwulu): Attention block would go here
+        block = ResNetBlock(
+            features=out.shape[-1],
+            num_groups=self.num_groups,
+            epsilon=self.epsilon,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            precision=self.precision,
+            name="mid_resnet_2",
+        )
+        out = block(out, cond=cond, deterministic=m_deterministic)
+
+        # forward pass the upsampling path
+        for level, mult in reversed(list(enumerate(self.ch_mults))):
+            out_ch = self.features * mult
+            for i in range(self.num_res_blocks + 1):
+                skip = skips.pop()
+                out = jnp.concatenate([out, skip], axis=-1)
+                res_block = ResNetBlock(
+                    features=out_ch,
+                    dropout_rate=self.dropout_rate,
+                    num_groups=self.num_groups,
+                    epsilon=self.epsilon,
+                    dtype=self.dtype,
+                    param_dtype=self.param_dtype,
+                    precision=self.precision,
+                    name=f"up_resnet_{level + 1:d}_{i + 1:d}",
+                )
+                out = res_block(
+                    inputs=out,
+                    cond=cond,
+                    deterministic=m_deterministic,
+                )
+                if out.shape[-3] in self.attn_resolutions:
+                    # TODO (juanwulu): Attention block would go here
+                    raise NotImplementedError
+            if level != 0:
+                upsample = UpsampleBlock(
+                    with_conv=True,
+                    dtype=self.dtype,
+                    param_dtype=self.param_dtype,
+                    precision=self.precision,
+                    name=f"upsample_{level + 1:d}",
+                )
+                out = upsample(out)
+
+        # forward pass the output convolution
+        norm_out = nn.GroupNorm(
+            num_groups=self.num_groups,
+            epsilon=self.epsilon,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="norm_out",
+        )
+        out = nn.silu(norm_out(out))
+        conv_out = nn.Conv(
+            features=dims.C,  # type: ignore
+            kernel_size=(3, 3),
+            strides=(1, 1),
+            padding=(1, 1),
+            kernel_init=jax.nn.initializers.zeros,
+            bias_init=jax.nn.initializers.zeros,
+            dtype=self.dtype,
+            name="conv_out",
+        )
+        out = conv_out(out)
+        chex.assert_shape(out, (*batch_dims, *dims["HWC"]))
+
         return out
