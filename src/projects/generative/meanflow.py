@@ -682,12 +682,13 @@ class MeanFlowUNetModel(_model.Model):
                 )
 
             out = self.network.apply(
-                variables={"params": params, "dropout": dropout_rng},
+                variables={"params": params},
                 image=z_t,
                 label=label,
                 begin=b_arg,
                 end=e_arg,
                 deterministic=deterministic,
+                rngs={"dropout": dropout_rng},
             )
             assert isinstance(out, jax.Array)
 
