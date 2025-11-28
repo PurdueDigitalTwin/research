@@ -535,8 +535,14 @@ class ScoreNet(nn.Module):
                     deterministic=m_deterministic,
                 )
                 if out.shape[-3] in self.attn_resolutions:
-                    # TODO (juanwulu): Attention block would go here
-                    raise NotImplementedError
+                    block = AttnBlock(
+                        num_heads=1,
+                        dtype=self.dtype,
+                        param_dtype=self.param_dtype,
+                        precision=self.precision,
+                        name=f"down_attn_{level + 1:d}_{i + 1:d}",
+                    )
+                    out = block(out)
                 skips.append(out)
             if level != len(self.ch_mults) - 1:
                 downsample = DownsampleBlock(
@@ -559,7 +565,14 @@ class ScoreNet(nn.Module):
             name="mid_resnet_1",
         )
         out = block(out, cond=cond, deterministic=m_deterministic)
-        # TODO (juanwulu): Attention block would go here
+        block = AttnBlock(
+            num_heads=1,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            precision=self.precision,
+            name="mid_attn",
+        )
+        out = block(out)
         block = ResNetBlock(
             features=out.shape[-1],
             num_groups=self.num_groups,
