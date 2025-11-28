@@ -22,3 +22,22 @@ ml_py_test(
         ":refinenet",
     ],
 )
+
+ml_py_library(
+    name = "unet",
+    srcs = ["unet.py"],
+    deps = [
+        "chex",
+        "flax",
+        "jax",
+    ],
+)
+
+ml_py_test(
+    name = "test_unet",
+    srcs = ["test_unet.py"],
+    deps = [
+        "jax",
+        ":unet",
+    ],
+)
