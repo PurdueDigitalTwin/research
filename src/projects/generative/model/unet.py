@@ -47,7 +47,7 @@ class ResNetBlock(nn.Module):
             padding=(1, 1),
             kernel_init=jax.nn.initializers.variance_scaling(
                 scale=1.0,
-                mode="fan_in",
+                mode="fan_avg",
                 distribution="uniform",
             ),
             bias_init=jax.nn.initializers.zeros,
@@ -59,7 +59,7 @@ class ResNetBlock(nn.Module):
             features=self.features,
             kernel_init=jax.nn.initializers.variance_scaling(
                 scale=1.0,
-                mode="fan_in",
+                mode="fan_avg",
                 distribution="uniform",
             ),
             bias_init=jax.nn.initializers.zeros,
@@ -83,7 +83,7 @@ class ResNetBlock(nn.Module):
             padding=(1, 1),
             kernel_init=jax.nn.initializers.variance_scaling(
                 scale=1.0,
-                mode="fan_in",
+                mode="fan_avg",
                 distribution="uniform",
             ),
             bias_init=jax.nn.initializers.zeros,
@@ -95,7 +95,7 @@ class ResNetBlock(nn.Module):
             features=self.features,
             kernel_init=jax.nn.initializers.variance_scaling(
                 scale=1.0,
-                mode="fan_in",
+                mode="fan_avg",
                 distribution="uniform",
             ),
             bias_init=jax.nn.initializers.zeros,
@@ -195,7 +195,7 @@ class DownsampleBlock(nn.Module):
                 padding=((0, 1), (0, 1)),
                 kernel_init=jax.nn.initializers.variance_scaling(
                     scale=1.0,
-                    mode="fan_in",
+                    mode="fan_avg",
                     distribution="uniform",
                 ),
                 bias_init=jax.nn.initializers.zeros,
@@ -207,4 +207,67 @@ class DownsampleBlock(nn.Module):
             out = nn.avg_pool(inputs, window_shape=(2, 2), strides=(2, 2))
         chex.assert_shape(out, (*batch_dims, *dims["hwC"]))
 
+        return out
+
+
+class UpsampleBlock(nn.Module):
+    r"""An upsampling block using nearest-neighbor interpolation.
+
+    Args:
+        with_conv (bool, optional): If true, applies a convolution after
+            upsampling. Default is `True`.
+        dtype (Any, optional): The dtype of the computation.
+        param_dtype (Any, optional): The dtype of the parameters.
+        precision (Any, optional): Numerical precision of the computation.
+    """
+
+    with_conv: bool = True
+    dtype: typing.Any = None
+    param_dtype: typing.Any = None
+    precision: typing.Any = None
+
+    @nn.compact
+    def __call__(self, inputs: jax.Array) -> jax.Array:
+        r"""Forward pass of the `UpsampleBlock`.
+
+        Args:
+            inputs (jax.Array): Input array of shape `(*, H, W, C)`
+
+        Returns:
+            Output array of shape `(*, H * 2, W * 2, C)`.
+        """
+        batch_dims = inputs.shape[:-3]
+        dims = chex.Dimensions(
+            H=inputs.shape[-3],
+            h=inputs.shape[-3] * 2,
+            W=inputs.shape[-2],
+            w=inputs.shape[-2] * 2,
+            C=inputs.shape[-1],
+        )
+
+        out = jax.image.resize(
+            inputs,
+            shape=(*batch_dims, *dims["hwC"]),
+            method="nearest",
+            antialias=True,
+            precision=self.precision,
+        )
+        if self.with_conv:
+            out = nn.Conv(
+                features=inputs.shape[-1],
+                kernel_size=(3, 3),
+                strides=(1, 1),
+                padding=(1, 1),
+                kernel_init=jax.nn.initializers.variance_scaling(
+                    scale=1.0,
+                    mode="fan_avg",
+                    distribution="uniform",
+                ),
+                bias_init=jax.nn.initializers.zeros,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                name="conv0",
+            )(out)
+
+        chex.assert_shape(out, (*batch_dims, *dims["hwC"]))
         return out

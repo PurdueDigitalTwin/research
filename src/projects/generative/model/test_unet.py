@@ -60,12 +60,40 @@ def test_downsample_block(with_conv: bool, dtype: typing.Any) -> None:
         assert isinstance(bias, jax.Array)
         assert bias.shape == (32,)
 
-    outputs = block.apply(
-        variables=variables,
-        inputs=test_input,
-    )
+    outputs = block.apply(variables=variables, inputs=test_input)
     assert isinstance(outputs, jax.Array)
     assert outputs.shape == (2, 16, 16, 32)
+    assert outputs.dtype == dtype
+
+
+@pytest.mark.parametrize("with_conv", [True, False])
+@pytest.mark.parametrize("dtype", [jnp.float32, jnp.bfloat16])
+def test_upsample_block(with_conv: bool, dtype: typing.Any) -> None:
+    r"""Tests the upsampling block in U-Net models."""
+    rng = jax.random.PRNGKey(42)
+
+    block = unet.UpsampleBlock(
+        with_conv=with_conv,
+        dtype=dtype,
+        param_dtype=dtype,
+    )
+    test_input = jnp.ones((2, 16, 16, 32), dtype=dtype)
+    variables = block.init(
+        rngs={"params": rng},
+        inputs=test_input,
+    )
+    if with_conv:
+        assert "conv0" in variables["params"]
+        kernel = variables["params"]["conv0"]["kernel"]
+        assert isinstance(kernel, jax.Array)
+        assert kernel.shape == (3, 3, 32, 32)
+        bias = variables["params"]["conv0"]["bias"]
+        assert isinstance(bias, jax.Array)
+        assert bias.shape == (32,)
+
+    outputs = block.apply(variables=variables, inputs=test_input)
+    assert isinstance(outputs, jax.Array)
+    assert outputs.shape == (2, 32, 32, 32)
     assert outputs.dtype == dtype
 
 
