@@ -45,6 +45,6 @@ ml_py_library(
         "typing_extensions",
         "//src/core:model",
         "//src/core:train_state",
-        "//src/projects/generative/model:refinenet",
+        "//src/projects/generative/model:unet",
     ],
 )

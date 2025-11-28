@@ -10,7 +10,7 @@ import jaxtyping
 import typing_extensions
 
 from src.core import model as _model
-from src.projects.generative.model import refinenet
+from src.projects.generative.model import unet
 
 # Type Aliases
 PyTree = jaxtyping.PyTree
@@ -392,11 +392,16 @@ class MeanFlowUNetModule(nn.Module):
 
     def setup(self) -> None:
         r"""Instantiate a `MeanFlowUNetModel` module."""
-        self.backbone = refinenet.ConditionalRefineNet(
-            in_channels=self.in_channels,
-            image_size=self.image_size,
-            latent_channels=self.latent_channels,
-            norm_module=ConditionalInstanceNorm,
+        # self.backbone = refinenet.ConditionalRefineNet(
+        #     in_channels=self.in_channels,
+        #     image_size=self.image_size,
+        #     latent_channels=self.latent_channels,
+        #     norm_module=ConditionalInstanceNorm,
+        #     dtype=self.dtype,
+        #     param_dtype=self.param_dtype,
+        # )
+        self.backbone = unet.ScoreNet(
+            features=self.latent_channels,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
         )
@@ -474,7 +479,11 @@ class MeanFlowUNetModule(nn.Module):
         else:
             t_emb = jnp.zeros_like(y_emb)
         cond = t_emb + r_emb + y_emb
-        output = self.backbone(inputs=image, cond=cond)
+        output = self.backbone(
+            inputs=image,
+            cond=cond,
+            deterministic=m_deterministic,
+        )
 
         return output
 

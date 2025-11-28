@@ -40,7 +40,7 @@ def meanflow_unet_cifar_10() -> _config.ExperimentConfig:
             meanflow.MeanFlowUNetModel,
             in_channels=3,
             image_size=32,
-            latent_channels=16,
+            latent_channels=128,
             num_classes=10,
             use_cfg_embedding=False,
             dropout_rate=0.2,
