@@ -9,11 +9,11 @@ from src.projects.generative.model import unet
 
 
 @pytest.mark.parametrize("dtype", [jnp.float32, jnp.bfloat16])
-def test_down_block(dtype: typing.Any) -> None:
+def test_resnet_block(dtype: typing.Any) -> None:
     r"""Tests the residual downsampling block in U-Net models."""
     rng = jax.random.PRNGKey(42)
 
-    block = unet.DownResNetBlock(features=64, dtype=dtype, param_dtype=dtype)
+    block = unet.ResNetBlock(features=64, dtype=dtype, param_dtype=dtype)
     test_input = jnp.ones((2, 32, 32, 32), dtype=dtype)
     test_cond = jnp.ones((2, 16), dtype=dtype)
     params_rng, dropout_rng = jax.random.split(rng, num=2)

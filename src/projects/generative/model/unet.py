@@ -5,7 +5,7 @@ from flax import linen as nn
 import jax
 
 
-class DownResNetBlock(nn.Module):
+class ResNetBlock(nn.Module):
     r"""A residual downsampling block with two convolutional layers.
 
     Args:
