@@ -402,6 +402,7 @@ class MeanFlowUNetModule(nn.Module):
         # )
         self.backbone = unet.ScoreNet(
             features=self.latent_channels,
+            dropout_rate=self.dropout_rate,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
         )
