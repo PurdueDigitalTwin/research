@@ -627,7 +627,7 @@ class MeanFlowUNetModel(_model.Model):
         # NOTE: following the notation in Algorithm 1 of the source paper
         # sample t and r
         batch_dims = image.shape[:-3]
-        tr_rng, mask_rng, e_rng = jax.random.split(rngs, num=3)
+        tr_rng, dropout_rng, mask_rng, e_rng = jax.random.split(rngs, num=4)
         t, r = sample_t_r(
             key=tr_rng,
             shape=batch_dims,
@@ -682,7 +682,7 @@ class MeanFlowUNetModel(_model.Model):
                 )
 
             out = self.network.apply(
-                variables={"params": params},
+                variables={"params": params, "dropout": dropout_rng},
                 image=z_t,
                 label=label,
                 begin=b_arg,
