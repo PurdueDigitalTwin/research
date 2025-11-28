@@ -274,6 +274,159 @@ class UpsampleBlock(nn.Module):
         return out
 
 
+class AttnBlock(nn.Module):
+    r"""Self-attention block with group normalization in U-Net models.
+
+    Args:
+    """
+
+    num_heads: int = 1
+    dtype: typing.Any = None
+    param_dtype: typing.Any = None
+    precision: typing.Any = None
+
+    @nn.compact
+    def __call__(self, inputs: jax.Array) -> jax.Array:
+        r"""Forward pass of the `AttnBlock`.
+
+        Args:
+            inputs (jax.Array): Input array of shape `(*, H, W, C)`.
+
+        Returns:
+            Output array of shape `(*, H, W, C)`.
+        """
+
+        norm_in = nn.GroupNorm(
+            num_groups=32,
+            epsilon=1e-5,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="norm",
+        )
+        out = norm_in(inputs)
+
+        if self.num_heads == 1:
+            # scaled dot-product attention
+            q_proj = nn.Dense(
+                features=inputs.shape[-1],
+                kernel_init=jax.nn.initializers.variance_scaling(
+                    scale=1.0,
+                    mode="fan_avg",
+                    distribution="uniform",
+                ),
+                bias_init=jax.nn.initializers.zeros,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                name="q_proj",
+            )
+            query = q_proj(out)
+            k_proj = nn.Dense(
+                features=inputs.shape[-1],
+                kernel_init=jax.nn.initializers.variance_scaling(
+                    scale=1.0,
+                    mode="fan_avg",
+                    distribution="uniform",
+                ),
+                bias_init=jax.nn.initializers.zeros,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                name="k_proj",
+            )
+            key = k_proj(out)
+            v_proj = nn.Dense(
+                features=inputs.shape[-1],
+                kernel_init=jax.nn.initializers.variance_scaling(
+                    scale=1.0,
+                    mode="fan_avg",
+                    distribution="uniform",
+                ),
+                bias_init=jax.nn.initializers.zeros,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                name="v_proj",
+            )
+            value = v_proj(out)
+            out = nn.dot_product_attention(
+                query[..., None, :],
+                key[..., None, :],
+                value[..., None, :],
+                broadcast_dropout=False,
+                dropout_rate=0.0,
+                dtype=self.dtype,
+                precision=self.precision,
+            )
+            print("out shape after attention:", out.shape)
+            out_proj = nn.Dense(
+                features=inputs.shape[-1],
+                kernel_init=jax.nn.initializers.zeros,
+                bias_init=jax.nn.initializers.zeros,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                name="out_proj",
+            )
+            out = out_proj(out[..., 0, :])
+        else:
+            head_dim = inputs.shape[-1] // self.num_heads
+            if head_dim * self.num_heads != inputs.shape[-1]:
+                raise ValueError(
+                    f"Number of heads {self.num_heads} not compatible with "
+                    f"input channels {inputs.shape[-1]}."
+                )
+            q_proj = nn.DenseGeneral(
+                features=(self.num_heads, head_dim),
+                kernel_init=jax.nn.initializers.variance_scaling(
+                    scale=1.0,
+                    mode="fan_avg",
+                    distribution="uniform",
+                ),
+                bias_init=jax.nn.initializers.zeros,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                name="q_proj",
+            )
+            query = q_proj(out)
+            k_proj = nn.DenseGeneral(
+                features=(self.num_heads, head_dim),
+                kernel_init=jax.nn.initializers.variance_scaling(
+                    scale=1.0,
+                    mode="fan_avg",
+                    distribution="uniform",
+                ),
+                bias_init=jax.nn.initializers.zeros,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                name="k_proj",
+            )
+            key = k_proj(out)
+            v_proj = nn.DenseGeneral(
+                features=(self.num_heads, head_dim),
+                kernel_init=jax.nn.initializers.variance_scaling(
+                    scale=1.0,
+                    mode="fan_avg",
+                    distribution="uniform",
+                ),
+                bias_init=jax.nn.initializers.zeros,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                name="v_proj",
+            )
+            value = v_proj(out)
+            out_proj = nn.DenseGeneral(
+                features=inputs.shape[-1],
+                kernel_init=jax.nn.initializers.zeros,
+                bias_init=jax.nn.initializers.zeros,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                name="out_proj",
+            )
+            out = out_proj(out)
+
+        chex.assert_equal_shape([out, inputs])
+        out = out + inputs
+
+        return out
+
+
 class ScoreNet(nn.Module):
     r"""U-Net architecture for score-function estimation.
 

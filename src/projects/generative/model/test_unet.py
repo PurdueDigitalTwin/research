@@ -97,6 +97,25 @@ def test_upsample_block(with_conv: bool, dtype: typing.Any) -> None:
     assert outputs.dtype == dtype
 
 
+@pytest.mark.parametrize("num_heads", [1, 4])
+@pytest.mark.parametrize("dtype", [jnp.float32, jnp.bfloat16])
+def test_attn_block(num_heads: int, dtype: typing.Any) -> None:
+    r"""Tests the attention block in U-Net models."""
+    rng = jax.random.PRNGKey(42)
+
+    block = unet.AttnBlock(num_heads=num_heads, dtype=dtype, param_dtype=dtype)
+    test_input = jnp.ones((2, 16, 16, 32), dtype=dtype)
+    variables = block.init(
+        rngs={"params": rng},
+        inputs=test_input,
+    )
+
+    outputs = block.apply(variables=variables, inputs=test_input)
+    assert isinstance(outputs, jax.Array)
+    assert outputs.shape == (2, 16, 16, 32)
+    assert outputs.dtype == dtype
+
+
 @pytest.mark.parametrize("dtype", [jnp.float32, jnp.bfloat16])
 def test_score_net(dtype: typing.Any) -> None:
     r"""Tests the full U-Net model for score-based generative modeling."""
