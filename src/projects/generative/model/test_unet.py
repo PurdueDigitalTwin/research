@@ -123,7 +123,6 @@ def test_score_net(dtype: typing.Any) -> None:
 
     model = unet.ScoreNet(
         features=128,
-        attn_resolutions=(),
         dropout_rate=0.2,
         dtype=dtype,
         param_dtype=dtype,

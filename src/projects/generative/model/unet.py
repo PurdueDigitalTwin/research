@@ -355,7 +355,6 @@ class AttnBlock(nn.Module):
                 dtype=self.dtype,
                 precision=self.precision,
             )
-            print("out shape after attention:", out.shape)
             out_proj = nn.Dense(
                 features=inputs.shape[-1],
                 kernel_init=jax.nn.initializers.zeros,
@@ -606,8 +605,14 @@ class ScoreNet(nn.Module):
                     deterministic=m_deterministic,
                 )
                 if out.shape[-3] in self.attn_resolutions:
-                    # TODO (juanwulu): Attention block would go here
-                    raise NotImplementedError
+                    block = AttnBlock(
+                        num_heads=1,
+                        dtype=self.dtype,
+                        param_dtype=self.param_dtype,
+                        precision=self.precision,
+                        name=f"up_attn_{level + 1:d}_{i + 1:d}",
+                    )
+                    out = block(out)
             if level != 0:
                 upsample = UpsampleBlock(
                     with_conv=True,
