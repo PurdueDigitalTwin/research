@@ -152,3 +152,59 @@ class ResNetBlock(nn.Module):
         chex.assert_shape(out, (*batch_dims, *dims["HW"], self.features))
 
         return out
+
+
+class DownsampleBlock(nn.Module):
+    r"""A downsampling block using averaging pooling or strided convolution.
+
+    Args:
+        with_conv (bool, optional): If true, uses a strided convolution for
+            downsampling. If `False`, uses average pooling. Default is `True`.
+        dtype (Any, optional): The dtype of the computation.
+        param_dtype (Any, optional): The dtype of the parameters.
+    """
+
+    with_conv: bool = True
+    dtype: typing.Any = None
+    param_dtype: typing.Any = None
+
+    @nn.compact
+    def __call__(self, inputs: jax.Array) -> jax.Array:
+        r"""Forward pass of the `DownsampleBlock`.
+
+        Args:
+            inputs (jax.Array): Input array of shape `(*, H, W, C)`.
+
+        Returns:
+            Output array of shape `(*, H / 2, W / 2, C)`.
+        """
+        batch_dims = inputs.shape[:-3]
+        dims = chex.Dimensions(
+            H=inputs.shape[-3],
+            h=inputs.shape[-3] // 2,
+            W=inputs.shape[-2],
+            w=inputs.shape[-2] // 2,
+            C=inputs.shape[-1],
+        )
+
+        if self.with_conv:
+            out = nn.Conv(
+                features=inputs.shape[-1],
+                kernel_size=(3, 3),
+                strides=(2, 2),
+                padding=((0, 1), (0, 1)),
+                kernel_init=jax.nn.initializers.variance_scaling(
+                    scale=1.0,
+                    mode="fan_in",
+                    distribution="uniform",
+                ),
+                bias_init=jax.nn.initializers.zeros,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                name="conv0",
+            )(inputs)
+        else:
+            out = nn.avg_pool(inputs, window_shape=(2, 2), strides=(2, 2))
+        chex.assert_shape(out, (*batch_dims, *dims["hwC"]))
+
+        return out
