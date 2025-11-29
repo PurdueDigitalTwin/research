@@ -34,7 +34,7 @@ def sample_t_r(
         shape (jax.typing.Shape): The shape of the output arrays.
         dtype (dtype): The dtype of the output arrays.
         distribution (str): The distribution to sample from.
-            One of `["uniform", "lognormal"]`.
+            One of `["uniform", "logit-normal"]`.
         **kwargs: Additional keyword arguments for the distribution.
 
     Returns:
@@ -60,9 +60,9 @@ def sample_t_r(
             minval=minval,
             maxval=maxval,
         )
-    elif distribution == "lognormal":
+    elif distribution == "logit-normal":
 
-        def _lognormal(
+        def _logit_normal(
             key: jax.Array,
             shape: jax_typing.Shape,
             dtype: typing.Any,
@@ -74,14 +74,14 @@ def sample_t_r(
 
         mean = kwargs.get("mean", -0.4)
         stddev = kwargs.get("stddev", 1.0)
-        t = _lognormal(
+        t = _logit_normal(
             key=t_key,
             shape=shape,
             dtype=dtype,
             mean=mean,
             stddev=stddev,
         )
-        r = _lognormal(
+        r = _logit_normal(
             key=r_key,
             shape=shape,
             dtype=dtype,
@@ -91,7 +91,7 @@ def sample_t_r(
     else:
         raise ValueError(
             f"Unsupported distribution: {distribution}. "
-            'Must be one of ["uniform", "lognormal"].'
+            'Must be one of ["uniform", "logit-normal"].'
         )
 
     return jnp.clip(t, 0.0, 1.0), jnp.clip(r, 0.0, 1.0)
@@ -505,7 +505,7 @@ class MeanFlowUNetModel(_model.Model):
             One of `["t_and_r", "t_and_t_minus_r",
             "t_and_r_and_t_minus_r", "t_minus_r"]`.
         timestamp_sampler (str): The distribution to sample timestamps from.
-            One of `["uniform", "lognormal"]`.
+            One of `["uniform", "logit-normal"]`.
         timestamp_sampler_kwargs (Dict[str, Any]): Additional keyword arguments
             for the timestamp sampler.
         timestamp_overlap_rate (float): The minimum overlap rate between
@@ -530,7 +530,7 @@ class MeanFlowUNetModel(_model.Model):
             "t_and_r_and_t_minus_r",
             "t_minus_r",
         ] = "t_and_t_minus_r",
-        timestamp_sampler: str = "lognormal",
+        timestamp_sampler: str = "logit-normal",
         timestamp_sampler_kwargs: typing.Dict[str, typing.Any] = {
             "mean": -0.4,
             "stddev": 1.0,
