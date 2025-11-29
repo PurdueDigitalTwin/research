@@ -31,7 +31,7 @@ def meanflow_unet_cifar_10() -> _config.ExperimentConfig:
                     ),
                 ),
             ),
-            batch_size=1024,
+            batch_size=128,
             num_workers=2,
             deterministic=True,
             drop_remainder=True,
@@ -59,7 +59,12 @@ def meanflow_unet_cifar_10() -> _config.ExperimentConfig:
             profile=False,
         ),
         optimizer=_config.OptimizerConfig(
-            lr_schedule=fdl.Config(optax.constant_schedule, value=6e-4),
+            lr_schedule=fdl.Config(
+                optax.warmup_constant_schedule,
+                init_value=1e-8,
+                peak_value=6e-4,
+                warmup_steps=10_000,
+            ),
             optimizer=fdl.Partial(optax.adam, b1=0.9, b2=0.999),
             ema_rate=0.9999,
         ),

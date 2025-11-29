@@ -100,6 +100,40 @@ def sample_t_r(
 # ==============================================================================
 # Helper modules
 # ==============================================================================
+class SinusoidalEmbed(nn.Module):
+    r"""Sinusoidal positional embeddings.
+
+    Args:
+        features (int): Dimensionality of the output embeddings.
+        max_indx (int): Maximum index value.
+        endpoint (bool): Whether to include the endpoint frequency.
+    """
+
+    features: int
+    max_indx: int = 10_000
+    endpoint: bool = False
+
+    def setup(self) -> None:
+        """Instantiate a `SinusoidalEmbed` module."""
+        half_dim = self.features >> 1
+        freqs = jnp.arange(0, half_dim, dtype=jnp.float32)
+        freqs = freqs / (half_dim - (1 if self.endpoint else 0))
+        self.freqs = jnp.power(1.0 / self.max_indx, freqs)
+
+    def __call__(self, inputs: jax.Array) -> jax.Array:
+        r"""Forward pass and returns the sinusoidal embeddings.
+
+        Args:
+            inputs (jax.Array): Input indexes of shape `(*, )`.
+
+        Returns:
+            Sinusoidal embedding array of shape `(..., features)`.
+        """
+        out = jnp.outer(inputs[..., None], self.freqs)
+        out = jnp.concatenate([jnp.cos(out), jnp.sin(out)], axis=-1)
+        return out
+
+
 class TimestampEmbed(nn.Module):
     """Encode scalar timestamps to vectors.
 
@@ -400,28 +434,31 @@ class MeanFlowUNetModule(nn.Module):
         #     dtype=self.dtype,
         #     param_dtype=self.param_dtype,
         # )
+        # self.r_embed = TimestampEmbed(
+        #     features=self.latent_channels,
+        #     frequency=256,
+        #     max_stamp=10_000,
+        #     name="r_embedder",
+        #     dtype=self.dtype,
+        #     param_dtype=self.param_dtype,
+        # )
+        # self.t_embed = TimestampEmbed(
+        #     features=self.latent_channels,
+        #     frequency=256,
+        #     max_stamp=10_000,
+        #     name="t_embedder",
+        #     dtype=self.dtype,
+        #     param_dtype=self.param_dtype,
+        # )
+
         self.backbone = unet.ScoreNet(
             features=self.latent_channels,
             dropout_rate=self.dropout_rate,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
         )
-        self.r_embed = TimestampEmbed(
-            features=self.latent_channels,
-            frequency=256,
-            max_stamp=10_000,
-            name="r_embedder",
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-        )
-        self.t_embed = TimestampEmbed(
-            features=self.latent_channels,
-            frequency=256,
-            max_stamp=10_000,
-            name="t_embedder",
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-        )
+        self.r_embed = SinusoidalEmbed(self.latent_channels, endpoint=True)
+        self.t_embed = SinusoidalEmbed(self.latent_channels, endpoint=True)
         self.label_embed = ConditionEmbed(
             features=self.latent_channels,
             num_classes=self.num_classes,
