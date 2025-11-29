@@ -70,7 +70,7 @@ def sample_t_r(
             stddev: float,
         ) -> jax.Array:
             z = jax.random.normal(key=key, shape=shape, dtype=dtype)
-            return jnp.exp(mean + stddev * z)
+            return jax.nn.sigmoid(mean + stddev * z)
 
         mean = kwargs.get("mean", -0.4)
         stddev = kwargs.get("stddev", 1.0)
@@ -94,7 +94,7 @@ def sample_t_r(
             'Must be one of ["uniform", "lognormal"].'
         )
 
-    return jnp.clip(t, a_min=0.0, a_max=1.0), jnp.clip(r, a_min=0.0, a_max=1.0)
+    return jnp.clip(t, 0.0, 1.0), jnp.clip(r, 0.0, 1.0)
 
 
 # ==============================================================================
