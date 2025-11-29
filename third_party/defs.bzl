@@ -38,8 +38,13 @@ def _select_all_requirements(names = []):
     if "fiddle" in names and "etils" not in names:
         reqs += _select_requirement("etils")
 
-    if "jax" in names and "jaxlib" not in names:
-        reqs += _select_requirement("jaxlib")
+    if "jax" in names:
+        if "jaxlib" not in names:
+            reqs += _select_requirement("jaxlib")
+        reqs += select({
+            "//third_party:is_mps": [mps_req("jax-metal")],
+            "//conditions:default": [],
+        })
 
     return reqs
 
