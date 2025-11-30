@@ -23,6 +23,7 @@ ml_py_library(
     name = "visualization",
     srcs = ["visualization.py"],
     deps = [
-        "numpy",
+        "jax",
+        ":logging",
     ],
 )
