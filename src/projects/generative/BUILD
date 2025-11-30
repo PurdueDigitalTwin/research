@@ -31,6 +31,7 @@ ml_py_binary(
         "//src/core:train",
         "//src/core:train_state",
         "//src/utilities:logging",
+        "//src/utilities:visualization",
     ],
 )
 

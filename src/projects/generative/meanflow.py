@@ -639,8 +639,7 @@ class MeanFlowUNetModel(_model.Model):
         self,
         *,
         rngs: typing.Any,
-        image: jax.Array,
-        label: jax.Array,
+        batch: typing.Dict[str, typing.Any],
         params: frozen_dict.FrozenDict,
         deterministic: bool = False,
         **kwargs,
@@ -650,8 +649,9 @@ class MeanFlowUNetModel(_model.Model):
         Args:
             rngs (Union[jax.random.KeyArray, Dict[str, jax.random.KeyArray]]):
                 JAX random key or a dictionary of JAX random keys.
-            image (jax.Array): The input images of shape `(*, H, W, C)`.
-            label (jax.Array): The class labels of shape `(*,)`.
+            batch (Dict[str, Any]): A batch of data containing:
+                - image (jax.Array): Input images of shape `(*, H, W, C)`.
+                - label (jax.Array): Conditioning labels of shape `(*, )`.
             params (frozen_dict.FrozenDict): The model parameters.
             deterministic (bool): Whether to run the model deterministically.
             **kwargs: additional keyword arguments.
@@ -663,6 +663,7 @@ class MeanFlowUNetModel(_model.Model):
 
         # NOTE: following the notation in Algorithm 1 of the source paper
         # sample t and r
+        image, label = batch["image"], batch["label"]
         batch_dims = image.shape[:-3]
         tr_rng, dropout_rng, mask_rng, e_rng = jax.random.split(rngs, num=4)
         t, r = sample_t_r(
@@ -780,23 +781,22 @@ class MeanFlowUNetModel(_model.Model):
     def forward(
         self,
         *,
-        rngs: typing.Any,
+        rngs: jax.Array,
         params: frozen_dict.FrozenDict,
-        image: jax.Array,
-        label: jax.Array,
-        begin: typing.Optional[jax.Array] = None,
-        end: typing.Optional[jax.Array] = None,
-        deterministic: bool = False,
+        batch: typing.Dict[str, typing.Any],
+        deterministic: bool = True,
         **kwargs,
     ) -> _model.StepOutputs:
         r"""Forward sampling with average velocity prediction.
 
         Args:
+            rngs (jax.Array): Random key for sampling.
             params (frozen_dict.FrozenDict): The model parameters.
-            image (jax.Array): Input latent image `z_t` of shape `(*, H, W, C)`.
-            label (jax.Array): Conditioning labels of shape `(*,)`.
-            begin (jax.Array): Begin timestamp `r` of shape `(*, )`.
-            end (jax.Array): End timestamp `t` of shape `(*, )`.
+            batch (Dict[str, Any]): A batch of data containing:
+                - image (jax.Array): Input images of shape `(*, H, W, C)`.
+                - label (jax.Array): Conditioning labels of shape `(*, )`.
+            shape (jax.typing.Shape): The shape of the output samples.
+            dtype (Any): The dtype of the output samples.
             deterministic (bool): Whether to run the model deterministically.
             **kwargs: Additional keyword arguments.
 
@@ -805,4 +805,21 @@ class MeanFlowUNetModel(_model.Model):
         """
         del kwargs  # unused
 
-        raise NotImplementedError
+        # TODO (juanwulu): unconditional generation
+        image = batch["image"]
+        label = batch.get("label", None)
+        shape, dtype = image.shape, image.dtype
+
+        e = jax.random.normal(key=rngs, shape=shape, dtype=dtype)
+        r = jnp.zeros(e.shape[:-3], dtype=dtype)
+        t = jnp.ones(e.shape[:-3], dtype=dtype)
+        out = e - self.network.apply(
+            variables={"params": params},
+            image=e,
+            label=label,
+            begin=t - r,
+            end=t,
+            deterministic=deterministic,
+        )
+
+        return _model.StepOutputs(output=out)

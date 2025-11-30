@@ -11,6 +11,7 @@ from clu import platform as clu_platform
 from fiddle import absl_flags
 import fiddle as fdl
 import jax
+from jax import numpy as jnp
 import jaxtyping
 import optax
 import tensorflow as tf
@@ -21,6 +22,7 @@ from src.core import model as _model
 from src.core import train as _train
 from src.core import train_state as _train_state
 from src.utilities import logging
+from src.utilities import visualization
 
 CONFIG = absl_flags.DEFINE_fiddle_config(
     name="experiment",
@@ -44,9 +46,28 @@ tf.config.experimental.set_visible_devices([], "TPU")
 assert not tf.config.experimental.get_visible_devices("GPU")
 
 
-def evaluation_step(rngs: jax.Array) -> _model.StepOutputs:
+def evaluation_step(
+    rngs: jax.Array,
+    model: _model.Model,
+    params: PyTree,
+    batch: PyTree,
+    **kwargs,
+) -> _model.StepOutputs:
     r"""Conduct a single evaluation step and compute metrics."""
-    raise NotImplementedError
+    local_rng = jax.random.fold_in(rngs, jax.lax.axis_index("batch"))
+    outputs = model.forward(
+        rngs=local_rng,
+        params=params,
+        deterministic=True,
+        batch=batch,
+        **kwargs,
+    )
+    out = outputs.output
+    assert isinstance(out, jax.Array)
+    out = jnp.clip(out * 0.5 + 0.5, 0.0, 1.0)
+    img_grid = visualization.make_grid(out, n_rows=4, n_cols=8, padding=2)
+    outputs.images = {"sampled images": img_grid}
+    return outputs
 
 
 def training_step(
@@ -65,7 +86,7 @@ def training_step(
             rngs=local_rng,
             params=params,
             deterministic=False,
-            **batch,
+            batch=batch,
             **kwargs,
         )
         return loss, outputs
@@ -187,11 +208,12 @@ def main(_: typing.List[str]) -> int:
 
     if exp_config.mode == "train":
         p_training_step = functools.partial(training_step, model=model)
+        p_evaluation_step = functools.partial(evaluation_step, model=model)
         _train.run(
             state=state,
             datamodule=datamodule,
             training_step=p_training_step,
-            evaluation_step=evaluation_step,
+            evaluation_step=p_evaluation_step,
             num_train_steps=exp_config.trainer.num_train_steps,
             writer=writer,
             work_dir=log_dir,
