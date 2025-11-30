@@ -113,6 +113,49 @@ def run(
             train_metrics = collections.defaultdict(list)
             while True:
                 for batch in datamodule.train_dataloader():
+                    # evaluation and sanity check running
+                    if (
+                        step % eval_every_n_steps == 0
+                        or step == num_train_steps
+                    ):
+                        logging.rank_zero_info("Running evaluation...")
+                        eval_metrics = collections.defaultdict(list)
+                        outputs = None
+                        for batch in datamodule.eval_dataloader():
+                            batch = _shard(batch)
+                            outputs = p_evaluation_step(
+                                params=state.params,
+                                batch=batch,
+                            )
+                            if not isinstance(outputs, _model.StepOutputs):
+                                raise RuntimeError(
+                                    "FATAL: Output from `evaluation_step` is "
+                                    "not a `StepOutputs` object."
+                                )
+                            if outputs.scalars is not None:
+                                for k, v in outputs.scalars.items():
+                                    eval_metrics[k].append(
+                                        jax.device_get(v).mean()
+                                    )
+                        logging.rank_zero_info("Evaluation done.")
+
+                        if isinstance(outputs, _model.StepOutputs):
+                            writer.write_scalars(
+                                step=step,
+                                scalars={
+                                    f"eval/{k}": sum(v) / len(v)
+                                    for k, v in eval_metrics.items()
+                                },
+                            )
+                            if outputs.images is not None:
+                                writer.write_images(
+                                    step=step,
+                                    images={
+                                        f"eval/{k}": v
+                                        for k, v in outputs.images.items()
+                                    },
+                                )
+
                     batch = _shard(batch)
                     with jax.profiler.StepTraceAnnotation(
                         name="train",
@@ -147,43 +190,6 @@ def run(
                                 images=outputs.images,
                             )
                     step += 1
-
-                    # evaluation
-                    if (
-                        step % eval_every_n_steps == 0
-                        or step == num_train_steps
-                    ):
-                        logging.rank_zero_info("Running evaluation...")
-                        eval_metrics = collections.defaultdict(list)
-                        for batch in datamodule.eval_dataloader():
-                            batch = _shard(batch)
-                            outputs = p_evaluation_step(
-                                params=state.params,
-                                batch=batch,
-                            )
-                            if not isinstance(outputs, _model.StepOutputs):
-                                raise RuntimeError(
-                                    "FATAL: Output from `evaluation_step` is "
-                                    "not a `StepOutputs` object."
-                                )
-                            if outputs.scalars is not None:
-                                for k, v in outputs.scalars.items():
-                                    eval_metrics[k].append(
-                                        jax.device_get(v).mean()
-                                    )
-                        logging.rank_zero_info("Evaluation done.")
-                        writer.write_scalars(
-                            step=step,
-                            scalars={
-                                f"eval/{k}": sum(v) / len(v)
-                                for k, v in eval_metrics.items()
-                            },
-                        )
-                        if outputs.images is not None:
-                            writer.write_images(
-                                step=step,
-                                images=outputs.images,
-                            )
 
                     # checkpointing
                     if step % checkpoint_every_n_steps == 0:
