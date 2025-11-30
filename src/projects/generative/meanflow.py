@@ -663,9 +663,21 @@ class MeanFlowUNetModel(_model.Model):
 
         # NOTE: following the notation in Algorithm 1 of the source paper
         # sample t and r
-        image, label = batch["image"], batch["label"]
+        image = batch["image"]
+        assert isinstance(image, jax.Array)
+        label = batch.get("label", None)
         batch_dims = image.shape[:-3]
-        tr_rng, dropout_rng, mask_rng, e_rng = jax.random.split(rngs, num=4)
+        tr_rng, dropout_rng, f_rng, m_rng, e_rng = jax.random.split(rngs, 5)
+
+        # randomly flip image horizontally for data augmentation
+        flip_mask = jax.random.bernoulli(key=f_rng, p=0.5, shape=batch_dims)
+        image = jnp.where(
+            flip_mask[..., None, None, None],
+            jnp.flip(image, axis=-2),
+            image,
+        )
+
+        # sample begin and end timestamps
         t, r = sample_t_r(
             key=tr_rng,
             shape=batch_dims,
@@ -676,17 +688,11 @@ class MeanFlowUNetModel(_model.Model):
         t, r = jnp.maximum(t, r), jnp.minimum(t, r)
         # ensure a portion of overlap between t and r
         # NOTE: the following code randomly mask by uniform samples
-        r_neq_t_mask = jnp.greater_equal(
-            jax.random.uniform(
-                key=mask_rng,
-                shape=batch_dims,
-                dtype=image.dtype,
-                minval=0.0,
-                maxval=1.0,
-            ),
+        r_eq_t_mask = jnp.less(
+            jax.random.uniform(key=m_rng, shape=batch_dims, dtype=image.dtype),
             self.timestamp_overlap_rate,
         )
-        r = jnp.where(r_neq_t_mask, r, t)
+        r = jnp.where(r_eq_t_mask, t, r)
 
         # sample e ~ N(0, I)
         e = jax.random.normal(key=e_rng, shape=image.shape, dtype=image.dtype)
