@@ -498,9 +498,6 @@ class MeanFlowUNetModule(nn.Module):
             C=self.in_channels,
         )
         chex.assert_shape(image, (*batch_dims, *dims["HWC"]))
-        chex.assert_shape(label, batch_dims)
-        chex.assert_shape(begin, batch_dims)
-        chex.assert_shape(end, batch_dims)
 
         m_deterministic = nn.merge_param(
             "deterministic",
@@ -509,6 +506,7 @@ class MeanFlowUNetModule(nn.Module):
         )
 
         if label is not None:
+            chex.assert_shape(label, batch_dims)
             y_emb = self.label_embed(label, deterministic=m_deterministic)
         else:
             y_emb = jnp.zeros(
@@ -516,10 +514,12 @@ class MeanFlowUNetModule(nn.Module):
                 dtype=image.dtype,
             )
         if begin is not None:
+            chex.assert_shape(begin, batch_dims)
             r_emb = self.r_embed(begin)
         else:
             r_emb = jnp.zeros_like(y_emb)
         if end is not None:
+            chex.assert_shape(end, batch_dims)
             t_emb = self.t_embed(end)
         else:
             t_emb = jnp.zeros_like(y_emb)
