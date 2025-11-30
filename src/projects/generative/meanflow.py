@@ -473,18 +473,19 @@ class MeanFlowUNetModule(nn.Module):
     def __call__(
         self,
         image: jax.Array,
-        label: jax.Array,
         begin: typing.Optional[jax.Array] = None,
         end: typing.Optional[jax.Array] = None,
+        label: typing.Optional[jax.Array] = None,
         deterministic: typing.Optional[bool] = None,
     ) -> jax.Array:
         r"""Forward pass the `MeanFlowUNetModel`.
 
         Args:
             inputs (jax.Array): Input images of shape `(*, H, W, C)`.
-            cond (jax.Array): Conditioning labels of shape `(*,)`.
             begin (jax.Array): Begin timestamp `r` of shape `(*, )`.
             end (jax.Array): End timestamp `t` of shape `(*, )`.
+            label (jax.Array): Integer class labels of shape `(*, )`.
+            deterministic (bool, optional): Whether to run deterministically.
 
         Returns:
             The predicted average velocity of shape `(*, H, W, C)`.
@@ -507,7 +508,13 @@ class MeanFlowUNetModule(nn.Module):
             deterministic,
         )
 
-        y_emb = self.label_embed(label, deterministic=m_deterministic)
+        if label is not None:
+            y_emb = self.label_embed(label, deterministic=m_deterministic)
+        else:
+            y_emb = jnp.zeros(
+                shape=(*batch_dims, self.latent_channels),
+                dtype=image.dtype,
+            )
         if begin is not None:
             r_emb = self.r_embed(begin)
         else:
@@ -665,7 +672,6 @@ class MeanFlowUNetModel(_model.Model):
         # sample t and r
         image = batch["image"]
         assert isinstance(image, jax.Array)
-        label = batch.get("label", None)
         batch_dims = image.shape[:-3]
         tr_rng, dropout_rng, f_rng, m_rng, e_rng = jax.random.split(rngs, 5)
 
@@ -728,7 +734,6 @@ class MeanFlowUNetModel(_model.Model):
             out = self.network.apply(
                 variables={"params": params},
                 image=z_t,
-                label=label,
                 begin=b_arg,
                 end=e_arg,
                 deterministic=deterministic,
@@ -742,11 +747,7 @@ class MeanFlowUNetModel(_model.Model):
         drdt = jnp.zeros_like(r)
         dtdt = jnp.ones_like(t)
         u, dudt = jax.jvp(u_fn, (z, r, t), (v, drdt, dtdt))
-        u_target = jax.lax.stop_gradient(
-            v
-            - jnp.clip(t - r, a_min=0.0, a_max=1.0)[..., None, None, None]
-            * dudt
-        )
+        u_target = v - (t - r)[..., None, None, None] * dudt
 
         # NOTE: following the symmetric meanflow
         # drdt = jnp.ones_like(r)
@@ -761,11 +762,14 @@ class MeanFlowUNetModel(_model.Model):
 
         # computes the target
         # NOTE: sum over all the pixels, following official implementation
-        loss = jnp.sum(jnp.square(u - u_target), axis=(-1, -2, -3))
+        loss = jnp.sum(
+            jnp.square(u - jax.lax.stop_gradient(u_target)),
+            axis=(-1, -2, -3),
+        )
 
         # applies adaptive weight power
         if self.adaptive_weight_power > 0.0:
-            ada_wt = jnp.power(loss + 1e-2, self.adaptive_weight_power)
+            ada_wt = jnp.power(loss + 1e-3, self.adaptive_weight_power)
             loss = loss / jax.lax.stop_gradient(ada_wt)
         loss = jnp.mean(loss)
 
@@ -813,7 +817,6 @@ class MeanFlowUNetModel(_model.Model):
 
         # TODO (juanwulu): unconditional generation
         image = batch["image"]
-        label = batch.get("label", None)
         shape, dtype = image.shape, image.dtype
 
         e = jax.random.normal(key=rngs, shape=shape, dtype=dtype)
@@ -822,7 +825,6 @@ class MeanFlowUNetModel(_model.Model):
         out = e - self.network.apply(
             variables={"params": params},
             image=e,
-            label=label,
             begin=t - r,
             end=t,
             deterministic=deterministic,
