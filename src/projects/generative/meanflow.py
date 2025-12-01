@@ -130,7 +130,7 @@ class SinusoidalEmbed(nn.Module):
             Sinusoidal embedding array of shape `(..., features)`.
         """
         out = jnp.outer(inputs[..., None], self.freqs)
-        out = jnp.concatenate([jnp.cos(out), jnp.sin(out)], axis=-1)
+        out = jnp.concatenate([jnp.sin(out), jnp.cos(out)], axis=-1)
         return out
 
 
@@ -426,48 +426,42 @@ class MeanFlowUNetModule(nn.Module):
 
     def setup(self) -> None:
         r"""Instantiate a `MeanFlowUNetModel` module."""
-        # self.backbone = refinenet.ConditionalRefineNet(
-        #     in_channels=self.in_channels,
-        #     image_size=self.image_size,
-        #     latent_channels=self.latent_channels,
-        #     norm_module=ConditionalInstanceNorm,
-        #     dtype=self.dtype,
-        #     param_dtype=self.param_dtype,
-        # )
-        # self.r_embed = TimestampEmbed(
-        #     features=self.latent_channels,
-        #     frequency=256,
-        #     max_stamp=10_000,
-        #     name="r_embedder",
-        #     dtype=self.dtype,
-        #     param_dtype=self.param_dtype,
-        # )
-        # self.t_embed = TimestampEmbed(
-        #     features=self.latent_channels,
-        #     frequency=256,
-        #     max_stamp=10_000,
-        #     name="t_embedder",
-        #     dtype=self.dtype,
-        #     param_dtype=self.param_dtype,
-        # )
-
+        # backbone U-Net model
         self.backbone = unet.ScoreNet(
             features=self.latent_channels,
             dropout_rate=self.dropout_rate,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
         )
-        self.r_embed = SinusoidalEmbed(self.latent_channels, endpoint=True)
-        self.t_embed = SinusoidalEmbed(self.latent_channels, endpoint=True)
-        self.label_embed = ConditionEmbed(
+
+        # conditional embeddings
+        self.time_embed = SinusoidalEmbed(
+            self.latent_channels * 2,
+            endpoint=True,
+        )
+        self.cond_in = nn.Dense(
             features=self.latent_channels,
-            num_classes=self.num_classes,
-            use_cfg_embedding=self.use_cfg_embedding,
-            deterministic=self.deterministic,
-            dropout_rate=self.dropout_rate,
-            name="y_embedder",
+            kernel_init=jax.nn.initializers.variance_scaling(
+                scale=1.0,
+                mode="fan_avg",
+                distribution="uniform",
+            ),
+            bias_init=jax.nn.initializers.zeros,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            name="cond_fc_1",
+        )
+        self.cond_out = nn.Dense(
+            features=self.latent_channels,
+            kernel_init=jax.nn.initializers.variance_scaling(
+                scale=1.0,
+                mode="fan_avg",
+                distribution="uniform",
+            ),
+            bias_init=jax.nn.initializers.zeros,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="cond_fc_2",
         )
 
     def __call__(
@@ -475,7 +469,6 @@ class MeanFlowUNetModule(nn.Module):
         image: jax.Array,
         begin: typing.Optional[jax.Array] = None,
         end: typing.Optional[jax.Array] = None,
-        label: typing.Optional[jax.Array] = None,
         deterministic: typing.Optional[bool] = None,
     ) -> jax.Array:
         r"""Forward pass the `MeanFlowUNetModel`.
@@ -484,12 +477,12 @@ class MeanFlowUNetModule(nn.Module):
             inputs (jax.Array): Input images of shape `(*, H, W, C)`.
             begin (jax.Array): Begin timestamp `r` of shape `(*, )`.
             end (jax.Array): End timestamp `t` of shape `(*, )`.
-            label (jax.Array): Integer class labels of shape `(*, )`.
             deterministic (bool, optional): Whether to run deterministically.
 
         Returns:
             The predicted average velocity of shape `(*, H, W, C)`.
         """
+
         # sanity check for the input arrays
         batch_dims = image.shape[:-3]
         dims = chex.Dimensions(
@@ -505,25 +498,26 @@ class MeanFlowUNetModule(nn.Module):
             deterministic,
         )
 
-        if label is not None:
-            chex.assert_shape(label, batch_dims)
-            y_emb = self.label_embed(label, deterministic=m_deterministic)
+        if begin is not None:
+            chex.assert_shape(begin, batch_dims)
+            r_emb = self.time_embed(begin)
         else:
-            y_emb = jnp.zeros(
+            r_emb = jnp.zeros(
                 shape=(*batch_dims, self.latent_channels),
                 dtype=image.dtype,
             )
-        if begin is not None:
-            chex.assert_shape(begin, batch_dims)
-            r_emb = self.r_embed(begin)
-        else:
-            r_emb = jnp.zeros_like(y_emb)
         if end is not None:
             chex.assert_shape(end, batch_dims)
-            t_emb = self.t_embed(end)
+            t_emb = self.time_embed(end)
         else:
-            t_emb = jnp.zeros_like(y_emb)
-        cond = t_emb + r_emb + y_emb
+            t_emb = jnp.zeros(
+                shape=(*batch_dims, self.latent_channels),
+                dtype=image.dtype,
+            )
+        cond = jnp.concatenate([t_emb, r_emb], axis=-1)
+        cond = jax.nn.silu(self.cond_in(cond))
+        cond = jax.nn.silu(self.cond_out(cond))
+
         output = self.backbone(
             inputs=image,
             cond=cond,
@@ -624,14 +618,12 @@ class MeanFlowUNetModel(_model.Model):
                 (1, self.image_size, self.image_size, self.in_channels),
                 dtype=jnp.float32,
             ),
-            "label": jnp.zeros((1,), dtype=jnp.int32),
             "begin": jnp.zeros((1,), dtype=jnp.float32),
             "end": jnp.zeros((1,), dtype=jnp.float32),
         }
         variables = self.network.init(
             rngs=rngs,
             image=dummy_inputs["image"],
-            label=dummy_inputs["label"],
             begin=dummy_inputs["begin"],
             end=dummy_inputs["end"],
             deterministic=True,
@@ -658,7 +650,6 @@ class MeanFlowUNetModel(_model.Model):
                 JAX random key or a dictionary of JAX random keys.
             batch (Dict[str, Any]): A batch of data containing:
                 - image (jax.Array): Input images of shape `(*, H, W, C)`.
-                - label (jax.Array): Conditioning labels of shape `(*, )`.
             params (frozen_dict.FrozenDict): The model parameters.
             deterministic (bool): Whether to run the model deterministically.
             **kwargs: additional keyword arguments.
@@ -804,7 +795,6 @@ class MeanFlowUNetModel(_model.Model):
             params (frozen_dict.FrozenDict): The model parameters.
             batch (Dict[str, Any]): A batch of data containing:
                 - image (jax.Array): Input images of shape `(*, H, W, C)`.
-                - label (jax.Array): Conditioning labels of shape `(*, )`.
             shape (jax.typing.Shape): The shape of the output samples.
             dtype (Any): The dtype of the output samples.
             deterministic (bool): Whether to run the model deterministically.

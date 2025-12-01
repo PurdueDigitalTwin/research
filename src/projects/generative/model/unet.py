@@ -139,7 +139,6 @@ class ResNetBlock(nn.Module):
         out = self.conv_1(nn.silu(self.norm_1(inputs)))
 
         if cond is not None:
-            chex.assert_shape(cond, (*batch_dims, cond.shape[-1]))
             out = out + self.cond_linear(cond)[..., None, None, :]
         out = nn.silu(self.norm_2(out))
         out = self.dropout(out, deterministic=m_deterministic)
