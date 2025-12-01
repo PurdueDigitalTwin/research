@@ -206,9 +206,9 @@ def main(_: typing.List[str]) -> int:
         logging.rank_zero_error("Resuming from checkpoint not implemented.")
         return 1
 
+    p_training_step = functools.partial(training_step, model=model)
+    p_evaluation_step = functools.partial(evaluation_step, model=model)
     if exp_config.mode == "train":
-        p_training_step = functools.partial(training_step, model=model)
-        p_evaluation_step = functools.partial(evaluation_step, model=model)
         _train.run(
             state=state,
             datamodule=datamodule,
@@ -225,8 +225,8 @@ def main(_: typing.List[str]) -> int:
         )
     elif exp_config.mode == "evaluate":
         _evaluate.run(
-            model=model,
             datamodule=datamodule,
+            evaluation_step=p_evaluation_step,
             params=params,
             writer=writer,
             work_dir=log_dir,
