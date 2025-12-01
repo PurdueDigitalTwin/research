@@ -158,11 +158,12 @@ def run(
                             if outputs.histograms is not None:
                                 writer.write_histograms(
                                     step=step,
-                                    histograms={
+                                    arrays={
                                         f"eval/{k}": v
                                         for k, v in outputs.histograms.items()
                                     },
                                 )
+                        writer.flush()
 
                     batch = _shard(batch)
                     with jax.profiler.StepTraceAnnotation(
@@ -203,11 +204,12 @@ def run(
                         if outputs.histograms is not None:
                             writer.write_histograms(
                                 step=step,
-                                histograms={
+                                arrays={
                                     f"train/{k}": v
                                     for k, v in outputs.histograms.items()
                                 },
                             )
+                        writer.flush()
                     step += 1
 
                     # checkpointing
@@ -240,6 +242,7 @@ def run(
                     step=step,
                     scalars=scalar_output,
                 )
+                writer.flush()
 
         except Exception as e:
             logging.rank_zero_error(
@@ -250,6 +253,7 @@ def run(
             _status = 1
         finally:
             state = jax_utils.unreplicate(state)
+            writer.close()
             logging.rank_zero_info(
                 "Training finished. Final step: %d. Exit with code %d.",
                 state.step,
