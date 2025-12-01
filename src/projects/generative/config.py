@@ -32,7 +32,7 @@ def meanflow_unet_cifar_10() -> _config.ExperimentConfig:
                     ),
                 ),
             ),
-            batch_size=128,
+            batch_size=1024,
             num_workers=2,
             deterministic=True,
             drop_remainder=True,
