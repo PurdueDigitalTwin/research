@@ -155,6 +155,14 @@ def run(
                                         for k, v in outputs.images.items()
                                     },
                                 )
+                            if outputs.histograms is not None:
+                                writer.write_histograms(
+                                    step=step,
+                                    histograms={
+                                        f"eval/{k}": v
+                                        for k, v in outputs.histograms.items()
+                                    },
+                                )
 
                     batch = _shard(batch)
                     with jax.profiler.StepTraceAnnotation(
@@ -187,7 +195,18 @@ def run(
                         if outputs.images is not None:
                             writer.write_images(
                                 step=step,
-                                images=outputs.images,
+                                images={
+                                    f"train/{k}": v
+                                    for k, v in outputs.images.items()
+                                },
+                            )
+                        if outputs.histograms is not None:
+                            writer.write_histograms(
+                                step=step,
+                                histograms={
+                                    f"train/{k}": v
+                                    for k, v in outputs.histograms.items()
+                                },
                             )
                     step += 1
 
