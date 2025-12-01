@@ -774,6 +774,7 @@ class MeanFlowUNetModel(_model.Model):
 
         out = _model.StepOutputs(
             scalars={"loss": loss, "velocity_loss": velocity_loss},
+            histograms={"t": t, "r": r, "t - r": t - r},
         )
 
         return loss, out

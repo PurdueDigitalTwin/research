@@ -15,11 +15,14 @@ class StepOutputs:
         output (Optional[jax.Array]): The main output of the model.
         scalars (Optional[Dict[str, Any]]): A dictionary of scalar metrics.
         images (Optional[Dict[str, Any]]): A dictionary of image outputs.
+        histograms (Optional[Dict[str, Array]]): A dictionary of array to
+            plot as histograms.
     """
 
     output: typing.Optional[jax.Array] = None
     scalars: typing.Optional[typing.Dict[str, typing.Any]] = None
     images: typing.Optional[typing.Dict[str, typing.Any]] = None
+    histograms: typing.Optional[typing.Dict[str, jax.Array]] = None
 
 
 class Model(abc.ABC):
