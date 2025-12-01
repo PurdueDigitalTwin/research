@@ -812,11 +812,26 @@ class MeanFlowUNetModel(_model.Model):
         e = jax.random.normal(key=rngs, shape=shape, dtype=dtype)
         r = jnp.zeros(e.shape[:-3], dtype=dtype)
         t = jnp.ones(e.shape[:-3], dtype=dtype)
+        if self.timestamp_cond == "t_and_r":
+            b_arg, e_arg = r, t
+        elif self.timestamp_cond == "t_and_t_minus_r":
+            b_arg, e_arg = t - r, t
+        elif self.timestamp_cond == "t_and_r_and_t_minus_r":
+            raise NotImplementedError(
+                "`t_and_r_and_t_minus_r` conditioning is not implemented."
+            )
+        elif self.timestamp_cond == "t_minus_r":
+            b_arg, e_arg = t - r, None
+        else:
+            raise ValueError(
+                f"Unsupported timestamp conditioning: {self.timestamp_cond}."
+            )
+
         out = e - self.network.apply(
             variables={"params": params},
             image=e,
-            begin=t - r,
-            end=t,
+            begin=b_arg,
+            end=e_arg,
             deterministic=deterministic,
         )
 
