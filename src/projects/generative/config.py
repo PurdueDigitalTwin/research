@@ -1,4 +1,5 @@
 import functools
+import math
 
 import fiddle as fdl
 import optax
@@ -40,10 +41,10 @@ def meanflow_unet_cifar_10() -> _config.ExperimentConfig:
             meanflow.MeanFlowUNetModel,
             in_channels=3,
             image_size=32,
-            latent_channels=128,
-            num_classes=10,
-            use_cfg_embedding=False,
+            features=128,
             dropout_rate=0.2,
+            epsilon=1e-6,
+            skip_scale=math.sqrt(0.5),
             timestamp_cond="t_and_t_minus_r",
             timestamp_sampler="logit-normal",
             timestamp_sampler_kwargs=dict(mean=-2.0, stddev=2.0),

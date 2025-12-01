@@ -18,6 +18,8 @@ class ResNetBlock(nn.Module):
         deterministic (bool, optional): If true, the model is run in
             deterministic mode (e.g., no dropout). Defaults to `None`.
         dropout_rate (float, optional): Dropout rate. Default is :math:`0`.
+        skip_scale (float, optional): Scaling factor for the residual
+            connection output. Default is :math:`1.0`.
         dtype (Any, optional): The dtype of the computation.
         param_dtype (Any, optional): The dtype of the parameters.
         precision (Any, optional): Numerical precision of the computation.
@@ -28,6 +30,7 @@ class ResNetBlock(nn.Module):
     epsilon: float = 1e-5
     deterministic: typing.Optional[bool] = None
     dropout_rate: float = 0.0
+    skip_scale: float = 1.0
     dtype: typing.Any = None
     param_dtype: typing.Any = None
     precision: typing.Any = None
@@ -136,11 +139,11 @@ class ResNetBlock(nn.Module):
             C=inputs.shape[-1],
         )
 
-        out = self.conv_1(nn.silu(self.norm_1(inputs)))
+        out = self.conv_1(jax.nn.silu(self.norm_1(inputs)))
 
         if cond is not None:
-            out = out + self.cond_linear(cond)[..., None, None, :]
-        out = nn.silu(self.norm_2(out))
+            out = out + self.cond_linear(jax.nn.silu(cond))[..., None, None, :]
+        out = jax.nn.silu(self.norm_2(out))
         out = self.dropout(out, deterministic=m_deterministic)
         out = self.conv_2(out)
 
@@ -149,6 +152,7 @@ class ResNetBlock(nn.Module):
         else:
             shortcut = inputs
         out = out + shortcut
+        out = out * self.skip_scale
         chex.assert_shape(out, (*batch_dims, *dims["HW"], self.features))
 
         return out
@@ -277,9 +281,21 @@ class AttnBlock(nn.Module):
     r"""Self-attention block with group normalization in U-Net models.
 
     Args:
+        num_heads (int): Number of attention heads.
+        num_groups (int): Number of groups for `GroupNorm`.
+        epsilon (float, optional): Small float added to variance to avoid
+            dividing by zero in `GroupNorm`. Default is :math:`1e-5`.
+        skip_scale (float, optional): Scaling factor for the residual
+            connection output. Default is :math:`1.0`.
+        dtype (Any, optional): The dtype of the computation.
+        param_dtype (Any, optional): The dtype of the parameters.
+        precision (Any, optional): Numerical precision of the computation.
     """
 
-    num_heads: int = 1
+    num_heads: int
+    num_groups: int
+    epsilon: float = 1e-5
+    skip_scale: float = 1.0
     dtype: typing.Any = None
     param_dtype: typing.Any = None
     precision: typing.Any = None
@@ -296,8 +312,8 @@ class AttnBlock(nn.Module):
         """
 
         norm_in = nn.GroupNorm(
-            num_groups=32,
-            epsilon=1e-5,
+            num_groups=self.num_groups,
+            epsilon=self.epsilon,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
             name="norm",
@@ -409,6 +425,15 @@ class AttnBlock(nn.Module):
                 name="v_proj",
             )
             value = v_proj(out)
+            out = nn.dot_product_attention(
+                query,
+                key,
+                value,
+                broadcast_dropout=False,
+                dropout_rate=0.0,
+                dtype=self.dtype,
+                precision=self.precision,
+            )
             out_proj = nn.DenseGeneral(
                 features=inputs.shape[-1],
                 kernel_init=jax.nn.initializers.zeros,
@@ -421,6 +446,7 @@ class AttnBlock(nn.Module):
 
         chex.assert_equal_shape([out, inputs])
         out = out + inputs
+        out = out * self.skip_scale
 
         return out
 
@@ -444,6 +470,8 @@ class ScoreNet(nn.Module):
         dropout_rate (float, optional): Dropout rate. Default is :math:`0.0`.
         epsilon (float, optional): Small float added to variance to avoid
             dividing by zero in `GroupNorm`. Default is :math:`1e-5`.
+        skip_scale (float, optional): Scaling factor for the residual
+            connection outputs. Default is :math:`1.0`.
         deterministic (bool, optional): If true, the model is run in
             deterministic mode (e.g., no dropout). Defaults to `None`.
         dtype (Any, optional): The dtype of the computation.
@@ -458,6 +486,7 @@ class ScoreNet(nn.Module):
     attn_resolutions: typing.Sequence[int] = (16,)
     dropout_rate: float = 0.0
     epsilon: float = 1e-5
+    skip_scale: float = 1.0
     deterministic: typing.Optional[bool] = None
     dtype: typing.Any = None
     param_dtype: typing.Any = None
@@ -522,6 +551,7 @@ class ScoreNet(nn.Module):
                     num_groups=self.num_groups,
                     dropout_rate=self.dropout_rate,
                     epsilon=self.epsilon,
+                    skip_scale=self.skip_scale,
                     dtype=self.dtype,
                     param_dtype=self.param_dtype,
                     precision=self.precision,
@@ -535,6 +565,9 @@ class ScoreNet(nn.Module):
                 if out.shape[-3] in self.attn_resolutions:
                     block = AttnBlock(
                         num_heads=1,
+                        num_groups=self.num_groups,
+                        epsilon=self.epsilon,
+                        skip_scale=self.skip_scale,
                         dtype=self.dtype,
                         param_dtype=self.param_dtype,
                         precision=self.precision,
@@ -557,6 +590,7 @@ class ScoreNet(nn.Module):
             features=out.shape[-1],
             num_groups=self.num_groups,
             epsilon=self.epsilon,
+            skip_scale=self.skip_scale,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
             precision=self.precision,
@@ -565,6 +599,9 @@ class ScoreNet(nn.Module):
         out = block(out, cond=cond, deterministic=m_deterministic)
         block = AttnBlock(
             num_heads=1,
+            num_groups=self.num_groups,
+            epsilon=self.epsilon,
+            skip_scale=self.skip_scale,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
             precision=self.precision,
@@ -575,6 +612,7 @@ class ScoreNet(nn.Module):
             features=out.shape[-1],
             num_groups=self.num_groups,
             epsilon=self.epsilon,
+            skip_scale=self.skip_scale,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
             precision=self.precision,
@@ -593,6 +631,7 @@ class ScoreNet(nn.Module):
                     dropout_rate=self.dropout_rate,
                     num_groups=self.num_groups,
                     epsilon=self.epsilon,
+                    skip_scale=self.skip_scale,
                     dtype=self.dtype,
                     param_dtype=self.param_dtype,
                     precision=self.precision,
@@ -606,6 +645,9 @@ class ScoreNet(nn.Module):
                 if out.shape[-3] in self.attn_resolutions:
                     block = AttnBlock(
                         num_heads=1,
+                        num_groups=self.num_groups,
+                        epsilon=self.epsilon,
+                        skip_scale=self.skip_scale,
                         dtype=self.dtype,
                         param_dtype=self.param_dtype,
                         precision=self.precision,
@@ -630,7 +672,7 @@ class ScoreNet(nn.Module):
             param_dtype=self.param_dtype,
             name="norm_out",
         )
-        out = nn.silu(norm_out(out))
+        out = jax.nn.silu(norm_out(out))
         conv_out = nn.Conv(
             features=dims.C,  # type: ignore
             kernel_size=(3, 3),

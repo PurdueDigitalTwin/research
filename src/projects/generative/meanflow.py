@@ -395,52 +395,43 @@ class MeanFlowUNetModule(nn.Module):
     """Generative model with a RefineNet backbone trained with `MeanFlow`.
 
     Attributes:
-        in_channels (int): Number of channels in the input images.
-        image_size (int): Height and width of the input images.
-        latent_channels (int): Number of channels in the latent feature maps.
-        num_classes (int): Number of conditioning classes.
+        features (int): Number of channels in the latent feature maps.
+        num_groups (int): Number of groups for `GroupNorm` layers.
+        dropout_rate (float): Dropout rate for the attention blocks.
+        epsilon (float): Small constant for numerical stability in `GroupNorm`.
+        skip_scale (float): Scaling factor for skip connections.
+        deterministic (Optional[bool]): Whether to run deterministically.
         dtype (dtype): The dtype of the computation (default: float32).
         param_dtype (dtype): The dtype of the parameters (default: float32).
     """
 
-    in_channels: int
-    """int: Number of channels in the input images."""
-    image_size: int
-    """int: Height and width of the input images."""
-    latent_channels: int
-    """int: Number of channels in the latent feature maps."""
-    num_classes: int
-    """int: Number of conditioning classes."""
-    use_cfg_embedding: bool = False
-    """bool: Whether to use classifier-free guidance (CFG) embedding."""
-    deterministic: typing.Optional[bool] = None
-    """Optional[bool]: Whether to run deterministically."""
+    features: int
+    num_groups: int = 32
     dropout_rate: float = 0.0
-    """float: Dropout rate for the classifier-free guidance."""
+    epsilon: float = 1e-5
+    skip_scale: float = 1.0
+    deterministic: typing.Optional[bool] = None
     dtype: typing.Any = None
-    """typing.Any: The dtype of the computation."""
     param_dtype: typing.Any = None
-    """typing.Any: The dtype of the parameters."""
     precision: typing.Any = None
-    """typing.Any: The precision of the computation."""
 
     def setup(self) -> None:
         r"""Instantiate a `MeanFlowUNetModel` module."""
         # backbone U-Net model
         self.backbone = unet.ScoreNet(
-            features=self.latent_channels,
+            features=self.features,
+            num_groups=self.num_groups,
+            epsilon=self.epsilon,
             dropout_rate=self.dropout_rate,
+            skip_scale=self.skip_scale,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
         )
 
         # conditional embeddings
-        self.time_embed = SinusoidalEmbed(
-            self.latent_channels * 2,
-            endpoint=True,
-        )
+        self.time_embed = SinusoidalEmbed(self.features * 2, endpoint=True)
         self.cond_in = nn.Dense(
-            features=self.latent_channels,
+            features=self.features * 4,
             kernel_init=jax.nn.initializers.variance_scaling(
                 scale=1.0,
                 mode="fan_avg",
@@ -452,7 +443,7 @@ class MeanFlowUNetModule(nn.Module):
             name="cond_fc_1",
         )
         self.cond_out = nn.Dense(
-            features=self.latent_channels,
+            features=self.features * 4,
             kernel_init=jax.nn.initializers.variance_scaling(
                 scale=1.0,
                 mode="fan_avg",
@@ -481,16 +472,6 @@ class MeanFlowUNetModule(nn.Module):
         Returns:
             The predicted average velocity of shape `(*, H, W, C)`.
         """
-
-        # sanity check for the input arrays
-        batch_dims = image.shape[:-3]
-        dims = chex.Dimensions(
-            H=self.image_size,
-            W=self.image_size,
-            C=self.in_channels,
-        )
-        chex.assert_shape(image, (*batch_dims, *dims["HWC"]))
-
         m_deterministic = nn.merge_param(
             "deterministic",
             self.deterministic,
@@ -499,8 +480,7 @@ class MeanFlowUNetModule(nn.Module):
 
         emb = [self.time_embed(time) for time in timestamps]
         cond = jnp.concatenate(emb, axis=-1)
-        cond = jax.nn.silu(self.cond_in(cond))
-        cond = jax.nn.silu(self.cond_out(cond))
+        cond = self.cond_out(jax.nn.silu(self.cond_in(cond)))
 
         output = self.backbone(
             inputs=image,
@@ -515,12 +495,12 @@ class MeanFlowUNetModel(_model.Model):
     r"""`MeanFlow` generative model with a U-Net backbone.
 
     Args:
-        in_channels (int): Number of channels in the input images.
-        image_size (int): Height and width of the (square) input images.
-        latent_channels (int): Number of channels in the latent feature maps.
-        num_classes (int): Number of conditioning classes.
-        use_cfg_embedding (bool): Whether to use classifier-free guidance (CFG).
+        in_channels (int): Number of input image channels.
+        image_size (int): Height and width of the input images.
+        features (int): Dimensionality of the latent feature map.
         dropout_rate (float): Dropout rate for the classifier-free guidance.
+        epsilon (float): Small constant for numerical stability in `GroupNorm`.
+        skip_scale (float): Scaling factor for skip connections.
         dtype (dtype): The dtype of the computation (default: float32).
         param_dtype (dtype): The dtype of the parameters (default: float32).
         timestamp_cond (Literal): The type of timestamp conditioning.
@@ -539,10 +519,10 @@ class MeanFlowUNetModel(_model.Model):
         self,
         in_channels: int,
         image_size: int,
-        latent_channels: int,
-        num_classes: int,
-        use_cfg_embedding: bool,
+        features: int,
         dropout_rate: float,
+        epsilon: float,
+        skip_scale: float,
         dtype: typing.Any = None,
         param_dtype: typing.Any = None,
         precision: typing.Any = None,
@@ -563,18 +543,17 @@ class MeanFlowUNetModel(_model.Model):
         """Initializes the `MeanFlow` model."""
         self.in_channels = in_channels
         self.image_size = image_size
+        self.features = features
         self.timestamp_cond = timestamp_cond
         self.timestamp_sampler = timestamp_sampler
         self.timestamp_sampler_kwargs = timestamp_sampler_kwargs
         self.timestamp_overlap_rate = timestamp_overlap_rate
         self.adaptive_weight_power = adaptive_weight_power
         self._network = MeanFlowUNetModule(
-            in_channels=in_channels,
-            image_size=image_size,
-            latent_channels=latent_channels,
-            num_classes=num_classes,
-            use_cfg_embedding=use_cfg_embedding,
+            features=features,
+            skip_scale=skip_scale,
             dropout_rate=dropout_rate,
+            epsilon=epsilon,
             name="unet",
             dtype=dtype,
             param_dtype=param_dtype,
