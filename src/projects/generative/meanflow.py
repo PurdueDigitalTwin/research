@@ -467,8 +467,7 @@ class MeanFlowUNetModule(nn.Module):
     def __call__(
         self,
         image: jax.Array,
-        begin: typing.Optional[jax.Array] = None,
-        end: typing.Optional[jax.Array] = None,
+        timestamps: typing.Tuple[jax.Array],
         deterministic: typing.Optional[bool] = None,
     ) -> jax.Array:
         r"""Forward pass the `MeanFlowUNetModel`.
@@ -498,23 +497,8 @@ class MeanFlowUNetModule(nn.Module):
             deterministic,
         )
 
-        if begin is not None:
-            chex.assert_shape(begin, batch_dims)
-            r_emb = self.time_embed(begin)
-        else:
-            r_emb = jnp.zeros(
-                shape=(*batch_dims, self.latent_channels),
-                dtype=image.dtype,
-            )
-        if end is not None:
-            chex.assert_shape(end, batch_dims)
-            t_emb = self.time_embed(end)
-        else:
-            t_emb = jnp.zeros(
-                shape=(*batch_dims, self.latent_channels),
-                dtype=image.dtype,
-            )
-        cond = jnp.concatenate([t_emb, r_emb], axis=-1)
+        emb = [self.time_embed(time) for time in timestamps]
+        cond = jnp.concatenate(emb, axis=-1)
         cond = jax.nn.silu(self.cond_in(cond))
         cond = jax.nn.silu(self.cond_out(cond))
 
@@ -613,19 +597,35 @@ class MeanFlowUNetModel(_model.Model):
         del batch  # unused
 
         # create dummy inputs
+        if self.timestamp_cond in ["t_and_r", "t_and_t_minus_r"]:
+            timestamps = (
+                jnp.zeros((1,), dtype=jnp.float32),
+                jnp.zeros((1,), dtype=jnp.float32),
+            )
+        elif self.timestamp_cond == "t_and_r_and_t_minus_r":
+            timestamps = (
+                jnp.zeros((1,), dtype=jnp.float32),
+                jnp.zeros((1,), dtype=jnp.float32),
+                jnp.zeros((1,), dtype=jnp.float32),
+            )
+        elif self.timestamp_cond == "t_minus_r":
+            timestamps = (jnp.zeros((1,), dtype=jnp.float32),)
+        else:
+            raise ValueError(
+                f"Unsupported timestamp conditioning: {self.timestamp_cond}."
+            )
+
         dummy_inputs = {
             "image": jnp.zeros(
                 (1, self.image_size, self.image_size, self.in_channels),
                 dtype=jnp.float32,
             ),
-            "begin": jnp.zeros((1,), dtype=jnp.float32),
-            "end": jnp.zeros((1,), dtype=jnp.float32),
+            "timestamps": timestamps,
         }
         variables = self.network.init(
             rngs=rngs,
             image=dummy_inputs["image"],
-            begin=dummy_inputs["begin"],
-            end=dummy_inputs["end"],
+            timestamps=dummy_inputs["timestamps"],
             deterministic=True,
         )
         _tabulate_fn = nn.summary.tabulate(self.network, rngs=rngs)
@@ -708,15 +708,13 @@ class MeanFlowUNetModel(_model.Model):
             t_in: jax.Array,
         ) -> jax.Array:
             if self.timestamp_cond == "t_and_r":
-                b_arg, e_arg = r_in, t_in
+                timestamps = (r_in, t_in)
             elif self.timestamp_cond == "t_and_t_minus_r":
-                b_arg, e_arg = t_in - r_in, t_in
+                timestamps = (t_in - r_in, t_in)
             elif self.timestamp_cond == "t_and_r_and_t_minus_r":
-                raise NotImplementedError(
-                    "`t_and_r_and_t_minus_r` conditioning is not implemented."
-                )
+                timestamps = (t_in, r_in, t_in - r_in)
             elif self.timestamp_cond == "t_minus_r":
-                b_arg, e_arg = t_in - r_in, None
+                timestamps = (t_in - r_in,)
             else:
                 raise ValueError(
                     f"Unsupported timestamp conditioning: {self.timestamp_cond}."
@@ -725,8 +723,7 @@ class MeanFlowUNetModel(_model.Model):
             out = self.network.apply(
                 variables={"params": params},
                 image=z_t,
-                begin=b_arg,
-                end=e_arg,
+                timestamps=timestamps,
                 deterministic=deterministic,
                 rngs={"dropout": dropout_rng},
             )
@@ -814,15 +811,13 @@ class MeanFlowUNetModel(_model.Model):
         r = jnp.zeros(e.shape[:-3], dtype=dtype)
         t = jnp.ones(e.shape[:-3], dtype=dtype)
         if self.timestamp_cond == "t_and_r":
-            b_arg, e_arg = r, t
+            timestamps = (t, r)
         elif self.timestamp_cond == "t_and_t_minus_r":
-            b_arg, e_arg = t - r, t
+            timestamps = (t, t - r)
         elif self.timestamp_cond == "t_and_r_and_t_minus_r":
-            raise NotImplementedError(
-                "`t_and_r_and_t_minus_r` conditioning is not implemented."
-            )
+            timestamps = (t, r, t - r)
         elif self.timestamp_cond == "t_minus_r":
-            b_arg, e_arg = t - r, None
+            timestamps = (t - r,)
         else:
             raise ValueError(
                 f"Unsupported timestamp conditioning: {self.timestamp_cond}."
@@ -831,8 +826,7 @@ class MeanFlowUNetModel(_model.Model):
         out = e - self.network.apply(
             variables={"params": params},
             image=e,
-            begin=b_arg,
-            end=e_arg,
+            timestamps=timestamps,
             deterministic=deterministic,
         )
 
