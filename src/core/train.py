@@ -61,7 +61,6 @@ def run(
         training_step (Callable): The training step function.
         evaluation_step (Callable): The evaluation step function.
         num_train_steps (int): Number of training steps.
-        checkpoint_manager (Checkpoint): The checkpoint manager.
         writer (MetricWriter): The metric writer for logging.
         work_dir (str): The working directory for saving checkpoints and logs.
         rng (Any): The random number generator.

@@ -10,7 +10,7 @@ class ResNetBlock(nn.Module):
     r"""A residual downsampling block with two convolutional layers.
 
     Args:
-        features (int): Dimensionality of the latent feaatures.
+        features (int): Dimensionality of the latent features.
         num_groups (int, optional): Number of groups for `GroupNorm`.
             Default is :math:`32`.
         epsilon (float, optional): Small float added to variance to avoid
