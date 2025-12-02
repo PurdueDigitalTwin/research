@@ -1,5 +1,6 @@
 import collections
 import functools
+import traceback
 import typing
 
 from clu import metric_writers
@@ -7,14 +8,14 @@ from clu import periodic_actions
 import jax
 import jaxtyping
 
-from src.core import data as _data
+from src.core import datamodule as _datamodule
 from src.core import model as _model
 from src.utilities import logging
 
 
 def run(
-    model: _model.Model,
-    datamodule: _data.DataModule,
+    datamodule: _datamodule.DataModule,
+    evaluation_step: typing.Callable[..., _model.StepOutputs],
     params: jaxtyping.PyTree,
     writer: metric_writers.MetricWriter,
     work_dir: str,
@@ -24,8 +25,8 @@ def run(
     """Runs evaluation loop with the given model and datamodule.
 
     Args:
-        model (Model): The model to evaluate.
         datamodule (DataModule): The datamodule providing the evaluation data.
+        evaluation_step (Callable): The pmapped evaluation step function.
         params (PyTree): The model parameters to use for evaluation.
         writer (MetricWriter): The metric writer for logging evaluation metrics.
         work_dir (str): The working directory for saving outputs.
@@ -36,11 +37,11 @@ def run(
         Integer status code (0 for success).
     """
     _status = 0
-    logging.rank_zero_debug(f"running {model.__class__.__name__} eval...")
 
-    eval_rng = jax.random.fold_in(rng, jax.process_index())
-    p_evaluation_step = functools.partial(model.evaluation_step, rng=eval_rng)
+    logging.rank_zero_info("Compiling evaluation step...")
+    p_evaluation_step = functools.partial(evaluation_step, rng=rng)
     p_evaluation_step = jax.pmap(p_evaluation_step, axis_name="batch")
+    logging.rank_zero_info("Compiling evaluation step...DONE!")
 
     hooks = []
     if jax.process_index() == 0:
@@ -69,7 +70,7 @@ def run(
                     batch,
                 )
                 with jax.profiler.StepTraceAnnotation(
-                    name="train",
+                    name="evaluation",
                     step_num=step,
                 ):
                     outputs = p_evaluation_step(
@@ -85,38 +86,52 @@ def run(
 
                 # logging at the end of batch
                 if outputs.scalars is not None:
-                    _scalars = {}
-                    for k, v in outputs.scalars.items():
-                        eval_metrics[k].append(jax.device_get(v).mean())
-                        _scalars[
-                            f"eval/{k.replace('_', ' ')}"
-                        ] = jax.device_get(v).mean()
                     writer.write_scalars(
-                        step=step + 1,
-                        scalars=_scalars,
+                        step=step,
+                        scalars={
+                            f"eval/{k}_step": sum(v) / len(v)
+                            for k, v in outputs.scalars.items()
+                        },
                     )
                 if outputs.images is not None:
                     writer.write_images(
-                        step=step + 1,
-                        images=outputs.images,
+                        step=step,
+                        images={
+                            f"eval/{k}_step": v
+                            for k, v in outputs.images.items()
+                        },
                     )
+                if outputs.histograms is not None:
+                    writer.write_histograms(
+                        step=step,
+                        arrays={
+                            f"eval/{k}_step": v
+                            for k, v in outputs.histograms.items()
+                        },
+                    )
+                writer.flush()
 
             # logging at the end of evaluation
             logging.rank_zero_info("Evaluation done.")
             scalar_output = {
-                f"eval/{k.replace('_', ' ')}": sum(v) / len(v)
+                f"eval/{k.replace('_', ' ')}_epoch": sum(v) / len(v)
                 for k, v in eval_metrics.items()
             }
             writer.write_scalars(
                 step=step,
                 scalars=scalar_output,
             )
+            writer.flush()
+
         except Exception as e:
             logging.rank_zero_error(
                 "Exception occurred during evaluation: %s", e
             )
+            error_trace = traceback.format_exc()
+            logging.rank_zero_error("Stack trace:\n%s", error_trace)
             _status = 1
         finally:
+            writer.close()
             logging.rank_zero_info(
                 "Evaluation done. Exit with code %d.",
                 _status,

@@ -8,7 +8,7 @@ ml_py_library(
     deps = [
         "fiddle",
         "optax",
-        ":data",
+        ":datamodule",
         ":model",
     ],
 )
@@ -24,7 +24,7 @@ ml_py_library(
     deps = [
         "clu",
         "jax",
-        ":data",
+        ":datamodule",
         ":model",
         "//src/utilities:logging",
     ],
@@ -36,8 +36,8 @@ ml_py_library(
     deps = [
         "chex",
         "flax",
+        "jax",
         "jaxtyping",
-        ":train_state",
     ],
 )
 
@@ -60,7 +60,7 @@ ml_py_library(
         "flax",
         "jax",
         "jaxtyping",
-        ":data",
+        ":datamodule",
         ":model",
         ":train_state",
         "//src/utilities:logging",

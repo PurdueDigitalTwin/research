@@ -2,6 +2,7 @@
 
 load("@ml_infra_cpu_3_10//:requirements.bzl", cpu_req = "requirement")
 load("@ml_infra_cuda_3_10//:requirements.bzl", cuda_req = "requirement")
+load("@ml_infra_mps_3_10//:requirements.bzl", mps_req = "requirement")
 load("@ml_infra_tpu_3_10//:requirements.bzl", tpu_req = "requirement")
 load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
 
@@ -17,6 +18,7 @@ def _select_requirement(name):
     return select({
         "//third_party:is_cpu": [cpu_req(name)],
         "//third_party:is_cuda": [cuda_req(name)],
+        "//third_party:is_mps": [mps_req(name)],
         "//third_party:is_tpu": [tpu_req(name)],
     })
 
@@ -36,8 +38,13 @@ def _select_all_requirements(names = []):
     if "fiddle" in names and "etils" not in names:
         reqs += _select_requirement("etils")
 
-    if "jax" in names and "jaxlib" not in names:
-        reqs += _select_requirement("jaxlib")
+    if "jax" in names:
+        if "jaxlib" not in names:
+            reqs += _select_requirement("jaxlib")
+        reqs += select({
+            "//third_party:is_mps": [mps_req("jax-metal")],
+            "//conditions:default": [],
+        })
 
     return reqs
 

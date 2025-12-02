@@ -4,31 +4,16 @@ import chex
 from flax import linen as nn
 from flax.core import frozen_dict
 import jax
-import jax.core as jax_core
-import jax.numpy as jnp
+from jax import numpy as jnp
+from jax._src import typing as jax_typing
 import jaxtyping
 import typing_extensions
 
-from learning.core import mixin as _mixin
-from learning.generative.model import refinenet
+from src.core import model as _model
+from src.projects.generative.model import unet
 
 # Type Aliases
 PyTree = jaxtyping.PyTree
-
-
-# ==============================================================================
-# Data Structures
-# ==============================================================================
-@chex.dataclass
-class MeanFlowOutputs:
-    """Generic output structure from a `MeanFlow` model."""
-
-    loss: typing.Optional[jax.Array] = None
-    """jax.Array: The training loss."""
-    velocity_loss: typing.Optional[jax.Array] = None
-    """jax.Array: The velocity loss for monitoring."""
-    output: typing.Optional[jax.Array] = None
-    """jax.Array: The model output."""
 
 
 # ==============================================================================
@@ -36,20 +21,20 @@ class MeanFlowOutputs:
 # ==============================================================================
 def sample_t_r(
     *,
-    key: jax.random.KeyArray,
-    shape: jax_core.Shape,
+    key: jax.Array,
+    shape: jax_typing.Shape,
     dtype: typing.Any,
-    distribution: typing.Literal["uniform", "lognormal"],
+    distribution: str,
     **kwargs,
 ) -> typing.Tuple[jax.Array, jax.Array]:
     """Samples begin and end timestamps randomly from a given distribution.
 
     Attributes:
-        key (jax.random.KeyArray): JAX random key.
-        shape (jax_core.Shape): The shape of the output arrays.
+        key (jax.Array): JAX random key.
+        shape (jax.typing.Shape): The shape of the output arrays.
         dtype (dtype): The dtype of the output arrays.
         distribution (str): The distribution to sample from.
-            One of `["uniform", "lognormal"]`.
+            One of `["uniform", "logit-normal"]`.
         **kwargs: Additional keyword arguments for the distribution.
 
     Returns:
@@ -75,28 +60,28 @@ def sample_t_r(
             minval=minval,
             maxval=maxval,
         )
-    elif distribution == "lognormal":
+    elif distribution == "logit-normal":
 
-        def _lognormal(
-            key: jax.random.KeyArray,
-            shape: jax_core.Shape,
+        def _logit_normal(
+            key: jax.Array,
+            shape: jax_typing.Shape,
             dtype: typing.Any,
             mean: float,
             stddev: float,
         ) -> jax.Array:
             z = jax.random.normal(key=key, shape=shape, dtype=dtype)
-            return jnp.exp(mean + stddev * z)
+            return jax.nn.sigmoid(mean + stddev * z)
 
         mean = kwargs.get("mean", -0.4)
         stddev = kwargs.get("stddev", 1.0)
-        t = _lognormal(
+        t = _logit_normal(
             key=t_key,
             shape=shape,
             dtype=dtype,
             mean=mean,
             stddev=stddev,
         )
-        r = _lognormal(
+        r = _logit_normal(
             key=r_key,
             shape=shape,
             dtype=dtype,
@@ -106,15 +91,49 @@ def sample_t_r(
     else:
         raise ValueError(
             f"Unsupported distribution: {distribution}. "
-            'Must be one of ["uniform", "lognormal"].'
+            'Must be one of ["uniform", "logit-normal"].'
         )
 
-    return jnp.clip(t, a_min=0.0, a_max=1.0), jnp.clip(r, a_min=0.0, a_max=1.0)
+    return jnp.clip(t, 0.0, 1.0), jnp.clip(r, 0.0, 1.0)
 
 
 # ==============================================================================
 # Helper modules
 # ==============================================================================
+class SinusoidalEmbed(nn.Module):
+    r"""Sinusoidal positional embeddings.
+
+    Args:
+        features (int): Dimensionality of the output embeddings.
+        max_indx (int): Maximum index value.
+        endpoint (bool): Whether to include the endpoint frequency.
+    """
+
+    features: int
+    max_indx: int = 10_000
+    endpoint: bool = False
+
+    def setup(self) -> None:
+        """Instantiate a `SinusoidalEmbed` module."""
+        half_dim = self.features >> 1
+        freqs = jnp.arange(0, half_dim, dtype=jnp.float32)
+        freqs = freqs / (half_dim - (1 if self.endpoint else 0))
+        self.freqs = jnp.power(1.0 / self.max_indx, freqs)
+
+    def __call__(self, inputs: jax.Array) -> jax.Array:
+        r"""Forward pass and returns the sinusoidal embeddings.
+
+        Args:
+            inputs (jax.Array): Input indexes of shape `(*, )`.
+
+        Returns:
+            Sinusoidal embedding array of shape `(..., features)`.
+        """
+        out = jnp.outer(inputs[..., None], self.freqs)
+        out = jnp.concatenate([jnp.sin(out), jnp.cos(out)], axis=-1)
+        return out
+
+
 class TimestampEmbed(nn.Module):
     """Encode scalar timestamps to vectors.
 
@@ -277,7 +296,7 @@ class ConditionEmbed(nn.Module):
     def _drop_token(
         cond: jax.Array,
         dropout_rate: float,
-        rng: jax.random.KeyArray,
+        rng: jax.Array,
     ) -> jax.Array:
         """Drops class tokens for classifier-free guidance."""
         raise NotImplementedError("This method is not yet implemented.")
@@ -376,139 +395,144 @@ class MeanFlowUNetModule(nn.Module):
     """Generative model with a RefineNet backbone trained with `MeanFlow`.
 
     Attributes:
-        in_channels (int): Number of channels in the input images.
-        image_size (int): Height and width of the input images.
-        latent_channels (int): Number of channels in the latent feature maps.
-        num_classes (int): Number of conditioning classes.
+        features (int): Number of channels in the latent feature maps.
+        num_groups (int): Number of groups for `GroupNorm` layers.
+        dropout_rate (float): Dropout rate for the attention blocks.
+        epsilon (float): Small constant for numerical stability in `GroupNorm`.
+        skip_scale (float): Scaling factor for skip connections.
+        deterministic (Optional[bool]): Whether to run deterministically.
         dtype (dtype): The dtype of the computation (default: float32).
         param_dtype (dtype): The dtype of the parameters (default: float32).
     """
 
-    in_channels: int
-    """int: Number of channels in the input images."""
-    image_size: int
-    """int: Height and width of the input images."""
-    latent_channels: int
-    """int: Number of channels in the latent feature maps."""
-    num_classes: int
-    """int: Number of conditioning classes."""
-    use_cfg_embedding: bool = False
-    """bool: Whether to use classifier-free guidance (CFG) embedding."""
-    deterministic: typing.Optional[bool] = None
-    """Optional[bool]: Whether to run deterministically."""
+    features: int
+    num_groups: int = 32
     dropout_rate: float = 0.0
-    """float: Dropout rate for the classifier-free guidance."""
-    dtype: typing.Any = jnp.float32
-    """typing.Any: The dtype of the computation."""
-    param_dtype: typing.Any = jnp.float32
-    """typing.Any: The dtype of the parameters."""
+    epsilon: float = 1e-5
+    skip_scale: float = 1.0
+    deterministic: typing.Optional[bool] = None
+    dtype: typing.Any = None
+    param_dtype: typing.Any = None
+    precision: typing.Any = None
 
     def setup(self) -> None:
-        """Instantiate a `MeanFlowUNetModel` module."""
-        self.backbone = refinenet.ConditionalRefineNet(
-            in_channels=self.in_channels,
-            image_size=self.image_size,
-            latent_channels=self.latent_channels,
-            norm_module=ConditionalInstanceNorm,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-        )
-        self.r_embed = TimestampEmbed(
-            features=self.latent_channels,
-            frequency=256,
-            max_stamp=10_000,
-            name="r_embedder",
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-        )
-        self.t_embed = TimestampEmbed(
-            features=self.latent_channels,
-            frequency=256,
-            max_stamp=10_000,
-            name="t_embedder",
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-        )
-        self.label_embed = ConditionEmbed(
-            features=self.latent_channels,
-            num_classes=self.num_classes,
-            use_cfg_embedding=self.use_cfg_embedding,
-            deterministic=self.deterministic,
+        r"""Instantiate a `MeanFlowUNetModel` module."""
+        # backbone U-Net model
+        self.backbone = unet.ScoreNet(
+            features=self.features,
+            num_groups=self.num_groups,
+            epsilon=self.epsilon,
             dropout_rate=self.dropout_rate,
-            name="y_embedder",
+            skip_scale=self.skip_scale,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+        )
+
+        # conditional embeddings
+        self.time_embed = SinusoidalEmbed(self.features * 2, endpoint=True)
+        self.cond_in = nn.Dense(
+            features=self.features * 4,
+            kernel_init=jax.nn.initializers.variance_scaling(
+                scale=1.0,
+                mode="fan_avg",
+                distribution="uniform",
+            ),
+            bias_init=jax.nn.initializers.zeros,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="cond_fc_1",
+        )
+        self.cond_out = nn.Dense(
+            features=self.features * 4,
+            kernel_init=jax.nn.initializers.variance_scaling(
+                scale=1.0,
+                mode="fan_avg",
+                distribution="uniform",
+            ),
+            bias_init=jax.nn.initializers.zeros,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="cond_fc_2",
         )
 
     def __call__(
         self,
         image: jax.Array,
-        label: jax.Array,
-        begin: typing.Optional[jax.Array] = None,
-        end: typing.Optional[jax.Array] = None,
+        timestamps: typing.Tuple[jax.Array],
         deterministic: typing.Optional[bool] = None,
     ) -> jax.Array:
-        """Forward pass the `MeanFlowUNetModel`.
+        r"""Forward pass the `MeanFlowUNetModel`.
 
         Args:
             inputs (jax.Array): Input images of shape `(*, H, W, C)`.
-            cond (jax.Array): Conditioning labels of shape `(*,)`.
             begin (jax.Array): Begin timestamp `r` of shape `(*, )`.
             end (jax.Array): End timestamp `t` of shape `(*, )`.
+            deterministic (bool, optional): Whether to run deterministically.
 
         Returns:
-            jax.Array: The predicted average velocity of shape `(*, H, W, C)`.
+            The predicted average velocity of shape `(*, H, W, C)`.
         """
-        # sanity check for the input arrays
-        batch_dims = image.shape[:-3]
-        dims = chex.Dimensions(
-            H=self.image_size,
-            W=self.image_size,
-            C=self.in_channels,
-        )
-        chex.assert_shape(image, (*batch_dims, *dims["HWC"]))
-        chex.assert_shape(label, batch_dims)
-        chex.assert_shape(begin, batch_dims)
-        chex.assert_shape(end, batch_dims)
-
         m_deterministic = nn.merge_param(
             "deterministic",
             self.deterministic,
             deterministic,
         )
 
-        y_emb = self.label_embed(label, deterministic=m_deterministic)
-        r_emb = self.r_embed(begin)
-        t_emb = self.t_embed(end)
-        cond = t_emb + r_emb + y_emb
-        output = self.backbone(inputs=image, cond=cond)
+        emb = [self.time_embed(time) for time in timestamps]
+        cond = jnp.concatenate(emb, axis=-1)
+        cond = self.cond_out(jax.nn.silu(self.cond_in(cond)))
+
+        output = self.backbone(
+            inputs=image,
+            cond=cond,
+            deterministic=m_deterministic,
+        )
 
         return output
 
 
-class MeanFlowUNetModel(_mixin.ModelMixin):
-    """`MeanFlow` generative model with a U-Net backbone."""
+class MeanFlowUNetModel(_model.Model):
+    r"""`MeanFlow` generative model with a U-Net backbone.
 
-    module_class = MeanFlowUNetModule
-    """Type[nn.Module]: The class of the model module."""
+    Args:
+        in_channels (int): Number of input image channels.
+        image_size (int): Height and width of the input images.
+        features (int): Dimensionality of the latent feature map.
+        dropout_rate (float): Dropout rate for the classifier-free guidance.
+        epsilon (float): Small constant for numerical stability in `GroupNorm`.
+        skip_scale (float): Scaling factor for skip connections.
+        dtype (dtype): The dtype of the computation (default: float32).
+        param_dtype (dtype): The dtype of the parameters (default: float32).
+        timestamp_cond (Literal): The type of timestamp conditioning.
+            One of `["t_and_r", "t_and_t_minus_r",
+            "t_and_r_and_t_minus_r", "t_minus_r"]`.
+        timestamp_sampler (str): The distribution to sample timestamps from.
+            One of `["uniform", "logit-normal"]`.
+        timestamp_sampler_kwargs (Dict[str, Any]): Additional keyword arguments
+            for the timestamp sampler.
+        timestamp_overlap_rate (float): The minimum overlap rate between
+            begin and end timestamps.
+        adaptive_weight_power (float): The power for adaptive weight scaling.
+    """
 
     def __init__(
         self,
         in_channels: int,
         image_size: int,
-        latent_channels: int,
-        num_classes: int,
-        use_cfg_embedding: bool,
+        features: int,
         dropout_rate: float,
-        dtype: typing.Any = jnp.float32,
-        param_dtype: typing.Any = jnp.float32,
+        epsilon: float,
+        skip_scale: float,
+        dtype: typing.Any = None,
+        param_dtype: typing.Any = None,
+        precision: typing.Any = None,
         timestamp_cond: typing.Literal[
             "t_and_r",
             "t_and_t_minus_r",
             "t_and_r_and_t_minus_r",
             "t_minus_r",
         ] = "t_and_t_minus_r",
-        timestamp_sampler: str = "lognormal",
+        timestamp_sampler: str = "logit-normal",
         timestamp_sampler_kwargs: typing.Dict[str, typing.Any] = {
             "mean": -0.4,
             "stddev": 1.0,
@@ -519,55 +543,117 @@ class MeanFlowUNetModel(_mixin.ModelMixin):
         """Initializes the `MeanFlow` model."""
         self.in_channels = in_channels
         self.image_size = image_size
+        self.features = features
         self.timestamp_cond = timestamp_cond
         self.timestamp_sampler = timestamp_sampler
         self.timestamp_sampler_kwargs = timestamp_sampler_kwargs
         self.timestamp_overlap_rate = timestamp_overlap_rate
         self.adaptive_weight_power = adaptive_weight_power
-        self._module = MeanFlowUNetModule(
-            in_channels=in_channels,
-            image_size=image_size,
-            latent_channels=latent_channels,
-            num_classes=num_classes,
-            use_cfg_embedding=use_cfg_embedding,
+        self._network = MeanFlowUNetModule(
+            features=features,
+            skip_scale=skip_scale,
             dropout_rate=dropout_rate,
+            epsilon=epsilon,
             name="unet",
             dtype=dtype,
             param_dtype=param_dtype,
+            precision=precision,
         )
+
+    @property
+    @typing_extensions.override
+    def network(self) -> MeanFlowUNetModule:
+        r"""MeanFlowUNetModule: The U-Net neural network module."""
+        return self._network
+
+    def init(
+        self,
+        *,
+        batch: typing.Any,
+        rngs: typing.Any,
+        **kwargs,
+    ) -> PyTree:
+        del batch  # unused
+
+        # create dummy inputs
+        if self.timestamp_cond in ["t_and_r", "t_and_t_minus_r"]:
+            timestamps = (
+                jnp.zeros((1,), dtype=jnp.float32),
+                jnp.zeros((1,), dtype=jnp.float32),
+            )
+        elif self.timestamp_cond == "t_and_r_and_t_minus_r":
+            timestamps = (
+                jnp.zeros((1,), dtype=jnp.float32),
+                jnp.zeros((1,), dtype=jnp.float32),
+                jnp.zeros((1,), dtype=jnp.float32),
+            )
+        elif self.timestamp_cond == "t_minus_r":
+            timestamps = (jnp.zeros((1,), dtype=jnp.float32),)
+        else:
+            raise ValueError(
+                f"Unsupported timestamp conditioning: {self.timestamp_cond}."
+            )
+
+        dummy_inputs = {
+            "image": jnp.zeros(
+                (1, self.image_size, self.image_size, self.in_channels),
+                dtype=jnp.float32,
+            ),
+            "timestamps": timestamps,
+        }
+        variables = self.network.init(
+            rngs=rngs,
+            image=dummy_inputs["image"],
+            timestamps=dummy_inputs["timestamps"],
+            deterministic=True,
+        )
+        _tabulate_fn = nn.summary.tabulate(self.network, rngs=rngs)
+        print(_tabulate_fn(**dummy_inputs, deterministic=True))
+
+        return variables["params"]
 
     @typing_extensions.override
     def compute_loss(
         self,
         *,
-        rngs: typing.Union[
-            jax.random.KeyArray,
-            typing.Dict[str, jax.random.KeyArray],
-        ],
-        image: jax.Array,
-        label: jax.Array,
+        rngs: typing.Any,
+        batch: typing.Dict[str, typing.Any],
         params: frozen_dict.FrozenDict,
         deterministic: bool = False,
         **kwargs,
-    ) -> MeanFlowOutputs:
-        """Computes the loss given parameters and model inputs.
+    ) -> typing.Tuple[jax.Array, _model.StepOutputs]:
+        r"""Computes the loss given parameters and model inputs.
 
         Args:
             rngs (Union[jax.random.KeyArray, Dict[str, jax.random.KeyArray]]):
                 JAX random key or a dictionary of JAX random keys.
-            image (jax.Array): The input images of shape `(*, H, W, C)`.
-            label (jax.Array): The class labels of shape `(*,)`.
+            batch (Dict[str, Any]): A batch of data containing:
+                - image (jax.Array): Input images of shape `(*, H, W, C)`.
             params (frozen_dict.FrozenDict): The model parameters.
             deterministic (bool): Whether to run the model deterministically.
             **kwargs: additional keyword arguments.
 
         Returns:
-            MeanFlowOutputs: The model outputs.
+            The computed loss and other outputs.
         """
+        del kwargs  # unused
+
         # NOTE: following the notation in Algorithm 1 of the source paper
         # sample t and r
+        image = batch["image"]
+        assert isinstance(image, jax.Array)
         batch_dims = image.shape[:-3]
-        rngs, tr_rng, mask_rng, e_rng = jax.random.split(rngs, num=4)
+        tr_rng, dropout_rng, f_rng, m_rng, e_rng = jax.random.split(rngs, 5)
+
+        # randomly flip image horizontally for data augmentation
+        flip_mask = jax.random.bernoulli(key=f_rng, p=0.5, shape=batch_dims)
+        image = jnp.where(
+            flip_mask[..., None, None, None],
+            jnp.flip(image, axis=-2),
+            image,
+        )
+
+        # sample begin and end timestamps
         t, r = sample_t_r(
             key=tr_rng,
             shape=batch_dims,
@@ -577,17 +663,12 @@ class MeanFlowUNetModel(_mixin.ModelMixin):
         )
         t, r = jnp.maximum(t, r), jnp.minimum(t, r)
         # ensure a portion of overlap between t and r
-        r_neq_t_mask = jnp.greater_equal(
-            jax.random.uniform(
-                key=mask_rng,
-                shape=batch_dims,
-                dtype=image.dtype,
-                minval=0.0,
-                maxval=1.0,
-            ),
+        # NOTE: the following code randomly mask by uniform samples
+        r_eq_t_mask = jnp.less(
+            jax.random.uniform(key=m_rng, shape=batch_dims, dtype=image.dtype),
             self.timestamp_overlap_rate,
         )
-        r = jnp.where(r_neq_t_mask, t, r)
+        r = jnp.where(r_eq_t_mask, t, r)
 
         # sample e ~ N(0, I)
         e = jax.random.normal(key=e_rng, shape=image.shape, dtype=image.dtype)
@@ -600,31 +681,62 @@ class MeanFlowUNetModel(_mixin.ModelMixin):
         v = e - image
 
         # applies Jacobian vector product
+        def u_fn(
+            z_t: jax.Array,
+            r_in: jax.Array,
+            t_in: jax.Array,
+        ) -> jax.Array:
+            if self.timestamp_cond == "t_and_r":
+                timestamps = (r_in, t_in)
+            elif self.timestamp_cond == "t_and_t_minus_r":
+                timestamps = (t_in - r_in, t_in)
+            elif self.timestamp_cond == "t_and_r_and_t_minus_r":
+                timestamps = (t_in, r_in, t_in - r_in)
+            elif self.timestamp_cond == "t_minus_r":
+                timestamps = (t_in - r_in,)
+            else:
+                raise ValueError(
+                    f"Unsupported timestamp conditioning: {self.timestamp_cond}."
+                )
+
+            out = self.network.apply(
+                variables={"params": params},
+                image=z_t,
+                timestamps=timestamps,
+                deterministic=deterministic,
+                rngs={"dropout": dropout_rng},
+            )
+            assert isinstance(out, jax.Array)
+
+            return out
+
+        # NOTE: following the original meanflow
         drdt = jnp.zeros_like(r)
         dtdt = jnp.ones_like(t)
+        u, dudt = jax.jvp(u_fn, (z, r, t), (v, drdt, dtdt))
+        u_target = v - (t - r)[..., None, None, None] * dudt
 
-        u, dudt = jax.jvp(
-            self.u_fn(
-                label=label,
-                params=params,
-                deterministic=deterministic,
-            ),
-            (z, r, t),
-            (v, drdt, dtdt),
-        )
+        # NOTE: following the symmetric meanflow
+        # drdt = jnp.ones_like(r)
+        # dtdt = jnp.negative(jnp.ones_like(t))
+        # u, dudt = jax.jvp(u_fn, (z, r, t), (-v, drdt, dtdt))
+        # u_target = jax.lax.stop_gradient(
+        #     v
+        #     - jnp.clip(t - r, a_min=0.0, a_max=1.0)[..., None, None, None]
+        #     * dudt
+        #     * 0.5
+        # )
 
         # computes the target
-        u_target = jax.lax.stop_gradient(
-            v
-            - jnp.clip(t - r, a_min=0.0, a_max=1.0)[..., None, None, None]
-            * dudt
-        )
         # NOTE: sum over all the pixels, following official implementation
-        loss = jnp.sum(jnp.square(u - u_target), axis=(-1, -2, -3))
+        loss = jnp.sum(
+            jnp.square(u - jax.lax.stop_gradient(u_target)),
+            axis=(-1, -2, -3),
+        )
 
         # applies adaptive weight power
         if self.adaptive_weight_power > 0.0:
-            ada_wt = jnp.power(loss + 1e-2, self.adaptive_weight_power)
+            ada_wt = jnp.power(loss + 1e-3, self.adaptive_weight_power)
             loss = loss / jax.lax.stop_gradient(ada_wt)
         loss = jnp.mean(loss)
 
@@ -636,136 +748,65 @@ class MeanFlowUNetModel(_mixin.ModelMixin):
         )
         velocity_loss = jnp.sum(velocity_loss, axis=(-1, -2, -3)).mean()
 
-        return MeanFlowOutputs(
-            loss=loss,
-            velocity_loss=velocity_loss,
-            output=u,
+        out = _model.StepOutputs(
+            scalars={"loss": loss, "velocity_loss": velocity_loss},
+            histograms={"t": t, "r": r, "t - r": t - r},
         )
+
+        return loss, out
 
     @typing_extensions.override
     def forward(
         self,
         *,
-        rngs: typing.Union[
-            jax.random.KeyArray,
-            typing.Dict[str, jax.random.KeyArray],
-        ],
+        rngs: jax.Array,
         params: frozen_dict.FrozenDict,
-        image: jax.Array,
-        label: jax.Array,
-        begin: typing.Optional[jax.Array] = None,
-        end: typing.Optional[jax.Array] = None,
-        deterministic: bool = False,
+        batch: typing.Dict[str, typing.Any],
+        deterministic: bool = True,
         **kwargs,
-    ) -> MeanFlowOutputs:
-        """Forward sampling with average velocity prediction.
+    ) -> _model.StepOutputs:
+        r"""Forward sampling with average velocity prediction.
 
         Args:
+            rngs (jax.Array): Random key for sampling.
             params (frozen_dict.FrozenDict): The model parameters.
-            image (jax.Array): Input latent image `z_t` of shape `(*, H, W, C)`.
-            label (jax.Array): Conditioning labels of shape `(*,)`.
-            begin (jax.Array): Begin timestamp `r` of shape `(*, )`.
-            end (jax.Array): End timestamp `t` of shape `(*, )`.
+            batch (Dict[str, Any]): A batch of data containing:
+                - image (jax.Array): Input images of shape `(*, H, W, C)`.
+            shape (jax.typing.Shape): The shape of the output samples.
+            dtype (Any): The dtype of the output samples.
             deterministic (bool): Whether to run the model deterministically.
             **kwargs: Additional keyword arguments.
 
         Returns:
-            MeanFlowOutputs: The model outputs.
+            The output samples.
         """
-        batch_dims = image.shape[:-3]
-        dims = chex.Dimensions(
-            H=self.image_size,
-            W=self.image_size,
-            C=self.in_channels,
-        )
-        chex.assert_shape(image, (*batch_dims, *dims["HWC"]))
-        chex.assert_shape(label, batch_dims)
+        del kwargs  # unused
 
-        if begin is None:
-            begin = jnp.zeros(batch_dims, dtype=image.dtype)
-        if end is None:
-            end = jnp.ones(batch_dims, dtype=image.dtype)
-        chex.assert_shape(begin, batch_dims)
-        assert jnp.all(begin >= 0) and jnp.all(
-            begin <= 1
-        ), "Invalid input `r`."
-        chex.assert_shape(end, batch_dims)
-        assert jnp.all(end >= 0) and jnp.all(end <= 1), "Invalid input `t`."
-        r, t = jnp.minimum(begin, end), jnp.maximum(
-            begin, end
-        )  # ensure r <= t
+        # TODO (juanwulu): unconditional generation
+        image = batch["image"]
+        shape, dtype = image.shape, image.dtype
 
-        sample = jnp.subtract(
-            image,
-            jnp.einsum(
-                "...,...n->...n",
-                (t - r),
-                self.u_fn(
-                    label=label,
-                    params=params,
-                    deterministic=deterministic,
-                )(image, r, t),
-            ),
-        )
-
-        return MeanFlowOutputs(output=sample)
-
-    @property
-    def dummy_input(self) -> PyTree:
-        """PyTree: A dictionary mapping feature names to example arrays."""
-        return {
-            "image": jnp.zeros(
-                (1, self.image_size, self.image_size, self.in_channels),
-                dtype=jnp.float32,
-            ),
-            "label": jnp.zeros((1,), dtype=jnp.int32),
-            "begin": jnp.zeros((1,), dtype=jnp.float32),
-            "end": jnp.zeros((1,), dtype=jnp.float32),
-        }
-
-    def u_fn(
-        self,
-        *,
-        label: jax.Array,
-        params: frozen_dict.FrozenDict,
-        deterministic: bool = True,
-    ) -> typing.Callable[[jax.Array, jax.Array, jax.Array], jax.Array]:
-        """Returns the average velocity function `u(z_t, r, t)`."""
+        e = jax.random.normal(key=rngs, shape=shape, dtype=dtype)
+        r = jnp.zeros(e.shape[:-3], dtype=dtype)
+        t = jnp.ones(e.shape[:-3], dtype=dtype)
         if self.timestamp_cond == "t_and_r":
-            return lambda z_t, r, t: self._module.apply(
-                variables={"params": params},
-                image=z_t,
-                label=label,
-                begin=r,
-                end=t,
-                deterministic=deterministic,
-            )
+            timestamps = (t, r)
         elif self.timestamp_cond == "t_and_t_minus_r":
-            return lambda z_t, r, t: self._module.apply(
-                variables={"params": params},
-                image=z_t,
-                label=label,
-                begin=t - r,
-                end=t,
-                deterministic=deterministic,
-            )
+            timestamps = (t, t - r)
         elif self.timestamp_cond == "t_and_r_and_t_minus_r":
-            # TODO: implement this
-            raise NotImplementedError(
-                "Conditioning on (t, r, t - r) is not implemented yet."
-            )
+            timestamps = (t, r, t - r)
         elif self.timestamp_cond == "t_minus_r":
-            return lambda z_t, r, t: self._module.apply(
-                variables={"params": params},
-                image=z_t,
-                label=label,
-                begin=t - r,
-                end=None,
-                deterministic=deterministic,
-            )
+            timestamps = (t - r,)
         else:
             raise ValueError(
-                f"Unsupported timestamp condition: {self.timestamp_cond}. "
-                'Must be one of ["t_and_r", "t_and_t_minus_r", '
-                '"t_and_r_and_t_minus_r", "t_minus_r"].'
+                f"Unsupported timestamp conditioning: {self.timestamp_cond}."
             )
+
+        out = e - self.network.apply(
+            variables={"params": params},
+            image=e,
+            timestamps=timestamps,
+            deterministic=deterministic,
+        )
+
+        return _model.StepOutputs(output=out)

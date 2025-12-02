@@ -1,6 +1,7 @@
 import sys
 import typing
 
+import jax
 import numpy as np
 import pytest
 import tensorflow as tf
@@ -25,9 +26,9 @@ def test_cifar10_datamodule() -> None:
     dm = huggingface.CIFAR10DataModule(
         batch_size=2,
         num_workers=1,
-        seed=0,
         transform=_default_transform,
         streaming=False,
+        rng=jax.random.PRNGKey(0),
     )
     assert dm.batch_size == 2
     assert dm.deterministic is True
@@ -36,7 +37,7 @@ def test_cifar10_datamodule() -> None:
     assert dm.num_train_examples == 50000
     assert dm.num_val_examples == 10000
     assert dm.num_test_examples == 10000
-    assert dm.seed == 0
+    assert dm.rng == jax.random.PRNGKey(0)
     assert all(key in dm.splits for key in ["train", "test"])
 
     # test training dataloader
@@ -62,9 +63,9 @@ def test_cifar100_datamodule() -> None:
     dm = huggingface.CIFAR100DataModule(
         batch_size=2,
         num_workers=1,
-        seed=0,
         transform=_default_transform,
         streaming=False,
+        rng=jax.random.PRNGKey(0),
     )
     assert dm.batch_size == 2
     assert dm.deterministic is True
@@ -73,7 +74,7 @@ def test_cifar100_datamodule() -> None:
     assert dm.num_train_examples == 50000
     assert dm.num_val_examples == 10000
     assert dm.num_test_examples == 10000
-    assert dm.seed == 0
+    assert dm.rng == jax.random.PRNGKey(0)
     assert all(key in dm.splits for key in ["train", "test"])
 
     # test training dataloader
@@ -99,9 +100,9 @@ def test_imagenet1k_datamodule() -> None:
     dm = huggingface.ImageNet1KDataModule(
         batch_size=2,
         num_workers=1,
-        seed=0,
         transform=_default_transform,
         streaming=False,
+        rng=jax.random.PRNGKey(0),
     )
     assert dm.batch_size == 2
     assert dm.deterministic is True
@@ -110,7 +111,7 @@ def test_imagenet1k_datamodule() -> None:
     assert dm.num_train_examples == 1_281_167
     assert dm.num_val_examples == 50_000
     assert dm.num_test_examples == 100_000
-    assert dm.seed == 0
+    assert dm.rng == jax.random.PRNGKey(0)
     assert all(key in dm.splits for key in ["train", "validation", "test"])
 
     # test training dataloader
@@ -136,9 +137,9 @@ def test_mnist_datamodule() -> None:
     dm = huggingface.MNISTDataModule(
         batch_size=2,
         num_workers=1,
-        seed=0,
         transform=_default_transform,
         streaming=False,
+        rng=jax.random.PRNGKey(0),
     )
     assert dm.batch_size == 2
     assert dm.deterministic is True
@@ -147,7 +148,7 @@ def test_mnist_datamodule() -> None:
     assert dm.num_train_examples == 60000
     assert dm.num_val_examples == 10000
     assert dm.num_test_examples == 10000
-    assert dm.seed == 0
+    assert dm.rng == jax.random.PRNGKey(0)
     assert all(key in dm.splits for key in ["train", "test"])
 
     # test training dataloader

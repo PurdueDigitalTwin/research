@@ -5,6 +5,7 @@ from flax import linen as nn
 import jax
 from jax._src import core as jax_core
 from jax._src import dtypes as jax_dtypes
+from jax._src import typing as jax_typing
 import jax.numpy as jnp
 
 
@@ -12,23 +13,25 @@ import jax.numpy as jnp
 # Builder functions
 # ==============================================================================
 def _uniform_init() -> jax.nn.initializers.Initializer:
-    """Uniform initializer for convolutional layers."""
+    r"""Uniform initializer for convolutional layers."""
 
     def init(
-        key: jax.random.KeyArray,
-        shape: jax_core.Shape,
-        dtype: typing.Any,
+        key: jax.Array,
+        shape: jax_typing.Shape,
+        dtype: typing.Any = jnp.float_,
+        out_sharding: typing.Any = None,
     ) -> jax.Array:
         """Uniform initializer for one-dimensional parameters."""
         dim = shape[-1]
         dtype = jax_dtypes.canonicalize_dtype(dtype)
-        named_shape = jax_core.as_named_shape(shape)
+        named_shape = jax_core.canonicalize_shape(shape)
         return jax.random.uniform(
             key=key,
             shape=named_shape,
             dtype=dtype,
             minval=-jnp.sqrt(1.0 / dim),
             maxval=jnp.sqrt(1.0 / dim),
+            out_sharding=out_sharding,
         )
 
     return init
@@ -42,7 +45,7 @@ def _conv_1x1(
     dtype: typing.Any = jnp.float32,
     param_dtype: typing.Any = jnp.float32,
 ) -> nn.Conv:
-    """1x1 convolution with stride and padding."""
+    r"""1x1 convolution with stride and padding."""
     return nn.Conv(
         features=out_channels,
         kernel_size=(1, 1),
@@ -69,7 +72,7 @@ def _conv_3x3(
     dtype: typing.Any = jnp.float32,
     param_dtype: typing.Any = jnp.float32,
 ) -> nn.Conv:
-    """3x3 convolution with stride and padding."""
+    r"""3x3 convolution with stride and padding."""
     return nn.Conv(
         features=out_channels,
         kernel_size=(3, 3),
@@ -96,7 +99,7 @@ def _dilated_conv_3x3(
     dtype: typing.Any = jnp.float32,
     param_dtype: typing.Any = jnp.float32,
 ) -> nn.Conv:
-    """3x3 dilated convolution with dilation and padding."""
+    r"""3x3 dilated convolution with dilation and padding."""
     return nn.Conv(
         features=out_channels,
         kernel_size=(3, 3),
@@ -120,7 +123,7 @@ def _dilated_conv_3x3(
 # Layers
 # ==============================================================================
 class ConditionalInstanceNorm2dPlus(nn.Module):
-    """Conditional Instance Normalization with extra affine transformation."""
+    r"""Conditional Instance Normalization with extra affine transformation."""
 
     features: int
     """int: Dimensionality of the feature map."""
@@ -148,15 +151,21 @@ class ConditionalInstanceNorm2dPlus(nn.Module):
         )
 
         def _kernel_init(
-            key: jax.random.KeyArray,
-            shape: jax_core.Shape,
+            key: typing.Any,
+            shape: jax_typing.Shape,
             dtype: typing.Any,
+            out_sharding: typing.Any = None,
         ) -> jax.Array:
             dtype = jax_dtypes.canonicalize_dtype(dtype)
-            named_shape = jax_core.as_named_shape(shape)
+            named_shape = jax_core.canonicalize_shape(shape)
             return (
                 1.0
-                + jax.random.normal(key=key, shape=named_shape, dtype=dtype)
+                + jax.random.normal(
+                    key=key,
+                    shape=named_shape,
+                    dtype=dtype,
+                    out_sharding=out_sharding,
+                )
                 * 0.02
             )
 
@@ -187,7 +196,7 @@ class ConditionalInstanceNorm2dPlus(nn.Module):
             cond (jax.Array): Condition feature map of shape `(*, )`.
 
         Returns:
-            jax.Array: Output feature map of shape `(*, H, W, C)`.
+            Output feature map of shape `(*, H, W, C)`.
         """
         batch_dims = inputs.shape[:-3]
         chex.assert_shape(cond, (*batch_dims,))
@@ -222,7 +231,7 @@ class ConditionalInstanceNorm2dPlus(nn.Module):
 
 
 class ConvMeanPool(nn.Module):
-    """Convolution followed by average pooling."""
+    r"""Convolution followed by average pooling."""
 
     features: int
     """int: Number of output channels."""
@@ -248,13 +257,13 @@ class ConvMeanPool(nn.Module):
         )
 
     def __call__(self, inputs: jax.Array) -> jax.Array:
-        """Forward pass of the `ConvMeanPool` module.
+        r"""Forward pass of the `ConvMeanPool` module.
 
         Args:
             inputs (jax.Array): Input feature map of shape `(*, H, W, C)`.
 
         Returns:
-            jax.Array: Output feature map of shape `(*, H/2, W/2, C_out)`.
+            Output feature map of shape `(*, H/2, W/2, C_out)`.
         """
         batch_dims = inputs.shape[:-3]
         if self.adjust_padding:
@@ -278,14 +287,14 @@ class ConvMeanPool(nn.Module):
 # Modules
 # ==============================================================================
 class ConditionalResidualBlock(nn.Module):
-    """Residual block with conditioning feature map."""
+    r"""Residual block with conditioning feature map."""
 
     in_channels: int
     """int: Number of channels of the input feature map."""
     out_channels: int
     """int: Number of channels of the output feature map."""
-    norm_module: typing.Callable[[typing.Any], typing.Type[nn.Module]]
-    """Callable[[typing.Any], Type[nn.Module]]: Normalization module to use."""
+    norm_module: typing.Callable[..., nn.Module]
+    """Callable[..., nn.Module]: Normalization module to use."""
     dilation: typing.Optional[int] = None
     """Optional[int]: Optional dilations in the convolutional layers."""
     resample: typing.Optional[str] = None
@@ -298,7 +307,7 @@ class ConditionalResidualBlock(nn.Module):
     """param_dtype: The data type of the parameters (default: float32)."""
 
     def setup(self) -> None:
-        """Instantiate a conditional residual block."""
+        r"""Instantiate a conditional residual block."""
         self.norm_1 = self.norm_module(
             features=self.in_channels,
             name="normalize1",
@@ -426,14 +435,14 @@ class ConditionalResidualBlock(nn.Module):
         )
 
     def __call__(self, inputs: jax.Array, cond: jax.Array) -> jax.Array:
-        """Forward pass of the conditional residual block.
+        r"""Forward pass of the conditional residual block.
 
         Args:
             inputs (jax.Array): Input feature map of shape `(*, H, W, D)`.
             cond (jax.Array): Condition feature map of shape `(*,)`.
 
         Returns:
-            jax.Array: Output feature map of shape `(*, H, W, D)`.
+            Output feature map of shape `(*, H, W, D)`.
         """
         output = self.norm_1(inputs, cond)
         output = jax.nn.elu(output)
@@ -452,12 +461,12 @@ class ConditionalResidualBlock(nn.Module):
 
 
 class ConditionalRCUBlock(nn.Module):
-    """Refinement Convolution Unit (RCU) block with conditioning feature map."""
+    r"""Refinement Convolution Unit (RCU) block with conditioning features."""
 
     features: int
     """int: Dimensionality of the feature map."""
-    norm_module: typing.Callable[[typing.Any], typing.Type[nn.Module]]
-    """Callable[[typing.Any], Type[nn.Module]]: Normalization module to use."""
+    norm_module: typing.Callable[..., nn.Module]
+    """Callable[..., nn.Module]: Normalization module to use."""
     num_blocks: int
     """int: Number of repeated blocks in the cascade."""
     num_stages: int
@@ -468,7 +477,7 @@ class ConditionalRCUBlock(nn.Module):
     """param_dtype: The data type of the parameters (default: float32)."""
 
     def setup(self) -> None:
-        """Instantiate a `ConditionalRCUBlock` module."""
+        r"""Instantiate a `ConditionalRCUBlock` module."""
         convs, norms = [], []
         for i in range(self.num_blocks):
             for j in range(self.num_stages):
@@ -491,11 +500,19 @@ class ConditionalRCUBlock(nn.Module):
                         param_dtype=self.param_dtype,
                     )
                 )
-        self.convs: typing.Tuple[nn.Conv, ...] = convs
-        self.norms: typing.Tuple[ConditionalInstanceNorm2dPlus, ...] = norms
+        self.convs = convs
+        self.norms = norms
 
     def __call__(self, inputs: jax.Array, cond: jax.Array) -> jax.Array:
-        """Forward pass of the `ConditionalRCUBlock` module."""
+        r"""Forward pass of the `ConditionalRCUBlock` module.
+
+        Args:
+            inputs (jax.Array): Input feature map of shape `(*, H, W, C)`.
+            cond (jax.Array): Condition feature map of shape `(*, H, W, d)`.
+
+        Returns:
+            Output feature map of shape `(*, H, W, C)`.
+        """
         _idx: int = 0
         output = inputs
         for _ in range(self.num_blocks):
@@ -511,21 +528,21 @@ class ConditionalRCUBlock(nn.Module):
 
 
 class ConditionalMSFBlock(nn.Module):
-    """Conditional Multi-Scale Feature block."""
+    r"""Conditional Multi-Scale Feature block."""
 
     in_features: typing.Sequence[int]
     """Sequence[int]: List of input feature map dimensionalities."""
     features: int
     """int: Dimensionality of the output feature map."""
-    norm_module: typing.Callable[[typing.Any], typing.Type[nn.Module]]
-    """Callable[[typing.Any], Type[nn.Module]]: Normalization module to use."""
+    norm_module: typing.Callable[..., nn.Module]
+    """Callable[..., nn.Module]: Normalization module to use."""
     dtype: typing.Any = jnp.float32
     """dtype: The data type of the computation (default: float32)."""
     param_dtype: typing.Any = jnp.float32
     """param_dtype: The data type of the parameters (default: float32)."""
 
     def setup(self) -> None:
-        """Instantiate a `ConditionalMSFBlock` module."""
+        r"""Instantiate a `ConditionalMSFBlock` module."""
         convs, norms = [], []
         for i, in_feature in enumerate(self.in_features):
             convs.append(
@@ -547,25 +564,25 @@ class ConditionalMSFBlock(nn.Module):
                     param_dtype=self.param_dtype,
                 )
             )
-        self.convs: typing.Tuple[nn.Conv, ...] = convs
-        self.norms: typing.Tuple[ConditionalInstanceNorm2dPlus, ...] = norms
+        self.convs = convs
+        self.norms = norms
 
     def __call__(
         self,
         inputs: typing.Sequence[jax.Array],
         cond: jax.Array,
-        shape: jax_core.Shape,
+        shape: jax_typing.Shape,
     ) -> jax.Array:
-        """Forward pass of the `ConditionalMSFBlock` module.
+        r"""Forward pass of the `ConditionalMSFBlock` module.
 
         Args:
             inputs (Sequence[jax.Array]): Sequence of input feature maps to be
                 merged. Each feature map has shape `(*, H_i, W_i, C)
             cond (jax.Array): Condition feature map of shape `(*, H, W, d)`.
-            shape (jax_core.Shape): Shape of the output feature map.
+            shape (jax._src.typing.Shape): Shape of the output feature map.
 
         Returns:
-            jax.Array: Output feature map of shape `(*, H, W, C)`.
+            Output feature map of shape `(*, H, W, C)`.
         """
         assert isinstance(inputs, typing.Sequence) and len(inputs) == len(
             self.in_features
@@ -586,12 +603,12 @@ class ConditionalMSFBlock(nn.Module):
 
 
 class ConditionalCRPBlock(nn.Module):
-    """Conditional convolutional residual pooling (CRP) block."""
+    r"""Conditional convolutional residual pooling (CRP) block."""
 
     features: int
     """int: Dimensionality of the output feature map."""
-    norm_module: typing.Callable[[typing.Any], typing.Type[nn.Module]]
-    """Callable[Any, Type[nn.Module]]: Normalization module to use."""
+    norm_module: typing.Callable[..., nn.Module]
+    """Callable[..., nn.Module]: Normalization module to use."""
     num_stages: int
     """int: Number of stages in the cascade."""
     dtype: typing.Any = jnp.float32
@@ -600,7 +617,7 @@ class ConditionalCRPBlock(nn.Module):
     """param_dtype: The data type of the parameters (default: float32)."""
 
     def setup(self) -> None:
-        """Instantiate a `ConditionalCRPBlock` module."""
+        r"""Instantiate a `ConditionalCRPBlock` module."""
         convs, norms = [], []
         for i in range(self.num_stages):
             convs.append(
@@ -622,18 +639,18 @@ class ConditionalCRPBlock(nn.Module):
                     param_dtype=self.param_dtype,
                 )
             )
-        self.convs: typing.Tuple[nn.Conv, ...] = convs
-        self.norms: typing.Tuple[ConditionalInstanceNorm2dPlus, ...] = norms
+        self.convs = convs
+        self.norms = norms
 
     def __call__(self, inputs: jax.Array, cond: jax.Array) -> jax.Array:
-        """Forward pass of the `ConditionalCRPBlock` module.
+        r"""Forward pass of the `ConditionalCRPBlock` module.
 
         Args:
             inputs (jax.Array): Input feature map of shape `(*, H, W, C)`.
             cond (jax.Array): Condition feature map of shape `(*, H, W, d)`.
 
         Returns:
-            jax.Array: Output feature map of shape `(*, H, W, C)`.
+            Output feature map of shape `(*, H, W, C)`.
         """
         output = jax.nn.elu(inputs)
         path = output
@@ -643,7 +660,7 @@ class ConditionalCRPBlock(nn.Module):
                 inputs=path,
                 window_shape=(5, 5),
                 strides=(1, 1),
-                padding=((2, 2), (2, 2)),
+                padding=((2, 2), (2, 2)),  # type: ignore
             )
             path = conv(path)
             output = output + path
@@ -651,14 +668,14 @@ class ConditionalCRPBlock(nn.Module):
 
 
 class ConditionalRefineBlock(nn.Module):
-    """Refinement block with skip connections and conditioning feature map."""
+    r"""Refinement block with skip connections and conditioning feature map."""
 
     in_features: typing.Sequence[int]
     """Sequence[int]: List of input feature map dimensionalities."""
     out_features: int
     """int: Number of output channels of each convolution."""
-    norm_module: typing.Callable[[typing.Any], typing.Type[nn.Module]]
-    """Callable[Any, Type[nn.Module]]: Normalization module to use."""
+    norm_module: typing.Callable[[typing.Any], nn.Module]
+    """Callable[Any, nn.Module]: Normalization module to use."""
     is_last_block: bool = False
     """bool: If True, this is the last refinement block."""
     dtype: typing.Any = jnp.float32
@@ -681,7 +698,7 @@ class ConditionalRefineBlock(nn.Module):
                     param_dtype=self.param_dtype,
                 )
             )
-        self.adapt_convs: typing.Tuple[ConditionalRCUBlock, ...] = adapt_convs
+        self.adapt_convs: typing.List[ConditionalRCUBlock] = adapt_convs
         self.output_convs = ConditionalRCUBlock(
             features=self.out_features,
             norm_module=self.norm_module,
@@ -715,18 +732,18 @@ class ConditionalRefineBlock(nn.Module):
         self,
         inputs: typing.List[jax.Array],
         cond: jax.Array,
-        output_shape: jax_core.Shape,
+        output_shape: jax_typing.Shape,
     ) -> jax.Array:
-        """Forward pass of the refinement block.
+        r"""Forward pass of the refinement block.
 
         Args:
             inputs (List[jax.Array]): List of input feature maps to be merged.
                 Each feature map has shape `(*, H_i, W_i, C)`.
             cond (jax.Array): Condition feature map of shape `(*, H, W, d)`.
-            output_shape (jax_core.Shape): Shape of the output feature map.
+            output_shape (jax._src.typing.Shape): Shape of the output feature.
 
         Returns:
-            jax.Array: Output feature map of shape `(*, H, W, 128)`.
+            Output feature map of shape `(*, H, W, 128)`.
         """
         assert (
             isinstance(inputs, typing.Sequence)
@@ -760,13 +777,11 @@ class ConditionalRefineBlock(nn.Module):
 # Models
 # ==============================================================================
 class ConditionalRefineNet(nn.Module):
-    """Multi-path Refinement Network with Conditional Instance Normlization.
+    r"""Multi-path Refinement Network with Conditional Instance Normlization.
 
-    .. note::
-
-        This module is adapted from the original implementation of
-        `CondRefineNetDeeperDilated` in the NCSN official repository:
-        `https://github.com/ermongroup/ncsn/blob/master/models/cond_refinenet_dilated.py`
+    This module is adapted from the original implementation of
+    `CondRefineNetDeeperDilated` in the NCSN official repository:
+    `https://github.com/ermongroup/ncsn/blob/master/models/cond_refinenet_dilated.py`
 
     Attributes:
         in_channels (int): Number of channels of the input feature map.
@@ -780,12 +795,12 @@ class ConditionalRefineNet(nn.Module):
 
     in_channels: int
     """int: Number of channels of the input feature map."""
-    image_size: typing.Literal[28, 32]
+    image_size: int
     """int: Size of the input (square) image, either `28` or `32`."""
     latent_channels: int
     """int: Number of channels of the latent feature map."""
-    norm_module: typing.Callable[[typing.Any], typing.Type[nn.Module]]
-    """Callable[[typing.Any], Type[nn.Module]]: Normalization module to use."""
+    norm_module: typing.Callable[..., nn.Module]
+    """Callable[..., nn.Module]: Normalization module to use."""
     dtype: typing.Any = jnp.float32
     """dtype: The data type of the computation (default: float32)."""
     param_dtype: typing.Any = jnp.float32
@@ -793,6 +808,11 @@ class ConditionalRefineNet(nn.Module):
 
     def setup(self) -> None:
         """Instantiate a Refinement Network module."""
+        if self.image_size not in [28, 32]:
+            raise ValueError(
+                "`image_size` must be either `28` or `32`, "
+                f"but got {self.image_size}."
+            )
 
         self.conv_in = _conv_3x3(
             out_channels=self.latent_channels,
@@ -947,14 +967,14 @@ class ConditionalRefineNet(nn.Module):
         cond: jax.Array,
         **kwargs,  # type: ignore[unused-argument]
     ) -> jax.Array:
-        """Forward pass of the conditional refinement network.
+        r"""Forward pass of the conditional refinement network.
 
         Args:
             inputs (jax.Array): Input feature map of shape `(*, H, W, C)`.
             cond (jax.Array): Condition feature map of shape `(*,)`.
 
         Returns:
-            jax.Array: Output feature map of shape `(*, H, W, C)`.
+            Output feature map of shape `(*, H, W, C)`.
         """
         batch_dims = inputs.shape[:-3]
         dims = chex.Dimensions(
@@ -1019,11 +1039,11 @@ class ConditionalRefineNet(nn.Module):
 
     @staticmethod
     def _forward_cond_res_block(
-        module: nn.Module,
+        module: typing.Sequence[nn.Module],
         inputs: jax.Array,
         cond: jax.Array,
     ) -> jax.Array:
-        """Forward pass through a residual block with conditional inputs."""
+        r"""Forward pass through a residual block with conditional inputs."""
         for m in module:
             assert isinstance(m, ConditionalResidualBlock)
             inputs = m(inputs=inputs, cond=cond)

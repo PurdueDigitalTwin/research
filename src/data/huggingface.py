@@ -1,6 +1,8 @@
 import abc
 import functools
 import os
+import shutil
+import tempfile
 import typing
 
 import datasets
@@ -27,25 +29,18 @@ class HuggingFaceDataModule(datamodule.DataModule):
         - `hf_dataset`: the HuggingFace dataset object.
         - `feature_key`: the key in the dataset features to use as input.
         - `target_key`: the key in the dataset features to use as target.
-        - `output_signature`: a (nested) structure of `tf.TensorSpec` objects.
-        - `_create_dataset`: method to create a `tf.data.Dataset` from the
+        - `create_dataset`: method to create a `tf.data.Dataset` from the
             HuggingFace dataset object.
-
-    Attributes:
-        path (str): The path to the HuggingFace dataset.
-        revision (str): The revision of the dataset for version control.
 
     Args:
         batch_size (int): The batch size for data loading.
-        deterministic (bool): Whether to enforce deterministic loading behavior.
+        deterministic (bool): Whether enforce deterministic loading behavior.
         drop_remainder (bool): Whether to drop the last incomplete batch.
         num_workers (int): Number of shards for distributed loading.
-        seed (int): Random seed for shuffling.
-        shuffle_buffer_size (int): Buffer size for shuffling the dataset.
         transform (Optional[Callable], optional): An optional function to
-            transform the input features. Defaults to `None`.
-        target_transform (Optional[Callable], optional): An optional function
-            to transform the target features. Defaults to `None`.
+            transform the features. Default is `None`.
+        shuffle_buffer_size (int): Buffer size for shuffling the dataset.
+        rng (Any): Random seed for shuffling. Default is `PRNGKey(42)`.
     """
 
     def __init__(
@@ -54,23 +49,17 @@ class HuggingFaceDataModule(datamodule.DataModule):
         deterministic: bool,
         drop_remainder: bool,
         num_workers: int,
-        seed: int,
         shuffle_buffer_size: int,
         transform: typing.Optional[typing.Callable] = None,
-        target_transform: typing.Optional[typing.Callable] = None,
+        rng: typing.Any = jax.random.PRNGKey(42),
     ) -> None:
         self._batch_size = batch_size
         self._deterministic = deterministic
         self._drop_remainder = drop_remainder
         self._num_workers = num_workers
-        self._seed = seed
         self._shuffle_buffer_size = shuffle_buffer_size
-        self._rng = random.fold_in(
-            random.PRNGKey(self._seed),
-            jax.process_index(),
-        )
+        self._rng = jax.random.fold_in(rng, jax.process_index())
         self._transform = transform
-        self._target_transform = target_transform
 
     # =========================================
     # Interface
@@ -94,28 +83,34 @@ class HuggingFaceDataModule(datamodule.DataModule):
 
     @property
     @abc.abstractmethod
-    def output_signature(self) -> typing.Any:
-        r"""Any: A (nested) structure of `tf.TensorSpec` objects."""
+    def train_dataset(self) -> typing.Iterable:
+        r"""Iterable: The training dataset split."""
         ...
 
+    @property
     @abc.abstractmethod
-    def _create_dataset(
-        self,
-        *,
-        split: str,
-        shuffle_seed: typing.Optional[int] = None,
-    ) -> tf.data.Dataset:
-        r"""Create an `tf.data.Dataset` from the HuggingFace dataset object.
+    def eval_dataset(self) -> typing.Iterable:
+        r"""Iterable: The validation dataset split."""
+        ...
 
-        Args:
-            split (str): The dataset split to create.
-            shuffle_seed (Optional[int], optional): Seed for shuffling.
-                If `None`, no shuffling is applied.
+    @property
+    @abc.abstractmethod
+    def test_dataset(self) -> typing.Iterable:
+        r"""Iterable: The test dataset split."""
+        ...
+
+    @staticmethod
+    @abc.abstractmethod
+    def create_dataset(*args, **kwargs) -> tf.data.Dataset:
+        r"""Create sharded `tf.data.Dataset` from the HuggingFace dataset.
+
+        The default method is suitable for processing image datasets with
+        `Pillow` images. Override this method for custom dataset processing.
 
         Returns:
             The created `tf.data.Dataset` instance.
         """
-        pass
+        ...
 
     # =========================================
     @property
@@ -135,7 +130,7 @@ class HuggingFaceDataModule(datamodule.DataModule):
 
     @property
     def num_workers(self) -> int:
-        r"""int: Number of shards for distributed loading."""
+        r"""int: Number of workers for distributed loading."""
         return self._num_workers
 
     @property
@@ -155,9 +150,9 @@ class HuggingFaceDataModule(datamodule.DataModule):
         return len(self.hf_dataset["test"])  # type: ignore
 
     @property
-    def seed(self) -> int:
-        r"""int: Random seed for shuffling."""
-        return self._seed
+    def rng(self) -> typing.Any:
+        r"""Any: Random seed for shuffling."""
+        return self._rng
 
     @property
     def shuffle_buffer_size(self) -> int:
@@ -174,36 +169,13 @@ class HuggingFaceDataModule(datamodule.DataModule):
         r"""Optional[Callable]: Transformation for the input features."""
         return self._transform
 
-    @property
-    def target_transform(self) -> typing.Optional[typing.Callable]:
-        r"""Optional[Callable]: Transformation for the target features."""
-        return self._target_transform
-
-    def train_dataloader(self) -> typing.Generator[PyTree, None, None]:
-        r"""Returns an iterable over the training dataset."""
-        self._rng, shuffle_rng = random.split(self._rng, num=2)
-        ds = self._create_dataset(
-            split="train",
-            shuffle_seed=int(shuffle_rng[0]),  # type: ignore
-        )
-        for data in ds.as_numpy_iterator():
-            yield jax.tree_util.tree_map(lambda x: jnp.asarray(x), data)
-
-    def eval_dataloader(self) -> typing.Generator[PyTree, None, None]:
-        r"""Returns an iterable over the validation dataset."""
-        ds = self._create_dataset(split="validation")
-        for data in ds.as_numpy_iterator():
-            yield jax.tree_util.tree_map(lambda x: jnp.asarray(x), data)
-
-    def test_dataloader(self) -> typing.Generator[PyTree, None, None]:
-        r"""Returns an iterable over the test dataset."""
-        ds = self._create_dataset(split="test")
-        for data in ds.as_numpy_iterator():
-            yield jax.tree_util.tree_map(lambda x: jnp.asarray(x), data)
-
 
 class HuggingFaceImageDataModule(HuggingFaceDataModule):
     r"""Data module for HuggingFace image datasets.
+
+    Attributes:
+        path (str): The path to the HuggingFace dataset.
+        revision (str): The revision of the dataset for version control.
 
     Args:
         batch_size (int): The batch size for data loading.
@@ -212,9 +184,12 @@ class HuggingFaceImageDataModule(HuggingFaceDataModule):
         num_workers (int): Number of shards for distributed loading.
         resize (int): The size to resize images to (square).
         resample (int): Resampling filter to use for resizing images.
+        shuffle_buffer_size (int): Buffer size for random shuffling.
         transform (Optional[Callable], optional): An optional function to
-            transform the input images. Defaults to `None`.
-        seed (int, optional): Random seed for shuffling. Defaults to `42`.
+            transform the input images. Default is `None`.
+        use_cache (bool, optional): Whether to use cached dataset.
+            Default is `True`.
+        rng (Any): Random seed for shuffling. Default is `PRNGKey(42)`.
     """
 
     def __init__(
@@ -226,13 +201,24 @@ class HuggingFaceImageDataModule(HuggingFaceDataModule):
         resize: int,
         resample: int,
         shuffle_buffer_size: int,
-        seed: int,
         transform: typing.Optional[typing.Callable] = None,
-        target_transform: typing.Optional[typing.Callable] = None,
+        use_cache: bool = True,
+        rng: typing.Any = jax.random.PRNGKey(42),
     ) -> None:
-        r"""Instantiates a `HuggingFaceImageDataModule` object."""
         self._resize = resize
         self._resample = resample
+        if use_cache:
+            cache_dir = os.path.join(
+                tempfile.gettempdir(),
+                "chimera",
+                "huggingface",
+            )
+            if os.path.exists(cache_dir):
+                # NOTE: clear the cache directory to avoid corrupted cache
+                shutil.rmtree(cache_dir)
+            os.makedirs(cache_dir, exist_ok=True)
+        else:
+            cache_dir = None
 
         super().__init__(
             batch_size=batch_size,
@@ -240,121 +226,234 @@ class HuggingFaceImageDataModule(HuggingFaceDataModule):
             drop_remainder=drop_remainder,
             num_workers=num_workers,
             shuffle_buffer_size=shuffle_buffer_size,
-            seed=seed,
             transform=transform,
-            target_transform=target_transform,
+            rng=rng,
         )
 
-    def _create_dataset(
-        self,
+        # prepare the dataset splits
+        pre_transform = functools.partial(
+            self.pre_transform,
+            feature_key=self.feature_key,
+            target_key=self.target_key,
+            center_crop=True,
+            resample=self._resample,
+            resize=self._resize,
+        )
+        self._train_dataset = self.create_dataset(
+            batch_size=self.batch_size,
+            dataset=self.hf_dataset["train"]
+            .map(pre_transform, batched=False, num_proc=1)
+            .to_tf_dataset(batch_size=None, prefetch=False),
+            deterministic=self.deterministic,
+            drop_remainder=self.drop_remainder,
+            shuffle_buffer_size=self.shuffle_buffer_size,
+            shuffle_seed=int(self._rng[0]),
+            transform=self.transform,
+            cache_dir=(
+                os.path.join(cache_dir, "train_" + self.__class__.__name__)
+                if cache_dir is not None
+                else None
+            ),
+        )
+        self._test_dataset = self.create_dataset(
+            batch_size=self.batch_size,
+            dataset=self.hf_dataset["test"]
+            .map(pre_transform, batched=False, num_proc=1)
+            .to_tf_dataset(batch_size=None, prefetch=False),
+            deterministic=self.deterministic,
+            drop_remainder=self.drop_remainder,
+            shuffle_buffer_size=self.shuffle_buffer_size,
+            shuffle_seed=None,
+            transform=self.transform,
+            cache_dir=(
+                os.path.join(cache_dir, "test_" + self.__class__.__name__)
+                if cache_dir is not None
+                else None
+            ),
+        )
+        if "validation" in self.hf_dataset:
+            self._eval_dataset = self.create_dataset(
+                batch_size=self.batch_size,
+                dataset=self.hf_dataset["validation"]
+                .map(pre_transform, batched=False, num_proc=1)
+                .to_tf_dataset(batch_size=None, prefetch=False),
+                deterministic=self.deterministic,
+                drop_remainder=self.drop_remainder,
+                shuffle_buffer_size=self.shuffle_buffer_size,
+                shuffle_seed=None,
+                transform=self.transform,
+                cache_dir=(
+                    os.path.join(cache_dir, "val_" + self.__class__.__name__)
+                    if cache_dir is not None
+                    else None
+                ),
+            )
+        elif "val" in self.hf_dataset:
+            self._eval_dataset = self.create_dataset(
+                batch_size=self.batch_size,
+                dataset=self.hf_dataset["val"]
+                .map(pre_transform, batched=False, num_proc=1)
+                .to_tf_dataset(batch_size=None, prefetch=False),
+                deterministic=self.deterministic,
+                drop_remainder=self.drop_remainder,
+                shuffle_buffer_size=self.shuffle_buffer_size,
+                shuffle_seed=None,
+                transform=self.transform,
+                cache_dir=(
+                    os.path.join(cache_dir, "val_" + self.__class__.__name__)
+                    if cache_dir is not None
+                    else None
+                ),
+            )
+        else:
+            # NOTE: otherwise, use test set as validation set by default
+            self._eval_dataset = self._test_dataset
+
+    @property
+    def train_dataset(self) -> tf.data.Dataset:
+        r"""tf.data.Dataset: The training dataset split."""
+        return self._train_dataset
+
+    @property
+    def eval_dataset(self) -> tf.data.Dataset:
+        r"""tf.data.Dataset: The validation dataset split."""
+        return self._eval_dataset
+
+    @property
+    def test_dataset(self) -> tf.data.Dataset:
+        r"""tf.data.Dataset: The test dataset split."""
+        return self._test_dataset
+
+    @staticmethod
+    def create_dataset(
         *,
-        split: str,
+        batch_size: int,
+        deterministic: bool,
+        drop_remainder: bool,
+        dataset: tf.data.Dataset,
+        shuffle_buffer_size: int,
         shuffle_seed: typing.Optional[int] = None,
+        transform: typing.Optional[typing.Callable] = None,
+        cache_dir: typing.Optional[str] = None,
     ) -> tf.data.Dataset:
-        r"""Create an `tf.data.Dataset` from the HuggingFace dataset object.
+        r"""Create sharded `tf.data.Dataset` from the HuggingFace dataset.
 
         The default method is suitable for processing image datasets with
         `Pillow` images. Override this method for custom dataset processing.
 
         Args:
-            split (str): The dataset split to create.
+            batch_size (int): The batch size for data loading.
+            deterministic (bool): Whether to enforce deterministic loading.
+            drop_remainder (bool): Whether to drop the last incomplete batch.
+            dataset (tf.data.Dataset): The converted HuggingFace dataset.
+            shuffle_buffer_size (int): Buffer size for random shuffling.
             shuffle_seed (Optional[int], optional): Seed for shuffling.
                 If `None`, no shuffling is applied.
+            transform (Optional[Callable], optional): An optional function to
+                transform the features. Default is `None`.
+            cache_dir (Optional[str], optional): Directory to cache the dataset.
 
         Returns:
             The created `tf.data.Dataset` instance.
         """
-        _hf_dataset = self.hf_dataset[split]
-
-        def __hf_generator() -> typing.Generator[typing.Any, None, None]:
-            r"""Default iterator over HuggingFace dataset."""
-            for example in _hf_dataset:
-                image = example[self.feature_key]  # type: ignore
-                target = (
-                    example[self.target_key]  # type: ignore
-                    if self.target_key
-                    else None
-                )
-                if not isinstance(image, Image.Image):
-                    raise ValueError(
-                        "Default iterator expects the image to be a "
-                        f"`PIL.Image.Image` object, but got {type(image)}."
-                    )
-                image = image.convert("RGB")
-
-                # resize the image
-                width, height = image.size
-                scale = self._resize / min(width, height)
-                new_width, new_height = int(width * scale), int(height * scale)
-                image = image.resize(
-                    size=(new_width, new_height),
-                    resample=self._resample,
-                )
-
-                # center crop
-                left = (new_width - self._resize) / 2
-                top = (new_height - self._resize) / 2
-                right = (new_width + self._resize) / 2
-                bottom = (new_height + self._resize) / 2
-                image = image.crop((left, top, right, bottom))
-
-                yield image, target
-
-        ds = tf.data.Dataset.from_generator(
-            __hf_generator,
-            output_signature=self.output_signature,
-        )
-
-        def __make_shard_dataset(
-            shard_index: int,
-            num_workers: int,
-            dataset: tf.data.Dataset,
-            local_seed: typing.Optional[int] = None,
-        ) -> tf.data.Dataset:
-            r"""Shards the input TensorFlow dataset for parallel loading."""
-            local_ds = dataset.shard(num_shards=num_workers, index=shard_index)
-            if local_seed is not None:
-                local_ds = local_ds.shuffle(
-                    buffer_size=self.shuffle_buffer_size,
-                    seed=int(local_seed),  # type: ignore
-                )
-            if self.transform is not None:
-                local_ds = local_ds.map(
-                    map_func=self.transform,
-                    deterministic=self.deterministic,
-                    num_parallel_calls=tf.data.AUTOTUNE,
-                )
-            local_ds = local_ds.batch(
-                batch_size=self.batch_size,
-                deterministic=self.deterministic,
-                drop_remainder=self.drop_remainder,
+        if isinstance(transform, typing.Callable):
+            dataset = dataset.map(
+                map_func=transform,
+                deterministic=deterministic,
                 num_parallel_calls=tf.data.AUTOTUNE,
             )
 
-            return local_ds
-
         if shuffle_seed is not None:
-            local_seed = random.fold_in(
-                random.PRNGKey(shuffle_seed),
-                jax.process_index(),
-            )[0]
-            local_seed = int(local_seed)  # type: ignore
-        else:
-            local_seed = None
+            dataset = dataset.shuffle(
+                buffer_size=shuffle_buffer_size,
+                seed=shuffle_seed,
+                reshuffle_each_iteration=True,
+            )
 
-        indices = tf.data.Dataset.range(self.num_workers)
-        out = indices.interleave(
-            map_func=functools.partial(
-                __make_shard_dataset,
-                num_workers=self.num_workers,
-                dataset=ds,
-                local_seed=local_seed,
-            ),
-            deterministic=self.deterministic,
+        if cache_dir is not None:
+            dataset = dataset.cache(filename=cache_dir)
+
+        dataset = dataset.batch(
+            batch_size=batch_size,
+            deterministic=deterministic,
+            drop_remainder=drop_remainder,
             num_parallel_calls=tf.data.AUTOTUNE,
         )
 
-        return out.prefetch(buffer_size=tf.data.AUTOTUNE)
+        return dataset.prefetch(buffer_size=tf.data.AUTOTUNE)
+
+    @staticmethod
+    def pre_transform(
+        example: typing.Dict[str, typing.Any],
+        feature_key: str,
+        target_key: typing.Optional[str],
+        center_crop: bool = True,
+        resample: typing.Optional[int] = None,
+        resize: typing.Optional[int] = None,
+    ) -> typing.Dict[str, typing.Any]:
+        r"""Pre-transformation function for input images.
+
+        Args:
+            example (Dict[str, Any]): A dictionary of data from the dataset.
+            feature_key (str): The name of the input features to use.
+            target_key (Optional[str]): The name of the target features to use.
+            center_crop (bool, optional): Whether to apply center cropping
+                after resizing. Default is `True`.
+            resample (Optional[int], optional): The resampling filter to use for
+                resizing images. If `None`, use `PIL.Image.NEAREST`.
+            resize (Optional[int], optional): The size to resize images to
+                (square). If `None`, no resizing is applied. Default is `None`.
+
+        Returns:
+            A dictionary with processed images and targets.
+        """
+        image = example[feature_key]
+        target = example[target_key] if target_key is not None else None
+        if not isinstance(image, Image.Image):
+            raise ValueError(
+                "Default pre-transformation expects the image to be a "
+                f"`PIL.Image.Image` object, but got {type(image)}."
+            )
+
+        image = image.convert("RGB")
+
+        # resize the image
+        if resize is not None:
+            width, height = image.size
+            scale = resize / min(width, height)
+            new_width, new_height = int(width * scale), int(height * scale)
+            image = image.resize(
+                size=(new_width, new_height),
+                resample=resample,
+            )
+
+            # center crop
+            if center_crop:
+                left = (new_width - resize) / 2
+                top = (new_height - resize) / 2
+                right = (new_width + resize) / 2
+                bottom = (new_height + resize) / 2
+                image = image.crop((left, top, right, bottom))
+
+        if target_key is None:
+            return {"image": image}
+        else:
+            return {"image": image, "label": target}
+
+    def train_dataloader(self) -> typing.Generator[PyTree, None, None]:
+        r"""Generator[PyTree]: Returns an iterable over the training data."""
+        for data in self.train_dataset.as_numpy_iterator():
+            yield jax.tree_util.tree_map(lambda x: jnp.asarray(x), data)
+
+    def eval_dataloader(self) -> typing.Generator[PyTree, None, None]:
+        r"""Generator[PyTree]: Returns an iterable over the validation data."""
+        for data in self.eval_dataset.as_numpy_iterator():
+            yield jax.tree_util.tree_map(lambda x: jnp.asarray(x), data)
+
+    def test_dataloader(self) -> typing.Generator[PyTree, None, None]:
+        r"""Generator[PyTree]: Returns an iterable over the test data."""
+        for data in self.test_dataset.as_numpy_iterator():
+            yield jax.tree_util.tree_map(lambda x: jnp.asarray(x), data)
 
 
 # ==============================================================================
@@ -384,11 +483,12 @@ class CIFAR10DataModule(HuggingFaceImageDataModule):
             image to before cropping. Defaults to `224`.
         resample (int, optional): Resampling filter to use when resizing
             images. Defaults to `3` (PIL.Image.BICUBIC).
-        seed (int, optional): Random seed for shuffling. Defaults to `42`.
         shuffle_buffer_size (int, optional): Buffer size for random shuffling.
             Defaults to `10_000`.
         streaming (bool, optional): Whether to stream the dataset using the
             `datasets` library. Defaults to `False`.
+        rng (jax.Array, optional): Random key for shuffling.
+            Default is `random.PRNGKey(42)`.
     """
 
     def __init__(
@@ -399,11 +499,10 @@ class CIFAR10DataModule(HuggingFaceImageDataModule):
         num_workers: int = 4,
         resize: int = 224,
         resample: int = 3,
-        seed: int = 42,
         shuffle_buffer_size: int = 10_000,
         streaming: bool = False,
         transform: typing.Optional[typing.Callable] = None,
-        target_transform: typing.Optional[typing.Callable] = None,
+        rng: jax.Array = random.PRNGKey(42),
     ) -> None:
         self._hf_dataset = datasets.load_dataset(
             path="uoft-cs/cifar10",
@@ -418,10 +517,9 @@ class CIFAR10DataModule(HuggingFaceImageDataModule):
             num_workers=num_workers,
             resize=resize,
             resample=resample,
-            seed=seed,
             shuffle_buffer_size=shuffle_buffer_size,
             transform=transform,
-            target_transform=target_transform,
+            rng=rng,
         )
 
     @property
@@ -440,26 +538,11 @@ class CIFAR10DataModule(HuggingFaceImageDataModule):
         return "label"
 
     @property
-    def output_signature(self) -> typing.Tuple[tf.TensorSpec, tf.TensorSpec]:
-        r"""Tuple[tf.TensorSpec, tf.TensorSpec]: Tensor specifications."""
-        return (
-            tf.TensorSpec(shape=(224, 224, 3), dtype=tf.uint8),  # type: ignore
-            tf.TensorSpec(shape=(), dtype=tf.int64),  # type: ignore
-        )
-
-    @property
     @typing_extensions.override
     def num_val_examples(self) -> int:
         r"""int: Number of validation examples."""
         # NOTE: using test set as validation set by default
         return len(self.hf_dataset["test"])  # type: ignore
-
-    @typing_extensions.override
-    def eval_dataloader(self) -> typing.Generator[PyTree, None, None]:
-        r"""Returns an iterable over the validation dataset."""
-        ds = self._create_dataset(split="test")
-        for data in ds.as_numpy_iterator():
-            yield jax.tree_util.tree_map(lambda x: jnp.asarray(x), data)
 
 
 class CIFAR100DataModule(HuggingFaceImageDataModule):
@@ -489,6 +572,8 @@ class CIFAR100DataModule(HuggingFaceImageDataModule):
             Defaults to `10_000`.
         streaming (bool, optional): Whether to stream the dataset using the
             `datasets` library. Defaults to `False`.
+        rng (jax.Array, optional): Random key for shuffling.
+            Defaults to `random.PRNGKey(42)`.
     """
 
     def __init__(
@@ -499,11 +584,10 @@ class CIFAR100DataModule(HuggingFaceImageDataModule):
         num_workers: int = 4,
         resize: int = 224,
         resample: int = 3,
-        seed: int = 42,
         shuffle_buffer_size: int = 10_000,
         streaming: bool = False,
         transform: typing.Optional[typing.Callable] = None,
-        target_transform: typing.Optional[typing.Callable] = None,
+        rng: jax.Array = random.PRNGKey(42),
     ) -> None:
         self._hf_dataset = datasets.load_dataset(
             path="uoft-cs/cifar100",
@@ -518,10 +602,9 @@ class CIFAR100DataModule(HuggingFaceImageDataModule):
             num_workers=num_workers,
             resize=resize,
             resample=resample,
-            seed=seed,
             shuffle_buffer_size=shuffle_buffer_size,
             transform=transform,
-            target_transform=target_transform,
+            rng=rng,
         )
 
     @property
@@ -540,26 +623,11 @@ class CIFAR100DataModule(HuggingFaceImageDataModule):
         return "fine_label"
 
     @property
-    def output_signature(self) -> typing.Tuple[tf.TensorSpec, tf.TensorSpec]:
-        r"""Tuple[tf.TensorSpec, tf.TensorSpec]: Tensor specifications."""
-        return (
-            tf.TensorSpec(shape=(224, 224, 3), dtype=tf.uint8),  # type: ignore
-            tf.TensorSpec(shape=(), dtype=tf.int64),  # type: ignore
-        )
-
-    @property
     @typing_extensions.override
     def num_val_examples(self) -> int:
         r"""int: Number of validation examples."""
         # NOTE: using test set as validation set by default
         return len(self.hf_dataset["test"])  # type: ignore
-
-    @typing_extensions.override
-    def eval_dataloader(self) -> typing.Generator[PyTree, None, None]:
-        r"""Returns an iterable over the validation dataset."""
-        ds = self._create_dataset(split="test")
-        for data in ds.as_numpy_iterator():
-            yield jax.tree_util.tree_map(lambda x: jnp.asarray(x), data)
 
 
 class ImageNet1KDataModule(HuggingFaceImageDataModule):
@@ -583,11 +651,12 @@ class ImageNet1KDataModule(HuggingFaceImageDataModule):
             image to before cropping. Defaults to `224`.
         resample (int, optional): Resampling filter to use when resizing
             images. Defaults to `3` (PIL.Image.BICUBIC).
-        seed (int, optional): Random seed for shuffling. Defaults to `42`.
         shuffle_buffer_size (int, optional): Buffer size for random shuffling.
             Defaults to `10_000`.
         streaming (bool, optional): Whether to stream the dataset using the
             `datasets` library. Defaults to `False`.
+        rng (jax.Array, optional): Random key for shuffling.
+            Default is `random.PRNGKey(42)`.
     """
 
     def __init__(
@@ -598,11 +667,10 @@ class ImageNet1KDataModule(HuggingFaceImageDataModule):
         num_workers: int = 4,
         resize: int = 224,
         resample: int = 3,
-        seed: int = 42,
         shuffle_buffer_size: int = 10_000,
         streaming: bool = False,
         transform: typing.Optional[typing.Callable] = None,
-        target_transform: typing.Optional[typing.Callable] = None,
+        rng: jax.Array = random.PRNGKey(42),
     ) -> None:
         self._hf_dataset = datasets.load_dataset(
             path="ILSVRC/imagenet-1k",
@@ -617,10 +685,9 @@ class ImageNet1KDataModule(HuggingFaceImageDataModule):
             num_workers=num_workers,
             resize=resize,
             resample=resample,
-            seed=seed,
             shuffle_buffer_size=shuffle_buffer_size,
             transform=transform,
-            target_transform=target_transform,
+            rng=rng,
         )
 
     @property
@@ -637,14 +704,6 @@ class ImageNet1KDataModule(HuggingFaceImageDataModule):
     def target_key(self) -> str:
         r"""str: The key in the dataset features to use as target."""
         return "label"
-
-    @property
-    def output_signature(self) -> typing.Tuple[tf.TensorSpec, tf.TensorSpec]:
-        r"""Tuple[tf.TensorSpec, tf.TensorSpec]: Tensor specifications."""
-        return (
-            tf.TensorSpec(shape=(224, 224, 3), dtype=tf.uint8),  # type: ignore
-            tf.TensorSpec(shape=(), dtype=tf.int64),  # type: ignore
-        )
 
 
 class MNISTDataModule(HuggingFaceImageDataModule):
@@ -667,11 +726,12 @@ class MNISTDataModule(HuggingFaceImageDataModule):
             image to before cropping. Defaults to `224`.
         resample (int, optional): Resampling filter to use when resizing
             images. Defaults to `3` (PIL.Image.BICUBIC).
-        seed (int, optional): Random seed for shuffling. Defaults to `42`.
         shuffle_buffer_size (int, optional): Buffer size for random shuffling.
             Defaults to `10_000`.
         streaming (bool, optional): Whether to stream the dataset using the
             `datasets` library. Defaults to `False`.
+        rng (jax.Array, optional): Random key for shuffling.
+            Default is `random.PRNGKey(42)`.
     """
 
     def __init__(
@@ -682,11 +742,10 @@ class MNISTDataModule(HuggingFaceImageDataModule):
         num_workers: int = 4,
         resize: int = 224,
         resample: int = 3,
-        seed: int = 42,
         shuffle_buffer_size: int = 10_000,
         streaming: bool = False,
         transform: typing.Optional[typing.Callable] = None,
-        target_transform: typing.Optional[typing.Callable] = None,
+        rng: jax.Array = random.PRNGKey(42),
     ) -> None:
         self._hf_dataset = datasets.load_dataset(
             path="ylecun/mnist",
@@ -701,10 +760,9 @@ class MNISTDataModule(HuggingFaceImageDataModule):
             num_workers=num_workers,
             resize=resize,
             resample=resample,
-            seed=seed,
             shuffle_buffer_size=shuffle_buffer_size,
             transform=transform,
-            target_transform=target_transform,
+            rng=rng,
         )
 
     @property
@@ -723,26 +781,11 @@ class MNISTDataModule(HuggingFaceImageDataModule):
         return "label"
 
     @property
-    def output_signature(self) -> typing.Tuple[tf.TensorSpec, tf.TensorSpec]:
-        r"""Tuple[tf.TensorSpec, tf.TensorSpec]: Tensor specifications."""
-        return (
-            tf.TensorSpec(shape=(224, 224, 3), dtype=tf.uint8),  # type: ignore
-            tf.TensorSpec(shape=(), dtype=tf.int64),  # type: ignore
-        )
-
-    @property
     @typing_extensions.override
     def num_val_examples(self) -> int:
         r"""int: Number of validation examples."""
         # NOTE: using test set as validation set by default
         return len(self.hf_dataset["test"])  # type: ignore
-
-    @typing_extensions.override
-    def eval_dataloader(self) -> typing.Generator[PyTree, None, None]:
-        r"""Returns an iterable over the validation dataset."""
-        ds = self._create_dataset(split="test")
-        for data in ds.as_numpy_iterator():
-            yield jax.tree_util.tree_map(lambda x: jnp.asarray(x), data)
 
 
 __all__ = [

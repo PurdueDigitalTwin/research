@@ -1,6 +1,6 @@
-load("//learning:defs.bzl", "ml_py_library", "ml_py_test")
+load("//third_party:defs.bzl", "ml_py_library", "ml_py_test")
 
-package(default_visibility = ["//learning/generative:__subpackages__"])
+package(default_visibility = ["//src/projects/generative:__subpackages__"])
 
 ml_py_library(
     name = "refinenet",
@@ -9,7 +9,6 @@ ml_py_library(
         "chex",
         "flax",
         "jax",
-        "jaxlib",
     ],
 )
 
@@ -20,7 +19,25 @@ ml_py_test(
         "chex",
         "flax",
         "jax",
-        "jaxlib",
         ":refinenet",
+    ],
+)
+
+ml_py_library(
+    name = "unet",
+    srcs = ["unet.py"],
+    deps = [
+        "chex",
+        "flax",
+        "jax",
+    ],
+)
+
+ml_py_test(
+    name = "test_unet",
+    srcs = ["test_unet.py"],
+    deps = [
+        "jax",
+        ":unet",
     ],
 )

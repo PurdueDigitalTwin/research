@@ -18,6 +18,11 @@ config_setting(
     define_values = {"ml_platform": "tpu"},
 )
 
+config_setting(
+    name = "is_mps",
+    define_values = {"ml_platform": "mps"},
+)
+
 # compile pip requirements into a lock file
 compile_pip_requirements(
     name = "requirements_3_10_cpu",
@@ -56,4 +61,18 @@ compile_pip_requirements(
         "--resolver=backtracking",
     ],
     requirements_txt = "requirements_3_10_tpu_lock.txt",
+)
+
+compile_pip_requirements(
+    name = "requirements_3_10_mps",
+    timeout = "moderate",
+    srcs = [
+        "requirements.in",
+        "requirements_mps.in",
+    ],
+    extra_args = [
+        "--allow-unsafe",
+        "--resolver=backtracking",
+    ],
+    requirements_txt = "requirements_3_10_mps_lock.txt",
 )

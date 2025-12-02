@@ -20,6 +20,7 @@ ml_py_test(
     name = "test_huggingface",
     srcs = ["test_huggingface.py"],
     deps = [
+        "jax",
         "numpy",
         "tensorflow",
         ":huggingface",

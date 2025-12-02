@@ -212,3 +212,5 @@ cython_debug/
 /data/
 /logs/
 requirements_*.txt
+
+.specstory/
