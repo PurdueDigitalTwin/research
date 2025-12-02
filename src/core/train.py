@@ -111,7 +111,7 @@ def run(
         try:
             train_metrics = collections.defaultdict(list)
             while True:
-                for batch in datamodule.train_dataloader():
+                for train_batch in datamodule.train_dataloader():
                     # evaluation and sanity check running
                     if (
                         step % eval_every_n_steps == 0
@@ -120,11 +120,11 @@ def run(
                         logging.rank_zero_info("Running evaluation...")
                         eval_metrics = collections.defaultdict(list)
                         outputs = None
-                        for batch in datamodule.eval_dataloader():
-                            batch = _shard(batch)
+                        for eval_batch in datamodule.eval_dataloader():
+                            eval_batch = _shard(eval_batch)
                             outputs = p_evaluation_step(
                                 params=state.params,
-                                batch=batch,
+                                batch=eval_batch,
                             )
                             if not isinstance(outputs, _model.StepOutputs):
                                 raise RuntimeError(
@@ -164,14 +164,14 @@ def run(
                                 )
                         writer.flush()
 
-                    batch = _shard(batch)
+                    train_batch = _shard(train_batch)
                     with jax.profiler.StepTraceAnnotation(
                         name="train",
                         step_num=step,
                     ):
                         state, outputs = p_training_step(
                             state=state,
-                            batch=batch,
+                            batch=train_batch,
                         )
                     if not isinstance(outputs, _model.StepOutputs):
                         raise RuntimeError(
