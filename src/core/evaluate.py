@@ -6,7 +6,6 @@ import typing
 from clu import metric_writers
 from clu import periodic_actions
 import jax
-from jax import numpy as jnp
 import jaxtyping
 
 from src.core import datamodule as _datamodule

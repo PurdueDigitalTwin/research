@@ -243,6 +243,10 @@ def run(
                 )
                 writer.flush()
 
+                # break outer loop if reach max steps
+                if step >= num_train_steps:
+                    break
+
         except Exception as e:
             logging.rank_zero_error(
                 "Exception occurred during training: %s", e
