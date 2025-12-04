@@ -713,7 +713,8 @@ class InceptionEBlock(nn.Module):
         out_3x3dbl = jnp.concatenate([out_3x3dbl_a, out_3x3dbl_b], axis=-1)
 
         # branch 4: average pooling followed by 1x1 convolution
-
+        # Replace the averaging pooling by a max pooling
+        # see: https://github.com/mseitzer/pytorch-fid/blob/master/src/pytorch_fid/inception.py#L320
         branch_pool = ConvBNReLU(
             features=192,
             kernel_size=1,
@@ -723,7 +724,7 @@ class InceptionEBlock(nn.Module):
             param_dtype=self.param_dtype,
             name="branch_pool",
         )
-        out_pool = nn.avg_pool(
+        out_pool = nn.max_pool(
             inputs,
             window_shape=(3, 3),
             strides=(1, 1),
@@ -735,3 +736,96 @@ class InceptionEBlock(nn.Module):
             [out_1x1, out_3x3, out_3x3dbl, out_pool],
             axis=-1,
         )
+
+
+class InceptionAuxiliaryHead(nn.Module):
+    r"""Auxiliary classifier head for Inception architecture.
+
+    Args:
+        num_classes (int): Number of output classes.
+        deterministic (bool, optional): Whether to apply running averages
+            in batch normalization.
+        dtype (Any): The dtype of the computation.
+        param_dtype (Any): The dtype of the parameters.
+    """
+
+    num_classes: int
+    deterministic: typing.Optional[bool] = None
+    dtype: typing.Any = None
+    param_dtype: typing.Any = None
+
+    @nn.compact
+    def __call__(
+        self,
+        inputs: jax.Array,
+        deterministic: typing.Optional[bool] = None,
+    ) -> jax.Array:
+        r"""Forward pass of the Inception auxiliary block.
+
+        Args:
+            inputs (jax.Array): Input array of shape `(*, height, width, C)`.
+            deterministic (bool, optional): Whether to apply running averages
+                in batch normalization.
+
+        Returns:
+            Output array of shape `(*, num_classes)`.
+        """
+        m_deterministic = nn.merge_param(
+            "deterministic",
+            self.deterministic,
+            deterministic,
+        )
+
+        # average pooling
+        out = nn.avg_pool(
+            inputs,
+            window_shape=(5, 5),
+            strides=(3, 3),
+            padding="VALID",
+        )
+
+        # 1x1 convolution
+        conv_0 = ConvBNReLU(
+            features=128,
+            kernel_size=1,
+            strides=1,
+            padding="VALID",
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="conv0",
+        )
+        out = conv_0(out, deterministic=m_deterministic)
+
+        # 5x5 convolution
+        conv_1 = ConvBNReLU(
+            features=768,
+            kernel_size=5,
+            strides=1,
+            padding=0,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="conv1",
+        )
+        out = conv_1(out, deterministic=m_deterministic)
+
+        # average pooling over spatial dimensions
+        out = jnp.mean(out, axis=(-3, -2), keepdims=True)
+        out = jnp.reshape(out, (*out.shape[:-3], -1))
+
+        # linear layer
+        fc = nn.Dense(
+            features=self.num_classes,
+            use_bias=True,
+            kernel_init=nn.initializers.variance_scaling(
+                1.0,
+                "fan_avg",
+                "uniform",
+            ),
+            bias_init=nn.initializers.zeros,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="fc",
+        )
+        out = fc(out)
+
+        return out
