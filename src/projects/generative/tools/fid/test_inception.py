@@ -32,5 +32,25 @@ def test_conv_bn_relu(dtype: typing.Any) -> None:
     assert output.dtype == dtype
 
 
+@pytest.mark.parametrize("dtype", [jnp.float32, jnp.bfloat16])
+def test_inception_a_block(dtype: typing.Any) -> None:
+    r"""Test the `InceptionABlock` module."""
+    module = inception.InceptionABlock(
+        pooled_features=32,
+        dtype=dtype,
+        param_dtype=dtype,
+    )
+    test_input = jnp.ones((1, 35, 35, 192), dtype=dtype)
+    variables = module.init(
+        jax.random.PRNGKey(0),
+        test_input,
+        deterministic=True,
+    )
+    output = module.apply(variables, test_input, deterministic=True)
+    assert isinstance(output, jax.Array)
+    assert output.shape == (1, 35, 35, 256)
+    assert output.dtype == dtype
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main(["-xv", __file__]))
