@@ -928,6 +928,33 @@ class InceptionV3(nn.Module):
             padding="VALID",
         )
 
+        conv2d_3b_1x1 = ConvBNReLU(
+            features=80,
+            kernel_size=1,
+            strides=1,
+            padding=0,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="conv2d_3b_1x1",
+        )
+        conv2d_4a_3x3 = ConvBNReLU(
+            features=192,
+            kernel_size=3,
+            strides=1,
+            padding=0,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="conv2d_4a_3x3",
+        )
+        out = conv2d_3b_1x1(out, deterministic=m_deterministic)
+        out = conv2d_4a_3x3(out, deterministic=m_deterministic)
+        out = nn.max_pool(
+            out,
+            window_shape=(3, 3),
+            strides=(2, 2),
+            padding="VALID",
+        )
+
         # inception blocks
         mixed_5b = InceptionABlock(
             pooled_features=32,
