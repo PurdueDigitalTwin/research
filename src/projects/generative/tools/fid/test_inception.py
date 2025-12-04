@@ -149,5 +149,31 @@ def test_inception_auxiliary(dtype: typing.Any) -> None:
     assert output.dtype == dtype
 
 
+@pytest.mark.parametrize("dtype", [jnp.float32, jnp.bfloat16])
+def test_inception_v3(dtype: typing.Any) -> None:
+    r"""Test the `InceptionV3` module."""
+    module = inception.InceptionV3(
+        num_classes=1000,
+        with_head=True,
+        with_aux_logits=True,
+        dtype=dtype,
+        param_dtype=dtype,
+    )
+    test_input = jnp.ones((1, 299, 299, 3), dtype=dtype)
+    variables = module.init(
+        jax.random.PRNGKey(0),
+        test_input,
+        deterministic=True,
+    )
+    output = module.apply(variables, test_input, deterministic=True)
+    logits, aux_logits = output
+    assert isinstance(logits, jax.Array)
+    assert logits.shape == (1, 1000)
+    assert logits.dtype == dtype
+    assert isinstance(aux_logits, jax.Array)
+    assert aux_logits.shape == (1, 1000)
+    assert aux_logits.dtype == dtype
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main(["-xv", __file__]))

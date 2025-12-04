@@ -829,3 +829,213 @@ class InceptionAuxiliaryHead(nn.Module):
         out = fc(out)
 
         return out
+
+
+# ==============================================================================
+# Inception Architecture
+class InceptionV3(nn.Module):
+    r"""Inception-v3 architecture.
+
+    ..note::
+        This module implements the Inception architecture from the original
+        paper "Rethinking the Inception Architecture for Computer Vision"
+        by Szegedy et al. (2015) at `https://arxiv.org/abs/1512.00567`.
+
+    Args:
+        num_classes (int): Number of output classes. Default is 1000.
+        with_head (bool): Whether to include the final classification head.
+            Default is `True`.
+        with_aux_logits (bool): Whether to include the auxiliary logits head.
+            Default is `True`.
+        deterministic (bool, optional): Whether to apply running averages
+            in batch normalization.
+        dtype (Any): The dtype of the computation.
+        param_dtype (Any): The dtype of the parameters.
+    """
+
+    num_classes: int = 1_000
+    with_head: bool = True
+    with_aux_logits: bool = True
+    deterministic: typing.Optional[bool] = None
+    dtype: typing.Any = jnp.float32
+    param_dtype: typing.Any = jnp.float32
+
+    @nn.compact
+    def __call__(
+        self,
+        inputs: jax.Array,
+        deterministic: typing.Optional[bool] = None,
+    ) -> typing.Tuple[jax.Array, typing.Optional[jax.Array]]:
+        r"""Forward pass of the Inception-v3 architecture.
+
+        Args:
+            inputs (jax.Array): Input array of shape `(*, height, width, 3)`.
+            deterministic (bool, optional): Whether to apply running averages
+                in batch normalization.
+
+        Returns:
+            If `with_head` is `False`, returns the feature map before the head;
+            otherwise, returns a tuple of the final output array of shape
+            `(*, num_classes)` and optionally the auxiliary logits of shape
+            `(*, num_classes)` if `with_aux_logits` is `True`.
+        """
+        # sanity check
+        assert (
+            inputs.shape[-1] == 3
+        ), f"Expected input with 3 channels (RGB), but got {inputs.shape[-1]}."
+
+        m_deterministic = nn.merge_param(
+            "deterministic",
+            self.deterministic,
+            deterministic,
+        )
+
+        # stem blocks
+        conv2d_1a_3x3 = ConvBNReLU(
+            features=32,
+            kernel_size=3,
+            strides=2,
+            padding="VALID",
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="conv2d_1a_3x3",
+        )
+        conv2d_2a_3x3 = ConvBNReLU(
+            features=32,
+            kernel_size=3,
+            strides=1,
+            padding="VALID",
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="conv2d_2a_3x3",
+        )
+        conv2d_2b_3x3 = ConvBNReLU(
+            features=64,
+            kernel_size=3,
+            strides=1,
+            padding=1,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="conv2d_2b_3x3",
+        )
+        out = conv2d_1a_3x3(inputs, deterministic=m_deterministic)
+        out = conv2d_2a_3x3(out, deterministic=m_deterministic)
+        out = conv2d_2b_3x3(out, deterministic=m_deterministic)
+        out = nn.max_pool(
+            out,
+            window_shape=(3, 3),
+            strides=(2, 2),
+            padding="VALID",
+        )
+
+        # inception blocks
+        mixed_5b = InceptionABlock(
+            pooled_features=32,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="mixed_5b",
+        )
+        mixed_5c = InceptionABlock(
+            pooled_features=64,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="mixed_5c",
+        )
+        mixed_5d = InceptionABlock(
+            pooled_features=64,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="mixed_5d",
+        )
+        out = mixed_5b(out, deterministic=m_deterministic)
+        out = mixed_5c(out, deterministic=m_deterministic)
+        out = mixed_5d(out, deterministic=m_deterministic)
+
+        mixed_6a = InceptionBBlock(
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="mixed_6a",
+        )
+        mixed_6b = InceptionCBlock(
+            features=128,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="mixed_6b",
+        )
+        mixed_6c = InceptionCBlock(
+            features=160,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="mixed_6c",
+        )
+        mixed_6d = InceptionCBlock(
+            features=160,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="mixed_6d",
+        )
+        mixed_6e = InceptionCBlock(
+            features=192,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="mixed_6e",
+        )
+        out = mixed_6a(out, deterministic=m_deterministic)
+        out = mixed_6b(out, deterministic=m_deterministic)
+        out = mixed_6c(out, deterministic=m_deterministic)
+        out = mixed_6d(out, deterministic=m_deterministic)
+        out = mixed_6e(out, deterministic=m_deterministic)
+
+        if self.with_aux_logits:
+            aux_head = InceptionAuxiliaryHead(
+                num_classes=self.num_classes,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                name="auxlogits",
+            )
+            aux_logits = aux_head(out, deterministic=m_deterministic)
+        else:
+            aux_logits = None
+
+        mixed_7a = InceptionDBlock(
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="mixed_7a",
+        )
+        mixed_7b = InceptionEBlock(
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="mixed_7b",
+        )
+        mixed_7c = InceptionEBlock(
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="mixed_7c",
+        )
+        out = mixed_7a(out, deterministic=m_deterministic)
+        out = mixed_7b(out, deterministic=m_deterministic)
+        out = mixed_7c(out, deterministic=m_deterministic)
+        if not self.with_head:
+            return out, aux_logits
+
+        # classification head
+        out = jnp.mean(out, axis=(-3, -2), keepdims=True)
+        out = jnp.reshape(out, (*out.shape[:-3], -1))
+        dropout = nn.Dropout(rate=0.5)
+        out = dropout(out, deterministic=m_deterministic)
+        fc = nn.Dense(
+            features=self.num_classes,
+            use_bias=True,
+            kernel_init=nn.initializers.variance_scaling(
+                1.0,
+                "fan_avg",
+                "uniform",
+            ),
+            bias_init=nn.initializers.zeros,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="fc",
+        )
+        out = fc(out)
+
+        return out, aux_logits
