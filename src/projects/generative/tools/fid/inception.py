@@ -195,14 +195,14 @@ class InceptionABlock(nn.Module):
         out_3x3 = branch3x3_3(out_3x3, deterministic=m_deterministic)
 
         # branch 4: average pooling followed by 1x1 convolution
-        branchpool = ConvBNReLU(
+        branch_pool = ConvBNReLU(
             features=self.pooled_features,
             kernel_size=1,
             strides=1,
             padding="VALID",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            name="branchpool",
+            name="branch_pool",
         )
         out_pool = nn.avg_pool(
             inputs,
@@ -210,7 +210,7 @@ class InceptionABlock(nn.Module):
             strides=(1, 1),
             padding="SAME",
         )
-        out_pool = branchpool(out_pool, deterministic=m_deterministic)
+        out_pool = branch_pool(out_pool, deterministic=m_deterministic)
 
         return jnp.concatenate(
             [out_1x1, out_5x5, out_3x3, out_pool],
@@ -445,14 +445,14 @@ class InceptionCBlock(nn.Module):
         out_7x7dbl = branch7x7dbl_5(out_7x7dbl, deterministic=m_deterministic)
 
         # branch 4: average pooling followed by 1x1 convolution
-        branchpool = ConvBNReLU(
+        branch_pool = ConvBNReLU(
             features=192,
             kernel_size=1,
             strides=1,
             padding="VALID",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            name="branchpool",
+            name="branch_pool",
         )
         out_pool = nn.avg_pool(
             inputs,
@@ -460,7 +460,7 @@ class InceptionCBlock(nn.Module):
             strides=(1, 1),
             padding="SAME",
         )
-        out_pool = branchpool(out_pool, deterministic=m_deterministic)
+        out_pool = branch_pool(out_pool, deterministic=m_deterministic)
 
         return jnp.concatenate(
             [out_1x1, out_7x7, out_7x7dbl, out_pool],
@@ -578,5 +578,160 @@ class InceptionDBlock(nn.Module):
 
         return jnp.concatenate(
             [out_3x3, out_7x7x3, out_pool],
+            axis=-1,
+        )
+
+
+class InceptionEBlock(nn.Module):
+    r"""An Inception block comprises factorized 3x3 convolutions and avg pool.
+
+    Args:
+        deterministic (bool, optional): Whether to apply running averages
+            in batch normalization.
+        dtype (Any): The dtype of the computation.
+        param_dtype (Any): The dtype of the parameters.
+    """
+
+    deterministic: typing.Optional[bool] = None
+    dtype: typing.Any = None
+    param_dtype: typing.Any = None
+
+    @nn.compact
+    def __call__(
+        self,
+        inputs: jax.Array,
+        deterministic: typing.Optional[bool] = None,
+    ) -> jax.Array:
+        r"""Forward pass of the Inception-E block.
+
+        Args:
+            inputs (jax.Array): Input array of shape `(*, height, width, C)`.
+            deterministic (bool, optional): Whether to apply running averages
+                in batch normalization.
+
+        Returns:
+            Output array of shape `(*, new_height, new_width, features)`.
+        """
+        m_deterministic = nn.merge_param(
+            "deterministic",
+            self.deterministic,
+            deterministic,
+        )
+
+        # branch 1: 1x1 convolution
+        branch1x1_conv = ConvBNReLU(
+            features=320,
+            kernel_size=1,
+            strides=1,
+            padding="VALID",
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="branch1x1",
+        )
+        out_1x1 = branch1x1_conv(inputs, deterministic=m_deterministic)
+
+        # branch 2: divided 3x3 convolutions
+        branch3x3_1 = ConvBNReLU(
+            features=384,
+            kernel_size=1,
+            strides=1,
+            padding="VALID",
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="branch3x3_1",
+        )
+        branch3x3_2a = ConvBNReLU(
+            features=384,
+            kernel_size=(1, 3),
+            strides=1,
+            padding=(0, 1),
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="branch3x3_2a",
+        )
+        branch3x3_2b = ConvBNReLU(
+            features=384,
+            kernel_size=(3, 1),
+            strides=1,
+            padding=(1, 0),
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="branch3x3_2b",
+        )
+        out_3x3 = branch3x3_1(inputs, deterministic=m_deterministic)
+        out_3x3_a = branch3x3_2a(out_3x3, deterministic=m_deterministic)
+        out_3x3_b = branch3x3_2b(out_3x3, deterministic=m_deterministic)
+        out_3x3 = jnp.concatenate([out_3x3_a, out_3x3_b], axis=-1)
+
+        # branch 3: divided 3x3 convolutions (double)
+        branch3x3dbl_1 = ConvBNReLU(
+            features=448,
+            kernel_size=1,
+            strides=1,
+            padding="VALID",
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="branch3x3dbl_1",
+        )
+        branch3x3dbl_2 = ConvBNReLU(
+            features=384,
+            kernel_size=3,
+            strides=1,
+            padding=1,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="branch3x3dbl_2",
+        )
+        branch3x3dbl_3a = ConvBNReLU(
+            features=384,
+            kernel_size=(1, 3),
+            strides=1,
+            padding=(0, 1),
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="branch3x3dbl_3a",
+        )
+        branch3x3dbl_3b = ConvBNReLU(
+            features=384,
+            kernel_size=(3, 1),
+            strides=1,
+            padding=(1, 0),
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="branch3x3dbl_3b",
+        )
+        out_3x3dbl = branch3x3dbl_1(inputs, deterministic=m_deterministic)
+        out_3x3dbl = branch3x3dbl_2(out_3x3dbl, deterministic=m_deterministic)
+        out_3x3dbl_a = branch3x3dbl_3a(
+            out_3x3dbl,
+            deterministic=m_deterministic,
+        )
+        out_3x3dbl_b = branch3x3dbl_3b(
+            out_3x3dbl,
+            deterministic=m_deterministic,
+        )
+        out_3x3dbl = jnp.concatenate([out_3x3dbl_a, out_3x3dbl_b], axis=-1)
+
+        # branch 4: average pooling followed by 1x1 convolution
+
+        branch_pool = ConvBNReLU(
+            features=192,
+            kernel_size=1,
+            strides=1,
+            padding="VALID",
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="branch_pool",
+        )
+        out_pool = nn.avg_pool(
+            inputs,
+            window_shape=(3, 3),
+            strides=(1, 1),
+            padding="SAME",
+        )
+        out_pool = branch_pool(out_pool, deterministic=m_deterministic)
+
+        return jnp.concatenate(
+            [out_1x1, out_3x3, out_3x3dbl, out_pool],
             axis=-1,
         )
