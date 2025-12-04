@@ -14,8 +14,8 @@ class ConvBNReLU(nn.Module):
 
     Args:
         features (int): Dimensionality of the output feature map.
-        kernel_size (int): Size of the 2D convolution kernel.
-        strides (int): Stride of the 2D convolution.
+        kernel_size (int or tuple): Size of the convolutional kernel.
+        strides (int or tuple): Stride of the convolution.
         padding (PaddingLike): Padding for the 2D convolution.
             Default is `"VALID"`.
         use_bias (bool): Whether to use bias in the convolution.
@@ -25,8 +25,8 @@ class ConvBNReLU(nn.Module):
     """
 
     features: int
-    kernel_size: int
-    strides: int
+    kernel_size: typing.Union[int, typing.Tuple[int, int]]
+    strides: typing.Union[int, typing.Tuple[int, int]]
     padding: flax_typing.PaddingLike = "VALID"
     use_bias: bool = False
     deterministic: typing.Optional[bool] = None
@@ -55,10 +55,20 @@ class ConvBNReLU(nn.Module):
             deterministic,
         )
 
+        if isinstance(self.kernel_size, int):
+            kernel_size = (self.kernel_size, self.kernel_size)
+        else:
+            kernel_size = self.kernel_size[0:2]
+
+        if isinstance(self.strides, int):
+            strides = (self.strides, self.strides)
+        else:
+            strides = self.strides[0:2]
+
         conv = nn.Conv(
             features=self.features,
-            kernel_size=(self.kernel_size, self.kernel_size),
-            strides=(self.strides, self.strides),
+            kernel_size=kernel_size,
+            strides=strides,
             padding=self.padding,
             use_bias=self.use_bias,
             dtype=self.dtype,
@@ -296,5 +306,163 @@ class InceptionBBlock(nn.Module):
 
         return jnp.concatenate(
             [out_3x3, out_3x3dbl, out_pool],
+            axis=-1,
+        )
+
+
+class InceptionCBlock(nn.Module):
+    r"""An Inception block comprises factorized 7x7 convolution and avg pooling.
+
+    Args:
+        features (int): Dimentionality of 7x7 convolution output.
+        deterministic (bool, optional): Whether to apply running averages
+            in batch normalization.
+        dtype (Any): The dtype of the computation.
+        param_dtype (Any): The dtype of the parameters.
+    """
+
+    features: int
+    deterministic: typing.Optional[bool] = None
+    dtype: typing.Any = None
+    param_dtype: typing.Any = None
+
+    @nn.compact
+    def __call__(
+        self,
+        inputs: jax.Array,
+        deterministic: typing.Optional[bool] = None,
+    ) -> jax.Array:
+        r"""Forward pass of the Inception-C block.
+
+        Args:
+            inputs (jax.Array): Input array of shape `(*, height, width, C)`.
+            deterministic (bool, optional): Whether to apply running averages
+                in batch normalization.
+
+        Returns:
+            Output array of shape `(*, new_height, new_width, features)`.
+        """
+        m_deterministic = nn.merge_param(
+            "deterministic",
+            self.deterministic,
+            deterministic,
+        )
+
+        # branch 1: 1x1 convolution
+        branch_1x1_conv = ConvBNReLU(
+            features=192,
+            kernel_size=1,
+            strides=1,
+            padding="VALID",
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="branch_1x1",
+        )
+        out_1x1 = branch_1x1_conv(inputs, deterministic=m_deterministic)
+
+        # branch 2: factorized 7x7 convolution
+        branch_7x7_1 = ConvBNReLU(
+            features=self.features,
+            kernel_size=1,
+            strides=1,
+            padding="VALID",
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="branch_7x7_1",
+        )
+        branch_7x7_2 = ConvBNReLU(
+            features=self.features,
+            kernel_size=(1, 7),
+            strides=1,
+            padding=(0, 3),
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="branch_7x7_2",
+        )
+        branch_7x7_3 = ConvBNReLU(
+            features=192,
+            kernel_size=(7, 1),
+            strides=1,
+            padding=(3, 0),
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="branch_7x7_3",
+        )
+        out_7x7 = branch_7x7_1(inputs, deterministic=m_deterministic)
+        out_7x7 = branch_7x7_2(out_7x7, deterministic=m_deterministic)
+        out_7x7 = branch_7x7_3(out_7x7, deterministic=m_deterministic)
+
+        # branch 3: factorized 7x7 convolution (double)
+        branch_7x7dbl_1 = ConvBNReLU(
+            features=self.features,
+            kernel_size=1,
+            strides=1,
+            padding="VALID",
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="branch_7x7dbl_1",
+        )
+        branch_7x7dbl_2 = ConvBNReLU(
+            features=self.features,
+            kernel_size=(7, 1),
+            strides=1,
+            padding=(3, 0),
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="branch_7x7dbl_2",
+        )
+        branch_7x7dbl_3 = ConvBNReLU(
+            features=self.features,
+            kernel_size=(1, 7),
+            strides=1,
+            padding=(0, 3),
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="branch_7x7dbl_3",
+        )
+        branch_7x7dbl_4 = ConvBNReLU(
+            features=self.features,
+            kernel_size=(7, 1),
+            strides=1,
+            padding=(3, 0),
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="branch_7x7dbl_4",
+        )
+        branch_7x7dbl_5 = ConvBNReLU(
+            features=192,
+            kernel_size=(1, 7),
+            strides=1,
+            padding=(0, 3),
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="branch_7x7dbl_5",
+        )
+        out_7x7dbl = branch_7x7dbl_1(inputs, deterministic=m_deterministic)
+        out_7x7dbl = branch_7x7dbl_2(out_7x7dbl, deterministic=m_deterministic)
+        out_7x7dbl = branch_7x7dbl_3(out_7x7dbl, deterministic=m_deterministic)
+        out_7x7dbl = branch_7x7dbl_4(out_7x7dbl, deterministic=m_deterministic)
+        out_7x7dbl = branch_7x7dbl_5(out_7x7dbl, deterministic=m_deterministic)
+
+        # branch 4: average pooling followed by 1x1 convolution
+        branch_pool = ConvBNReLU(
+            features=192,
+            kernel_size=1,
+            strides=1,
+            padding="VALID",
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="branch_pool",
+        )
+        out_pool = nn.avg_pool(
+            inputs,
+            window_shape=(3, 3),
+            strides=(1, 1),
+            padding="SAME",
+        )
+        out_pool = branch_pool(out_pool, deterministic=m_deterministic)
+
+        return jnp.concatenate(
+            [out_1x1, out_7x7, out_7x7dbl, out_pool],
             axis=-1,
         )
