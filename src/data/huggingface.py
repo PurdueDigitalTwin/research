@@ -24,6 +24,22 @@ PyTree = jaxtyping.PyTree
 
 # ==============================================================================
 # Helper Functions
+def _align_keys(key: str) -> str:
+    r"""Aligns common feature keys to standard names."""
+
+    key_mappings = {
+        "label_ids": "labels",
+        "label_id": "labels",
+        "target": "labels",
+        "targets": "labels",
+        "image": "image",
+        "img": "image",
+        "images": "image",
+    }
+
+    return key_mappings.get(key, key)
+
+
 def _hf_dataset_get(
     index: tf.Tensor,
     dataset: datasets.Dataset,
@@ -38,7 +54,7 @@ def _hf_dataset_get(
         )
     data: typing.Dict[str, npt.NDArray] = dataset[index.item()]
     data = {
-        key: value
+        _align_keys(key): value
         for key, value in data.items()
         if key in columns or key in ("label", "label_ids", "labels")
     }
@@ -46,7 +62,7 @@ def _hf_dataset_get(
     # enforece data types
     out = []
     for col, cast_dtype in columns_dtypes.items():
-        arr = np.array(data[col]).astype(cast_dtype)
+        arr = np.array(data[_align_keys(col)]).astype(cast_dtype)
         out.append(arr)
 
     return out
@@ -383,7 +399,7 @@ class HuggingFaceImageDataModule(HuggingFaceDataModule):
         tout = [tf.dtypes.as_dtype(t) for t in self.feature_types.values()]
 
         @tf.function(
-            input_signature=(tf.TensorSpec(None, tf.int64))  # type: ignore
+            input_signature=(tf.TensorSpec(None, tf.int64),)  # type: ignore
         )
         def fetch_fn(index: tf.Tensor) -> typing.Dict[str, tf.Tensor]:
             output = tf.py_function(
@@ -392,7 +408,7 @@ class HuggingFaceImageDataModule(HuggingFaceDataModule):
                 Tout=tout,
             )
             return {
-                key: output[i]  # type: ignore
+                _align_keys(key): output[i]  # type: ignore
                 for i, key in enumerate(self.feature_keys)
             }
 
@@ -733,7 +749,6 @@ class ImageNet1KDataModule(HuggingFaceImageDataModule):
     @property
     def feature_types(self) -> typing.Dict[str, typing.Any]:
         return {"image": np.uint8, "label": np.int32}
-        return "label"
 
 
 class MNISTDataModule(HuggingFaceImageDataModule):
