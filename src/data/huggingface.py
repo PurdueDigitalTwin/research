@@ -10,6 +10,8 @@ import jax
 from jax import numpy as jnp
 from jax import random
 import jaxtyping
+from numpy import typing as npt
+import numpy as np
 from PIL import Image
 import tensorflow as tf
 import typing_extensions
@@ -20,6 +22,38 @@ from src.core import datamodule
 PyTree = jaxtyping.PyTree
 
 
+# ==============================================================================
+# Helper Functions
+def _hf_dataset_get(
+    index: tf.Tensor,
+    dataset: datasets.Dataset,
+    columns: typing.List[str],
+    columns_dtypes: typing.Dict[str, typing.Any],
+) -> typing.List[npt.NDArray]:
+    r"""Getter function for HuggingFace datasets."""
+    index = index.numpy()  # type: ignore
+    if not isinstance(index, np.integer):
+        raise ValueError(
+            f"`_hf_dataset_get` expects an integer index, but got {index}."
+        )
+    data: typing.Dict[str, npt.NDArray] = dataset[index.item()]
+    data = {
+        key: value
+        for key, value in data.items()
+        if key in columns or key in ("label", "label_ids", "labels")
+    }
+
+    # enforece data types
+    out = []
+    for col, cast_dtype in columns_dtypes.items():
+        arr = np.array(data[col]).astype(cast_dtype)
+        out.append(arr)
+
+    return out
+
+
+# ==============================================================================
+# Data Modules
 class HuggingFaceDataModule(datamodule.DataModule):
     r"""A generic datamodule for HuggingFace datasets.
 
