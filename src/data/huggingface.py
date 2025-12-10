@@ -418,61 +418,43 @@ class HuggingFaceImageDataModule(HuggingFaceDataModule):
 
     @staticmethod
     def pre_transform(
-        example: typing.Dict[str, typing.Any],
-        feature_key: str,
-        target_key: typing.Optional[str],
-        center_crop: bool = True,
-        resample: typing.Optional[int] = None,
-        resize: typing.Optional[int] = None,
+        example: typing.Dict[str, tf.Tensor],
     ) -> typing.Dict[str, typing.Any]:
-        r"""Pre-transformation function for input images.
+        r"""Pre-transformation function to align channels of input images.
 
         Args:
-            example (Dict[str, Any]): A dictionary of data from the dataset.
-            feature_key (str): The name of the input features to use.
-            target_key (Optional[str]): The name of the target features to use.
-            center_crop (bool, optional): Whether to apply center cropping
-                after resizing. Default is `True`.
-            resample (Optional[int], optional): The resampling filter to use for
-                resizing images. If `None`, use `PIL.Image.NEAREST`.
-            resize (Optional[int], optional): The size to resize images to
-                (square). If `None`, no resizing is applied. Default is `None`.
+            example (Dict[str, tf.Tensor]): A dictionary of data tensors.
 
         Returns:
             A dictionary with processed images and targets.
         """
-        image = example[feature_key]
-        target = example[target_key] if target_key is not None else None
-        if not isinstance(image, Image.Image):
-            raise ValueError(
-                "Default pre-transformation expects the image to be a "
-                f"`PIL.Image.Image` object, but got {type(image)}."
-            )
+        image: tf.Tensor = example["image"]
 
-        image = image.convert("RGB")
+        # handle grayscale images
+        image = tf.cond(  # type: ignore
+            tf.equal(tf.rank(image), 2),
+            lambda: tf.expand_dims(image, axis=-1),
+            lambda: image,
+        )
 
-        # resize the image
-        if resize is not None:
-            width, height = image.size
-            scale = resize / min(width, height)
-            new_width, new_height = int(width * scale), int(height * scale)
-            image = image.resize(
-                size=(new_width, new_height),
-                resample=resample,
-            )
+        # align the channel dimension to 3 (RGB)
+        # repeat last dimension of grayscale image (1 channel) -> RGB
+        # drop alpha channel (4 channels) -> RGB
+        channels = tf.shape(image)[-1]  # type: ignore
+        image = tf.cond(  # type: ignore
+            tf.equal(channels, 1),
+            lambda: tf.image.grayscale_to_rgb(image),
+            lambda: tf.cond(
+                tf.equal(channels, 4),
+                lambda: image[..., :3],  # type: ignore
+                lambda: image,
+            ),
+        )
 
-            # center crop
-            if center_crop:
-                left = (new_width - resize) / 2
-                top = (new_height - resize) / 2
-                right = (new_width + resize) / 2
-                bottom = (new_height + resize) / 2
-                image = image.crop((left, top, right, bottom))
+        # explicitly hint the shape
+        image.set_shape([None, None, 3])
 
-        if target_key is None:
-            return {"image": image}
-        else:
-            return {"image": image, "label": target}
+        return {"image": image, **example}
 
     def train_dataloader(self) -> typing.Generator[PyTree, None, None]:
         r"""Generator[PyTree]: Returns an iterable over the training data."""
