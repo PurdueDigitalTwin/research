@@ -105,14 +105,14 @@ class HuggingFaceDataModule(datamodule.DataModule):
 
     @property
     @abc.abstractmethod
-    def feature_key(self) -> str:
-        r"""str: The key in the dataset features to use as input."""
+    def feature_keys(self) -> typing.List[str]:
+        r"""List[str]: The keys in the dataset features to use as input."""
         ...
 
     @property
     @abc.abstractmethod
-    def target_key(self) -> typing.Optional[str]:
-        r"""Optional[str]: The key in the dataset features to use as target."""
+    def feature_types(self) -> typing.Dict[str, typing.Any]:
+        r"""Dict[str, Any]: Mapping of feature keys to their types."""
         ...
 
     @property
@@ -265,19 +265,9 @@ class HuggingFaceImageDataModule(HuggingFaceDataModule):
         )
 
         # prepare the dataset splits
-        pre_transform = functools.partial(
-            self.pre_transform,
-            feature_key=self.feature_key,
-            target_key=self.target_key,
-            center_crop=True,
-            resample=self._resample,
-            resize=self._resize,
-        )
         self._train_dataset = self.create_dataset(
             batch_size=self.batch_size,
-            dataset=self.hf_dataset["train"]
-            .map(pre_transform, batched=False, num_proc=1)
-            .to_tf_dataset(batch_size=None, prefetch=False),
+            dataset=self.hf_dataset["train"],
             deterministic=self.deterministic,
             drop_remainder=self.drop_remainder,
             shuffle_buffer_size=self.shuffle_buffer_size,
@@ -291,9 +281,7 @@ class HuggingFaceImageDataModule(HuggingFaceDataModule):
         )
         self._test_dataset = self.create_dataset(
             batch_size=self.batch_size,
-            dataset=self.hf_dataset["test"]
-            .map(pre_transform, batched=False, num_proc=1)
-            .to_tf_dataset(batch_size=None, prefetch=False),
+            dataset=self.hf_dataset["test"],
             deterministic=self.deterministic,
             drop_remainder=self.drop_remainder,
             shuffle_buffer_size=self.shuffle_buffer_size,
@@ -308,9 +296,7 @@ class HuggingFaceImageDataModule(HuggingFaceDataModule):
         if "validation" in self.hf_dataset:
             self._eval_dataset = self.create_dataset(
                 batch_size=self.batch_size,
-                dataset=self.hf_dataset["validation"]
-                .map(pre_transform, batched=False, num_proc=1)
-                .to_tf_dataset(batch_size=None, prefetch=False),
+                dataset=self.hf_dataset["validation"],
                 deterministic=self.deterministic,
                 drop_remainder=self.drop_remainder,
                 shuffle_buffer_size=self.shuffle_buffer_size,
@@ -325,9 +311,7 @@ class HuggingFaceImageDataModule(HuggingFaceDataModule):
         elif "val" in self.hf_dataset:
             self._eval_dataset = self.create_dataset(
                 batch_size=self.batch_size,
-                dataset=self.hf_dataset["val"]
-                .map(pre_transform, batched=False, num_proc=1)
-                .to_tf_dataset(batch_size=None, prefetch=False),
+                dataset=self.hf_dataset["val"],
                 deterministic=self.deterministic,
                 drop_remainder=self.drop_remainder,
                 shuffle_buffer_size=self.shuffle_buffer_size,
@@ -358,28 +342,26 @@ class HuggingFaceImageDataModule(HuggingFaceDataModule):
         r"""tf.data.Dataset: The test dataset split."""
         return self._test_dataset
 
-    @staticmethod
     def create_dataset(
+        self,
         *,
+        dataset: datasets.Dataset,
         batch_size: int,
         deterministic: bool,
         drop_remainder: bool,
-        dataset: tf.data.Dataset,
         shuffle_buffer_size: int,
         shuffle_seed: typing.Optional[int] = None,
         transform: typing.Optional[typing.Callable] = None,
         cache_dir: typing.Optional[str] = None,
     ) -> tf.data.Dataset:
-        r"""Create sharded `tf.data.Dataset` from the HuggingFace dataset.
-
-        The default method is suitable for processing image datasets with
-        `Pillow` images. Override this method for custom dataset processing.
+        r"""Create `tf.data.Dataset` from the HuggingFace dataset.
 
         Args:
+            dataset (datasets.Dataset): The HuggingFace dataset.
             batch_size (int): The batch size for data loading.
             deterministic (bool): Whether to enforce deterministic loading.
             drop_remainder (bool): Whether to drop the last incomplete batch.
-            dataset (tf.data.Dataset): The converted HuggingFace dataset.
+
             shuffle_buffer_size (int): Buffer size for random shuffling.
             shuffle_seed (Optional[int], optional): Seed for shuffling.
                 If `None`, no shuffling is applied.
@@ -390,31 +372,68 @@ class HuggingFaceImageDataModule(HuggingFaceDataModule):
         Returns:
             The created `tf.data.Dataset` instance.
         """
+
+        # step 1: map fetch function to get data from huggingface dataset
+        get_fn = functools.partial(
+            _hf_dataset_get,
+            dataset=dataset,
+            columns=self.feature_keys,
+            columns_dtypes=self.feature_types,
+        )
+        tout = [tf.dtypes.as_dtype(t) for t in self.feature_types.values()]
+
+        @tf.function(
+            input_signature=(tf.TensorSpec(None, tf.int64))  # type: ignore
+        )
+        def fetch_fn(index: tf.Tensor) -> typing.Dict[str, tf.Tensor]:
+            output = tf.py_function(
+                get_fn,
+                inp=[index],
+                Tout=tout,
+            )
+            return {
+                key: output[i]  # type: ignore
+                for i, key in enumerate(self.feature_keys)
+            }
+
+        ds = tf.data.Dataset.range(len(dataset))
+        ds = ds.map(
+            map_func=fetch_fn,
+            deterministic=deterministic,
+            num_parallel_calls=tf.data.AUTOTUNE,
+        )
+        ds = ds.map(
+            self.pre_transform,
+            deterministic=deterministic,
+            num_parallel_calls=tf.data.AUTOTUNE,
+        )
+
+        # step 2: map transformation function to preprocess images
         if isinstance(transform, typing.Callable):
-            dataset = dataset.map(
+            ds = ds.map(
                 map_func=transform,
                 deterministic=deterministic,
                 num_parallel_calls=tf.data.AUTOTUNE,
             )
 
         if shuffle_seed is not None:
-            dataset = dataset.shuffle(
+            ds = ds.shuffle(
                 buffer_size=shuffle_buffer_size,
                 seed=shuffle_seed,
                 reshuffle_each_iteration=True,
             )
 
         if cache_dir is not None:
-            dataset = dataset.cache(filename=cache_dir)
+            ds = ds.cache(filename=cache_dir)
 
-        dataset = dataset.batch(
+        ds = ds.batch(
             batch_size=batch_size,
             deterministic=deterministic,
             drop_remainder=drop_remainder,
             num_parallel_calls=tf.data.AUTOTUNE,
         )
 
-        return dataset.prefetch(buffer_size=tf.data.AUTOTUNE)
+        return ds.prefetch(buffer_size=tf.data.AUTOTUNE)
 
     @staticmethod
     def pre_transform(
@@ -544,14 +563,12 @@ class CIFAR10DataModule(HuggingFaceImageDataModule):
         return self._hf_dataset  # type: ignore
 
     @property
-    def feature_key(self) -> str:
-        r"""str: The key in the dataset features to use as input."""
-        return "img"
+    def feature_keys(self) -> typing.List[str]:
+        return ["img", "label"]
 
     @property
-    def target_key(self) -> str:
-        r"""str: The key in the dataset features to use as target."""
-        return "label"
+    def feature_types(self) -> typing.Dict[str, typing.Any]:
+        return {"img": np.uint8, "label": np.int32}
 
     @property
     @typing_extensions.override
@@ -629,14 +646,12 @@ class CIFAR100DataModule(HuggingFaceImageDataModule):
         return self._hf_dataset  # type: ignore
 
     @property
-    def feature_key(self) -> str:
-        r"""str: The key in the dataset features to use as input."""
-        return "img"
+    def feature_keys(self) -> typing.List[str]:
+        return ["img", "fine_label"]
 
     @property
-    def target_key(self) -> str:
-        r"""str: The key in the dataset features to use as target."""
-        return "fine_label"
+    def feature_types(self) -> typing.Dict[str, typing.Any]:
+        return {"img": np.uint8, "fine_label": np.int32}
 
     @property
     @typing_extensions.override
@@ -712,13 +727,12 @@ class ImageNet1KDataModule(HuggingFaceImageDataModule):
         return self._hf_dataset  # type: ignore
 
     @property
-    def feature_key(self) -> str:
-        r"""str: The key in the dataset features to use as input."""
-        return "image"
+    def feature_keys(self) -> typing.List[str]:
+        return ["image", "label"]
 
     @property
-    def target_key(self) -> str:
-        r"""str: The key in the dataset features to use as target."""
+    def feature_types(self) -> typing.Dict[str, typing.Any]:
+        return {"image": np.uint8, "label": np.int32}
         return "label"
 
 
@@ -787,14 +801,12 @@ class MNISTDataModule(HuggingFaceImageDataModule):
         return self._hf_dataset  # type: ignore
 
     @property
-    def feature_key(self) -> str:
-        r"""str: The key in the dataset features to use as input."""
-        return "image"
+    def feature_keys(self) -> typing.List[str]:
+        return ["image", "label"]
 
     @property
-    def target_key(self) -> str:
-        r"""str: The key in the dataset features to use as target."""
-        return "label"
+    def feature_types(self) -> typing.Dict[str, typing.Any]:
+        return {"image": np.uint8, "label": np.int32}
 
     @property
     @typing_extensions.override
