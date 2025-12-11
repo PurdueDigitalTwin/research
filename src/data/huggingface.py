@@ -12,7 +12,6 @@ from jax import random
 import jaxtyping
 from numpy import typing as npt
 import numpy as np
-from PIL import Image
 import tensorflow as tf
 import typing_extensions
 
@@ -63,6 +62,12 @@ def _hf_dataset_get(
     out = []
     for col, cast_dtype in columns_dtypes.items():
         arr = np.array(data[_align_keys(col)]).astype(cast_dtype)
+        if _align_keys(col) == "image":
+            if arr.ndim == 2:
+                arr = np.expand_dims(arr, axis=-1)
+                arr = np.tile(arr, (1, 1, 3))  # convert grayscale to RGB
+            if arr.shape[-1] == 4:
+                arr = arr[..., :3]  # remove alpha channel
         out.append(arr)
 
     return out
@@ -232,8 +237,6 @@ class HuggingFaceImageDataModule(HuggingFaceDataModule):
         deterministic (bool): Whether the dataloaders are deterministic.
         drop_remainder (bool): Whether to drop the last incomplete batch.
         num_workers (int): Number of shards for distributed loading.
-        resize (int): The size to resize images to (square).
-        resample (int): Resampling filter to use for resizing images.
         shuffle_buffer_size (int): Buffer size for random shuffling.
         transform (Optional[Callable], optional): An optional function to
             transform the input images. Default is `None`.
@@ -248,15 +251,11 @@ class HuggingFaceImageDataModule(HuggingFaceDataModule):
         deterministic: bool,
         drop_remainder: bool,
         num_workers: int,
-        resize: int,
-        resample: int,
         shuffle_buffer_size: int,
         transform: typing.Optional[typing.Callable] = None,
         use_cache: bool = True,
         rng: typing.Any = jax.random.PRNGKey(42),
     ) -> None:
-        self._resize = resize
-        self._resample = resample
         if use_cache:
             cache_dir = os.path.join(
                 tempfile.gettempdir(),
@@ -418,11 +417,6 @@ class HuggingFaceImageDataModule(HuggingFaceDataModule):
             deterministic=deterministic,
             num_parallel_calls=tf.data.AUTOTUNE,
         )
-        ds = ds.map(
-            self.pre_transform,
-            deterministic=deterministic,
-            num_parallel_calls=tf.data.AUTOTUNE,
-        )
 
         # step 2: map transformation function to preprocess images
         if isinstance(transform, typing.Callable):
@@ -450,46 +444,6 @@ class HuggingFaceImageDataModule(HuggingFaceDataModule):
         )
 
         return ds.prefetch(buffer_size=tf.data.AUTOTUNE)
-
-    @staticmethod
-    def pre_transform(
-        example: typing.Dict[str, tf.Tensor],
-    ) -> typing.Dict[str, typing.Any]:
-        r"""Pre-transformation function to align channels of input images.
-
-        Args:
-            example (Dict[str, tf.Tensor]): A dictionary of data tensors.
-
-        Returns:
-            A dictionary with processed images and targets.
-        """
-        image: tf.Tensor = example["image"]
-
-        # handle grayscale images
-        image = tf.cond(  # type: ignore
-            tf.equal(tf.rank(image), 2),
-            lambda: tf.expand_dims(image, axis=-1),
-            lambda: image,
-        )
-
-        # align the channel dimension to 3 (RGB)
-        # repeat last dimension of grayscale image (1 channel) -> RGB
-        # drop alpha channel (4 channels) -> RGB
-        channels = tf.shape(image)[-1]  # type: ignore
-        image = tf.cond(  # type: ignore
-            tf.equal(channels, 1),
-            lambda: tf.image.grayscale_to_rgb(image),
-            lambda: tf.cond(
-                tf.equal(channels, 4),
-                lambda: image[..., :3],  # type: ignore
-                lambda: image,
-            ),
-        )
-
-        # explicitly hint the shape
-        image.set_shape([None, None, 3])
-
-        return {"image": image, **example}
 
     def train_dataloader(self) -> typing.Generator[PyTree, None, None]:
         r"""Generator[PyTree]: Returns an iterable over the training data."""
@@ -530,10 +484,6 @@ class CIFAR10DataModule(HuggingFaceImageDataModule):
             batch. Defaults to `True`.
         num_workers (int, optional): Number of shards for distributed loading.
             Defaults to `4`.
-        resize (int, optional): The size to resize the shortest edge of the
-            image to before cropping. Defaults to `224`.
-        resample (int, optional): Resampling filter to use when resizing
-            images. Defaults to `3` (PIL.Image.BICUBIC).
         shuffle_buffer_size (int, optional): Buffer size for random shuffling.
             Defaults to `10_000`.
         streaming (bool, optional): Whether to stream the dataset using the
@@ -548,8 +498,6 @@ class CIFAR10DataModule(HuggingFaceImageDataModule):
         deterministic: bool = True,
         drop_remainder: bool = True,
         num_workers: int = 4,
-        resize: int = 224,
-        resample: int = 3,
         shuffle_buffer_size: int = 10_000,
         streaming: bool = False,
         transform: typing.Optional[typing.Callable] = None,
@@ -566,8 +514,6 @@ class CIFAR10DataModule(HuggingFaceImageDataModule):
             deterministic=deterministic,
             drop_remainder=drop_remainder,
             num_workers=num_workers,
-            resize=resize,
-            resample=resample,
             shuffle_buffer_size=shuffle_buffer_size,
             transform=transform,
             rng=rng,
@@ -612,10 +558,6 @@ class CIFAR100DataModule(HuggingFaceImageDataModule):
             batch. Defaults to `True`.
         num_workers (int, optional): Number of shards for distributed loading.
             Defaults to `4`.
-        resize (int, optional): The size to resize the shortest edge of the
-            image to before cropping. Defaults to `224`.
-        resample (int, optional): Resampling filter to use when resizing
-            images. Defaults to `3` (PIL.Image.BICUBIC).
         seed (int, optional): Random seed for shuffling. Defaults to `42`.
         shuffle_buffer_size (int, optional): Buffer size for random shuffling.
             Defaults to `10_000`.
@@ -631,8 +573,6 @@ class CIFAR100DataModule(HuggingFaceImageDataModule):
         deterministic: bool = True,
         drop_remainder: bool = True,
         num_workers: int = 4,
-        resize: int = 224,
-        resample: int = 3,
         shuffle_buffer_size: int = 10_000,
         streaming: bool = False,
         transform: typing.Optional[typing.Callable] = None,
@@ -649,8 +589,6 @@ class CIFAR100DataModule(HuggingFaceImageDataModule):
             deterministic=deterministic,
             drop_remainder=drop_remainder,
             num_workers=num_workers,
-            resize=resize,
-            resample=resample,
             shuffle_buffer_size=shuffle_buffer_size,
             transform=transform,
             rng=rng,
@@ -694,10 +632,6 @@ class ImageNet1KDataModule(HuggingFaceImageDataModule):
             batch. Defaults to `True`.
         num_workers (int, optional): Number of shards for distributed loading.
             Defaults to `4`.
-        resize (int, optional): The size to resize the shortest edge of the
-            image to before cropping. Defaults to `224`.
-        resample (int, optional): Resampling filter to use when resizing
-            images. Defaults to `3` (PIL.Image.BICUBIC).
         shuffle_buffer_size (int, optional): Buffer size for random shuffling.
             Defaults to `10_000`.
         streaming (bool, optional): Whether to stream the dataset using the
@@ -712,8 +646,6 @@ class ImageNet1KDataModule(HuggingFaceImageDataModule):
         deterministic: bool = True,
         drop_remainder: bool = True,
         num_workers: int = 4,
-        resize: int = 224,
-        resample: int = 3,
         shuffle_buffer_size: int = 10_000,
         streaming: bool = False,
         transform: typing.Optional[typing.Callable] = None,
@@ -730,8 +662,6 @@ class ImageNet1KDataModule(HuggingFaceImageDataModule):
             deterministic=deterministic,
             drop_remainder=drop_remainder,
             num_workers=num_workers,
-            resize=resize,
-            resample=resample,
             shuffle_buffer_size=shuffle_buffer_size,
             transform=transform,
             rng=rng,
@@ -767,10 +697,6 @@ class MNISTDataModule(HuggingFaceImageDataModule):
             batch. Defaults to `True`.
         num_workers (int, optional): Number of shards for distributed loading.
             Defaults to `4`.
-        resize (int, optional): The size to resize the shortest edge of the
-            image to before cropping. Defaults to `224`.
-        resample (int, optional): Resampling filter to use when resizing
-            images. Defaults to `3` (PIL.Image.BICUBIC).
         shuffle_buffer_size (int, optional): Buffer size for random shuffling.
             Defaults to `10_000`.
         streaming (bool, optional): Whether to stream the dataset using the
@@ -785,8 +711,6 @@ class MNISTDataModule(HuggingFaceImageDataModule):
         deterministic: bool = True,
         drop_remainder: bool = True,
         num_workers: int = 4,
-        resize: int = 224,
-        resample: int = 3,
         shuffle_buffer_size: int = 10_000,
         streaming: bool = False,
         transform: typing.Optional[typing.Callable] = None,
@@ -803,8 +727,6 @@ class MNISTDataModule(HuggingFaceImageDataModule):
             deterministic=deterministic,
             drop_remainder=drop_remainder,
             num_workers=num_workers,
-            resize=resize,
-            resample=resample,
             shuffle_buffer_size=shuffle_buffer_size,
             transform=transform,
             rng=rng,
