@@ -123,7 +123,7 @@ def run(
                         for eval_batch in datamodule.eval_dataloader():
                             eval_batch = _shard(eval_batch)
                             outputs = p_evaluation_step(
-                                params=state.params,
+                                params=state.ema_params,
                                 batch=eval_batch,
                             )
                             if not isinstance(outputs, _model.StepOutputs):
