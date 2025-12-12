@@ -259,8 +259,8 @@ class HuggingFaceImageDataModule(HuggingFaceDataModule):
         if use_cache:
             cache_dir = os.path.join(
                 tempfile.gettempdir(),
-                "chimera",
                 "huggingface",
+                "datasets",
             )
             if os.path.exists(cache_dir):
                 # NOTE: clear the cache directory to avoid corrupted cache
