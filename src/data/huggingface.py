@@ -58,7 +58,7 @@ def _hf_dataset_get(
         if key in columns or key in ("label", "label_ids", "labels")
     }
 
-    # enforece data types
+    # enforce data types
     out = []
     for col, cast_dtype in columns_dtypes.items():
         arr = np.array(data[_align_keys(col)]).astype(cast_dtype)
@@ -370,6 +370,14 @@ class HuggingFaceImageDataModule(HuggingFaceDataModule):
         cache_dir: typing.Optional[str] = None,
     ) -> tf.data.Dataset:
         r"""Create `tf.data.Dataset` from the HuggingFace dataset.
+
+        .. note::
+            **Breaking change:** The `create_dataset` method signature has
+            changed. The `dataset` parameter type is now `datasets.Dataset`
+            (from HuggingFace), not `tf.data.Dataset`, and its position in the
+            parameter order has changed (it is now a keyword-only argument).
+            Update any overrides or calls accordingly.
+
 
         Args:
             dataset (datasets.Dataset): The HuggingFace dataset.

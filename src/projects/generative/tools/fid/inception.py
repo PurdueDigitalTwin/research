@@ -314,7 +314,7 @@ class InceptionCBlock(nn.Module):
     r"""An Inception block comprises factorized 7x7 convolution and avg pooling.
 
     Args:
-        features (int): Dimentionality of 7x7 convolution output.
+        features (int): Dimensionality of 7x7 convolution output.
         deterministic (bool, optional): Whether to apply running averages
             in batch normalization.
         dtype (Any): The dtype of the computation.
@@ -836,7 +836,7 @@ class InceptionAuxiliaryHead(nn.Module):
 class InceptionV3(nn.Module):
     r"""Inception-v3 architecture.
 
-    ..note::
+    .. note::
         This module implements the Inception architecture from the original
         paper "Rethinking the Inception Architecture for Computer Vision"
         by Szegedy et al. (2015) at `https://arxiv.org/abs/1512.00567`.
