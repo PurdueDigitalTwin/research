@@ -10,7 +10,8 @@ import jax
 from jax import numpy as jnp
 from jax import random
 import jaxtyping
-from PIL import Image
+from numpy import typing as npt
+import numpy as np
 import tensorflow as tf
 import typing_extensions
 
@@ -20,6 +21,60 @@ from src.core import datamodule
 PyTree = jaxtyping.PyTree
 
 
+# ==============================================================================
+# Helper Functions
+def _align_keys(key: str) -> str:
+    r"""Aligns common feature keys to standard names."""
+
+    key_mappings = {
+        "label_ids": "labels",
+        "label_id": "labels",
+        "target": "labels",
+        "targets": "labels",
+        "image": "image",
+        "img": "image",
+        "images": "image",
+    }
+
+    return key_mappings.get(key, key)
+
+
+def _hf_dataset_get(
+    index: tf.Tensor,
+    dataset: datasets.Dataset,
+    columns: typing.List[str],
+    columns_dtypes: typing.Dict[str, typing.Any],
+) -> typing.List[npt.NDArray]:
+    r"""Getter function for HuggingFace datasets."""
+    index = index.numpy()  # type: ignore
+    if not isinstance(index, np.integer):
+        raise ValueError(
+            f"`_hf_dataset_get` expects an integer index, but got {index}."
+        )
+    data: typing.Dict[str, npt.NDArray] = dataset[index.item()]
+    data = {
+        _align_keys(key): value
+        for key, value in data.items()
+        if key in columns or key in ("label", "label_ids", "labels")
+    }
+
+    # enforce data types
+    out = []
+    for col, cast_dtype in columns_dtypes.items():
+        arr = np.array(data[_align_keys(col)]).astype(cast_dtype)
+        if _align_keys(col) == "image":
+            if arr.ndim == 2:
+                arr = np.expand_dims(arr, axis=-1)
+                arr = np.tile(arr, (1, 1, 3))  # convert grayscale to RGB
+            if arr.shape[-1] == 4:
+                arr = arr[..., :3]  # remove alpha channel
+        out.append(arr)
+
+    return out
+
+
+# ==============================================================================
+# Data Modules
 class HuggingFaceDataModule(datamodule.DataModule):
     r"""A generic datamodule for HuggingFace datasets.
 
@@ -71,14 +126,14 @@ class HuggingFaceDataModule(datamodule.DataModule):
 
     @property
     @abc.abstractmethod
-    def feature_key(self) -> str:
-        r"""str: The key in the dataset features to use as input."""
+    def feature_keys(self) -> typing.List[str]:
+        r"""List[str]: The keys in the dataset features to use as input."""
         ...
 
     @property
     @abc.abstractmethod
-    def target_key(self) -> typing.Optional[str]:
-        r"""Optional[str]: The key in the dataset features to use as target."""
+    def feature_types(self) -> typing.Dict[str, typing.Any]:
+        r"""Dict[str, Any]: Mapping of feature keys to their types."""
         ...
 
     @property
@@ -182,8 +237,6 @@ class HuggingFaceImageDataModule(HuggingFaceDataModule):
         deterministic (bool): Whether the dataloaders are deterministic.
         drop_remainder (bool): Whether to drop the last incomplete batch.
         num_workers (int): Number of shards for distributed loading.
-        resize (int): The size to resize images to (square).
-        resample (int): Resampling filter to use for resizing images.
         shuffle_buffer_size (int): Buffer size for random shuffling.
         transform (Optional[Callable], optional): An optional function to
             transform the input images. Default is `None`.
@@ -198,20 +251,16 @@ class HuggingFaceImageDataModule(HuggingFaceDataModule):
         deterministic: bool,
         drop_remainder: bool,
         num_workers: int,
-        resize: int,
-        resample: int,
         shuffle_buffer_size: int,
         transform: typing.Optional[typing.Callable] = None,
-        use_cache: bool = True,
+        use_cache: bool = False,
         rng: typing.Any = jax.random.PRNGKey(42),
     ) -> None:
-        self._resize = resize
-        self._resample = resample
         if use_cache:
             cache_dir = os.path.join(
                 tempfile.gettempdir(),
-                "chimera",
                 "huggingface",
+                "datasets",
             )
             if os.path.exists(cache_dir):
                 # NOTE: clear the cache directory to avoid corrupted cache
@@ -231,19 +280,9 @@ class HuggingFaceImageDataModule(HuggingFaceDataModule):
         )
 
         # prepare the dataset splits
-        pre_transform = functools.partial(
-            self.pre_transform,
-            feature_key=self.feature_key,
-            target_key=self.target_key,
-            center_crop=True,
-            resample=self._resample,
-            resize=self._resize,
-        )
         self._train_dataset = self.create_dataset(
             batch_size=self.batch_size,
-            dataset=self.hf_dataset["train"]
-            .map(pre_transform, batched=False, num_proc=1)
-            .to_tf_dataset(batch_size=None, prefetch=False),
+            dataset=self.hf_dataset["train"],
             deterministic=self.deterministic,
             drop_remainder=self.drop_remainder,
             shuffle_buffer_size=self.shuffle_buffer_size,
@@ -257,9 +296,7 @@ class HuggingFaceImageDataModule(HuggingFaceDataModule):
         )
         self._test_dataset = self.create_dataset(
             batch_size=self.batch_size,
-            dataset=self.hf_dataset["test"]
-            .map(pre_transform, batched=False, num_proc=1)
-            .to_tf_dataset(batch_size=None, prefetch=False),
+            dataset=self.hf_dataset["test"],
             deterministic=self.deterministic,
             drop_remainder=self.drop_remainder,
             shuffle_buffer_size=self.shuffle_buffer_size,
@@ -274,9 +311,7 @@ class HuggingFaceImageDataModule(HuggingFaceDataModule):
         if "validation" in self.hf_dataset:
             self._eval_dataset = self.create_dataset(
                 batch_size=self.batch_size,
-                dataset=self.hf_dataset["validation"]
-                .map(pre_transform, batched=False, num_proc=1)
-                .to_tf_dataset(batch_size=None, prefetch=False),
+                dataset=self.hf_dataset["validation"],
                 deterministic=self.deterministic,
                 drop_remainder=self.drop_remainder,
                 shuffle_buffer_size=self.shuffle_buffer_size,
@@ -291,9 +326,7 @@ class HuggingFaceImageDataModule(HuggingFaceDataModule):
         elif "val" in self.hf_dataset:
             self._eval_dataset = self.create_dataset(
                 batch_size=self.batch_size,
-                dataset=self.hf_dataset["val"]
-                .map(pre_transform, batched=False, num_proc=1)
-                .to_tf_dataset(batch_size=None, prefetch=False),
+                dataset=self.hf_dataset["val"],
                 deterministic=self.deterministic,
                 drop_remainder=self.drop_remainder,
                 shuffle_buffer_size=self.shuffle_buffer_size,
@@ -324,28 +357,34 @@ class HuggingFaceImageDataModule(HuggingFaceDataModule):
         r"""tf.data.Dataset: The test dataset split."""
         return self._test_dataset
 
-    @staticmethod
     def create_dataset(
+        self,
         *,
+        dataset: datasets.Dataset,
         batch_size: int,
         deterministic: bool,
         drop_remainder: bool,
-        dataset: tf.data.Dataset,
         shuffle_buffer_size: int,
         shuffle_seed: typing.Optional[int] = None,
         transform: typing.Optional[typing.Callable] = None,
         cache_dir: typing.Optional[str] = None,
     ) -> tf.data.Dataset:
-        r"""Create sharded `tf.data.Dataset` from the HuggingFace dataset.
+        r"""Create `tf.data.Dataset` from the HuggingFace dataset.
 
-        The default method is suitable for processing image datasets with
-        `Pillow` images. Override this method for custom dataset processing.
+        .. note::
+            **Breaking change:** The `create_dataset` method signature has
+            changed. The `dataset` parameter type is now `datasets.Dataset`
+            (from HuggingFace), not `tf.data.Dataset`, and its position in the
+            parameter order has changed (it is now a keyword-only argument).
+            Update any overrides or calls accordingly.
+
 
         Args:
+            dataset (datasets.Dataset): The HuggingFace dataset.
             batch_size (int): The batch size for data loading.
             deterministic (bool): Whether to enforce deterministic loading.
             drop_remainder (bool): Whether to drop the last incomplete batch.
-            dataset (tf.data.Dataset): The converted HuggingFace dataset.
+
             shuffle_buffer_size (int): Buffer size for random shuffling.
             shuffle_seed (Optional[int], optional): Seed for shuffling.
                 If `None`, no shuffling is applied.
@@ -356,89 +395,63 @@ class HuggingFaceImageDataModule(HuggingFaceDataModule):
         Returns:
             The created `tf.data.Dataset` instance.
         """
+
+        # step 1: map fetch function to get data from huggingface dataset
+        get_fn = functools.partial(
+            _hf_dataset_get,
+            dataset=dataset,
+            columns=self.feature_keys,
+            columns_dtypes=self.feature_types,
+        )
+        tout = [tf.dtypes.as_dtype(t) for t in self.feature_types.values()]
+
+        @tf.function(
+            input_signature=(tf.TensorSpec(None, tf.int64),)  # type: ignore
+        )
+        def fetch_fn(index: tf.Tensor) -> typing.Dict[str, tf.Tensor]:
+            output = tf.py_function(
+                get_fn,
+                inp=[index],
+                Tout=tout,
+            )
+            return {
+                _align_keys(key): output[i]  # type: ignore
+                for i, key in enumerate(self.feature_keys)
+            }
+
+        ds = tf.data.Dataset.range(len(dataset))
+        ds = ds.map(
+            map_func=fetch_fn,
+            deterministic=deterministic,
+            num_parallel_calls=tf.data.AUTOTUNE,
+        )
+
+        # step 2: map transformation function to preprocess images
         if isinstance(transform, typing.Callable):
-            dataset = dataset.map(
+            ds = ds.map(
                 map_func=transform,
                 deterministic=deterministic,
                 num_parallel_calls=tf.data.AUTOTUNE,
             )
 
         if shuffle_seed is not None:
-            dataset = dataset.shuffle(
+            ds = ds.shuffle(
                 buffer_size=shuffle_buffer_size,
                 seed=shuffle_seed,
                 reshuffle_each_iteration=True,
             )
 
         if cache_dir is not None:
-            dataset = dataset.cache(filename=cache_dir)
+            ds = ds.cache(filename=cache_dir)
 
-        dataset = dataset.batch(
+        ds = ds.batch(
             batch_size=batch_size,
             deterministic=deterministic,
             drop_remainder=drop_remainder,
             num_parallel_calls=tf.data.AUTOTUNE,
         )
 
-        return dataset.prefetch(buffer_size=tf.data.AUTOTUNE)
-
-    @staticmethod
-    def pre_transform(
-        example: typing.Dict[str, typing.Any],
-        feature_key: str,
-        target_key: typing.Optional[str],
-        center_crop: bool = True,
-        resample: typing.Optional[int] = None,
-        resize: typing.Optional[int] = None,
-    ) -> typing.Dict[str, typing.Any]:
-        r"""Pre-transformation function for input images.
-
-        Args:
-            example (Dict[str, Any]): A dictionary of data from the dataset.
-            feature_key (str): The name of the input features to use.
-            target_key (Optional[str]): The name of the target features to use.
-            center_crop (bool, optional): Whether to apply center cropping
-                after resizing. Default is `True`.
-            resample (Optional[int], optional): The resampling filter to use for
-                resizing images. If `None`, use `PIL.Image.NEAREST`.
-            resize (Optional[int], optional): The size to resize images to
-                (square). If `None`, no resizing is applied. Default is `None`.
-
-        Returns:
-            A dictionary with processed images and targets.
-        """
-        image = example[feature_key]
-        target = example[target_key] if target_key is not None else None
-        if not isinstance(image, Image.Image):
-            raise ValueError(
-                "Default pre-transformation expects the image to be a "
-                f"`PIL.Image.Image` object, but got {type(image)}."
-            )
-
-        image = image.convert("RGB")
-
-        # resize the image
-        if resize is not None:
-            width, height = image.size
-            scale = resize / min(width, height)
-            new_width, new_height = int(width * scale), int(height * scale)
-            image = image.resize(
-                size=(new_width, new_height),
-                resample=resample,
-            )
-
-            # center crop
-            if center_crop:
-                left = (new_width - resize) / 2
-                top = (new_height - resize) / 2
-                right = (new_width + resize) / 2
-                bottom = (new_height + resize) / 2
-                image = image.crop((left, top, right, bottom))
-
-        if target_key is None:
-            return {"image": image}
-        else:
-            return {"image": image, "label": target}
+        return ds.prefetch(buffer_size=tf.data.AUTOTUNE)
 
     def train_dataloader(self) -> typing.Generator[PyTree, None, None]:
         r"""Generator[PyTree]: Returns an iterable over the training data."""
@@ -479,14 +492,12 @@ class CIFAR10DataModule(HuggingFaceImageDataModule):
             batch. Defaults to `True`.
         num_workers (int, optional): Number of shards for distributed loading.
             Defaults to `4`.
-        resize (int, optional): The size to resize the shortest edge of the
-            image to before cropping. Defaults to `224`.
-        resample (int, optional): Resampling filter to use when resizing
-            images. Defaults to `3` (PIL.Image.BICUBIC).
         shuffle_buffer_size (int, optional): Buffer size for random shuffling.
             Defaults to `10_000`.
         streaming (bool, optional): Whether to stream the dataset using the
             `datasets` library. Defaults to `False`.
+        use_cache (bool, optional): Whether to use cached dataset.
+            Default is `False`.
         rng (jax.Array, optional): Random key for shuffling.
             Default is `random.PRNGKey(42)`.
     """
@@ -497,11 +508,10 @@ class CIFAR10DataModule(HuggingFaceImageDataModule):
         deterministic: bool = True,
         drop_remainder: bool = True,
         num_workers: int = 4,
-        resize: int = 224,
-        resample: int = 3,
         shuffle_buffer_size: int = 10_000,
         streaming: bool = False,
         transform: typing.Optional[typing.Callable] = None,
+        use_cache: bool = False,
         rng: jax.Array = random.PRNGKey(42),
     ) -> None:
         self._hf_dataset = datasets.load_dataset(
@@ -515,10 +525,9 @@ class CIFAR10DataModule(HuggingFaceImageDataModule):
             deterministic=deterministic,
             drop_remainder=drop_remainder,
             num_workers=num_workers,
-            resize=resize,
-            resample=resample,
             shuffle_buffer_size=shuffle_buffer_size,
             transform=transform,
+            use_cache=use_cache,
             rng=rng,
         )
 
@@ -528,14 +537,12 @@ class CIFAR10DataModule(HuggingFaceImageDataModule):
         return self._hf_dataset  # type: ignore
 
     @property
-    def feature_key(self) -> str:
-        r"""str: The key in the dataset features to use as input."""
-        return "img"
+    def feature_keys(self) -> typing.List[str]:
+        return ["img", "label"]
 
     @property
-    def target_key(self) -> str:
-        r"""str: The key in the dataset features to use as target."""
-        return "label"
+    def feature_types(self) -> typing.Dict[str, typing.Any]:
+        return {"img": np.uint8, "label": np.int32}
 
     @property
     @typing_extensions.override
@@ -563,15 +570,13 @@ class CIFAR100DataModule(HuggingFaceImageDataModule):
             batch. Defaults to `True`.
         num_workers (int, optional): Number of shards for distributed loading.
             Defaults to `4`.
-        resize (int, optional): The size to resize the shortest edge of the
-            image to before cropping. Defaults to `224`.
-        resample (int, optional): Resampling filter to use when resizing
-            images. Defaults to `3` (PIL.Image.BICUBIC).
         seed (int, optional): Random seed for shuffling. Defaults to `42`.
         shuffle_buffer_size (int, optional): Buffer size for random shuffling.
             Defaults to `10_000`.
         streaming (bool, optional): Whether to stream the dataset using the
             `datasets` library. Defaults to `False`.
+        use_cache (bool, optional): Whether to use cached dataset.
+            Default is `False`.
         rng (jax.Array, optional): Random key for shuffling.
             Defaults to `random.PRNGKey(42)`.
     """
@@ -582,11 +587,10 @@ class CIFAR100DataModule(HuggingFaceImageDataModule):
         deterministic: bool = True,
         drop_remainder: bool = True,
         num_workers: int = 4,
-        resize: int = 224,
-        resample: int = 3,
         shuffle_buffer_size: int = 10_000,
         streaming: bool = False,
         transform: typing.Optional[typing.Callable] = None,
+        use_cache: bool = False,
         rng: jax.Array = random.PRNGKey(42),
     ) -> None:
         self._hf_dataset = datasets.load_dataset(
@@ -600,10 +604,9 @@ class CIFAR100DataModule(HuggingFaceImageDataModule):
             deterministic=deterministic,
             drop_remainder=drop_remainder,
             num_workers=num_workers,
-            resize=resize,
-            resample=resample,
             shuffle_buffer_size=shuffle_buffer_size,
             transform=transform,
+            use_cache=use_cache,
             rng=rng,
         )
 
@@ -613,14 +616,12 @@ class CIFAR100DataModule(HuggingFaceImageDataModule):
         return self._hf_dataset  # type: ignore
 
     @property
-    def feature_key(self) -> str:
-        r"""str: The key in the dataset features to use as input."""
-        return "img"
+    def feature_keys(self) -> typing.List[str]:
+        return ["img", "fine_label"]
 
     @property
-    def target_key(self) -> str:
-        r"""str: The key in the dataset features to use as target."""
-        return "fine_label"
+    def feature_types(self) -> typing.Dict[str, typing.Any]:
+        return {"img": np.uint8, "fine_label": np.int32}
 
     @property
     @typing_extensions.override
@@ -647,14 +648,12 @@ class ImageNet1KDataModule(HuggingFaceImageDataModule):
             batch. Defaults to `True`.
         num_workers (int, optional): Number of shards for distributed loading.
             Defaults to `4`.
-        resize (int, optional): The size to resize the shortest edge of the
-            image to before cropping. Defaults to `224`.
-        resample (int, optional): Resampling filter to use when resizing
-            images. Defaults to `3` (PIL.Image.BICUBIC).
         shuffle_buffer_size (int, optional): Buffer size for random shuffling.
             Defaults to `10_000`.
         streaming (bool, optional): Whether to stream the dataset using the
             `datasets` library. Defaults to `False`.
+        use_cache (bool, optional): Whether to use cached dataset.
+            Default is `False`.
         rng (jax.Array, optional): Random key for shuffling.
             Default is `random.PRNGKey(42)`.
     """
@@ -665,11 +664,10 @@ class ImageNet1KDataModule(HuggingFaceImageDataModule):
         deterministic: bool = True,
         drop_remainder: bool = True,
         num_workers: int = 4,
-        resize: int = 224,
-        resample: int = 3,
         shuffle_buffer_size: int = 10_000,
         streaming: bool = False,
         transform: typing.Optional[typing.Callable] = None,
+        use_cache: bool = False,
         rng: jax.Array = random.PRNGKey(42),
     ) -> None:
         self._hf_dataset = datasets.load_dataset(
@@ -683,10 +681,9 @@ class ImageNet1KDataModule(HuggingFaceImageDataModule):
             deterministic=deterministic,
             drop_remainder=drop_remainder,
             num_workers=num_workers,
-            resize=resize,
-            resample=resample,
             shuffle_buffer_size=shuffle_buffer_size,
             transform=transform,
+            use_cache=use_cache,
             rng=rng,
         )
 
@@ -696,14 +693,12 @@ class ImageNet1KDataModule(HuggingFaceImageDataModule):
         return self._hf_dataset  # type: ignore
 
     @property
-    def feature_key(self) -> str:
-        r"""str: The key in the dataset features to use as input."""
-        return "image"
+    def feature_keys(self) -> typing.List[str]:
+        return ["image", "label"]
 
     @property
-    def target_key(self) -> str:
-        r"""str: The key in the dataset features to use as target."""
-        return "label"
+    def feature_types(self) -> typing.Dict[str, typing.Any]:
+        return {"image": np.uint8, "label": np.int32}
 
 
 class MNISTDataModule(HuggingFaceImageDataModule):
@@ -722,14 +717,12 @@ class MNISTDataModule(HuggingFaceImageDataModule):
             batch. Defaults to `True`.
         num_workers (int, optional): Number of shards for distributed loading.
             Defaults to `4`.
-        resize (int, optional): The size to resize the shortest edge of the
-            image to before cropping. Defaults to `224`.
-        resample (int, optional): Resampling filter to use when resizing
-            images. Defaults to `3` (PIL.Image.BICUBIC).
         shuffle_buffer_size (int, optional): Buffer size for random shuffling.
             Defaults to `10_000`.
         streaming (bool, optional): Whether to stream the dataset using the
             `datasets` library. Defaults to `False`.
+        use_cache (bool, optional): Whether to use cached dataset.
+            Default is `False`.
         rng (jax.Array, optional): Random key for shuffling.
             Default is `random.PRNGKey(42)`.
     """
@@ -740,11 +733,10 @@ class MNISTDataModule(HuggingFaceImageDataModule):
         deterministic: bool = True,
         drop_remainder: bool = True,
         num_workers: int = 4,
-        resize: int = 224,
-        resample: int = 3,
         shuffle_buffer_size: int = 10_000,
         streaming: bool = False,
         transform: typing.Optional[typing.Callable] = None,
+        use_cache: bool = False,
         rng: jax.Array = random.PRNGKey(42),
     ) -> None:
         self._hf_dataset = datasets.load_dataset(
@@ -758,10 +750,9 @@ class MNISTDataModule(HuggingFaceImageDataModule):
             deterministic=deterministic,
             drop_remainder=drop_remainder,
             num_workers=num_workers,
-            resize=resize,
-            resample=resample,
             shuffle_buffer_size=shuffle_buffer_size,
             transform=transform,
+            use_cache=use_cache,
             rng=rng,
         )
 
@@ -771,14 +762,12 @@ class MNISTDataModule(HuggingFaceImageDataModule):
         return self._hf_dataset  # type: ignore
 
     @property
-    def feature_key(self) -> str:
-        r"""str: The key in the dataset features to use as input."""
-        return "image"
+    def feature_keys(self) -> typing.List[str]:
+        return ["image", "label"]
 
     @property
-    def target_key(self) -> str:
-        r"""str: The key in the dataset features to use as target."""
-        return "label"
+    def feature_types(self) -> typing.Dict[str, typing.Any]:
+        return {"image": np.uint8, "label": np.int32}
 
     @property
     @typing_extensions.override
