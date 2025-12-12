@@ -843,10 +843,10 @@ class InceptionV3(nn.Module):
 
     Args:
         num_classes (int): Number of output classes. Default is 1000.
-        with_head (bool): Whether to include the final classification head.
-            Default is `True`.
-        with_aux_logits (bool): Whether to include the auxiliary logits head.
-            Default is `True`.
+        with_head (Optional[bool], optional): Whether to include the final
+            classification head. Default is `None`.
+        with_aux_logits (Optional[bool], optional): Whether to include the
+            auxiliary logits head. Default is `None`.
         deterministic (bool, optional): Whether to apply running averages
             in batch normalization.
         dtype (Any): The dtype of the computation.
@@ -854,8 +854,8 @@ class InceptionV3(nn.Module):
     """
 
     num_classes: int = 1_000
-    with_head: bool = True
-    with_aux_logits: bool = True
+    with_head: typing.Optional[bool] = None
+    with_aux_logits: typing.Optional[bool] = None
     deterministic: typing.Optional[bool] = None
     dtype: typing.Any = jnp.float32
     param_dtype: typing.Any = jnp.float32
@@ -865,6 +865,8 @@ class InceptionV3(nn.Module):
         self,
         inputs: jax.Array,
         deterministic: typing.Optional[bool] = None,
+        with_head: typing.Optional[bool] = None,
+        with_aux_logits: typing.Optional[bool] = None,
     ) -> typing.Tuple[jax.Array, typing.Optional[jax.Array]]:
         r"""Forward pass of the Inception-v3 architecture.
 
@@ -872,6 +874,10 @@ class InceptionV3(nn.Module):
             inputs (jax.Array): Input array of shape `(*, height, width, 3)`.
             deterministic (bool, optional): Whether to apply running averages
                 in batch normalization.
+            with_head (bool, optional): Whether to include the final
+                classification head. If `None`, uses the module's attribute.
+            with_aux_logits (bool, optional): Whether to include the auxiliary
+                logits head. If `None`, uses the module's attribute.
 
         Returns:
             If `with_head` is `False`, returns the feature map before the head;
@@ -884,10 +890,21 @@ class InceptionV3(nn.Module):
             inputs.shape[-1] == 3
         ), f"Expected input with 3 channels (RGB), but got {inputs.shape[-1]}."
 
+        # merge parameters
         m_deterministic = nn.merge_param(
             "deterministic",
             self.deterministic,
             deterministic,
+        )
+        m_with_head = nn.merge_param(
+            "with_head",
+            self.with_head,
+            with_head,
+        )
+        m_with_aux_logits = nn.merge_param(
+            "with_aux_logits",
+            self.with_aux_logits,
+            with_aux_logits,
         )
 
         # stem blocks
@@ -1013,7 +1030,7 @@ class InceptionV3(nn.Module):
         out = mixed_6d(out, deterministic=m_deterministic)
         out = mixed_6e(out, deterministic=m_deterministic)
 
-        if self.with_aux_logits:
+        if m_with_aux_logits:
             aux_head = InceptionAuxiliaryHead(
                 num_classes=self.num_classes,
                 dtype=self.dtype,
@@ -1042,12 +1059,12 @@ class InceptionV3(nn.Module):
         out = mixed_7a(out, deterministic=m_deterministic)
         out = mixed_7b(out, deterministic=m_deterministic)
         out = mixed_7c(out, deterministic=m_deterministic)
-        if not self.with_head:
+        out = jnp.mean(out, axis=(-3, -2), keepdims=True)
+        out = jnp.reshape(out, (*out.shape[:-3], -1))
+        if not m_with_head:
             return out, aux_logits
 
         # classification head
-        out = jnp.mean(out, axis=(-3, -2), keepdims=True)
-        out = jnp.reshape(out, (*out.shape[:-3], -1))
         dropout = nn.Dropout(rate=0.5)
         out = dropout(out, deterministic=m_deterministic)
         fc = nn.Dense(
