@@ -10,6 +10,7 @@ build --action_env=HF_TOKEN
 build --action_env=CURL_CA_BUNDLE
 build --action_env=SSL_CERT_FILE
 build --action_env=TFDS_DATA_DIR
+build --action_env=XLA_PYTHON_CLIENT_MEM_FRACTION
 
 ## default platforms
 build --define ml_platform=cpu
