@@ -253,7 +253,7 @@ class HuggingFaceImageDataModule(HuggingFaceDataModule):
         num_workers: int,
         shuffle_buffer_size: int,
         transform: typing.Optional[typing.Callable] = None,
-        use_cache: bool = True,
+        use_cache: bool = False,
         rng: typing.Any = jax.random.PRNGKey(42),
     ) -> None:
         if use_cache:
@@ -488,6 +488,8 @@ class CIFAR10DataModule(HuggingFaceImageDataModule):
             Defaults to `10_000`.
         streaming (bool, optional): Whether to stream the dataset using the
             `datasets` library. Defaults to `False`.
+        use_cache (bool, optional): Whether to use cached dataset.
+            Default is `False`.
         rng (jax.Array, optional): Random key for shuffling.
             Default is `random.PRNGKey(42)`.
     """
@@ -501,6 +503,7 @@ class CIFAR10DataModule(HuggingFaceImageDataModule):
         shuffle_buffer_size: int = 10_000,
         streaming: bool = False,
         transform: typing.Optional[typing.Callable] = None,
+        use_cache: bool = False,
         rng: jax.Array = random.PRNGKey(42),
     ) -> None:
         self._hf_dataset = datasets.load_dataset(
@@ -516,6 +519,7 @@ class CIFAR10DataModule(HuggingFaceImageDataModule):
             num_workers=num_workers,
             shuffle_buffer_size=shuffle_buffer_size,
             transform=transform,
+            use_cache=use_cache,
             rng=rng,
         )
 
@@ -563,6 +567,8 @@ class CIFAR100DataModule(HuggingFaceImageDataModule):
             Defaults to `10_000`.
         streaming (bool, optional): Whether to stream the dataset using the
             `datasets` library. Defaults to `False`.
+        use_cache (bool, optional): Whether to use cached dataset.
+            Default is `False`.
         rng (jax.Array, optional): Random key for shuffling.
             Defaults to `random.PRNGKey(42)`.
     """
@@ -576,6 +582,7 @@ class CIFAR100DataModule(HuggingFaceImageDataModule):
         shuffle_buffer_size: int = 10_000,
         streaming: bool = False,
         transform: typing.Optional[typing.Callable] = None,
+        use_cache: bool = False,
         rng: jax.Array = random.PRNGKey(42),
     ) -> None:
         self._hf_dataset = datasets.load_dataset(
@@ -591,6 +598,7 @@ class CIFAR100DataModule(HuggingFaceImageDataModule):
             num_workers=num_workers,
             shuffle_buffer_size=shuffle_buffer_size,
             transform=transform,
+            use_cache=use_cache,
             rng=rng,
         )
 
@@ -636,6 +644,8 @@ class ImageNet1KDataModule(HuggingFaceImageDataModule):
             Defaults to `10_000`.
         streaming (bool, optional): Whether to stream the dataset using the
             `datasets` library. Defaults to `False`.
+        use_cache (bool, optional): Whether to use cached dataset.
+            Default is `False`.
         rng (jax.Array, optional): Random key for shuffling.
             Default is `random.PRNGKey(42)`.
     """
@@ -649,6 +659,7 @@ class ImageNet1KDataModule(HuggingFaceImageDataModule):
         shuffle_buffer_size: int = 10_000,
         streaming: bool = False,
         transform: typing.Optional[typing.Callable] = None,
+        use_cache: bool = False,
         rng: jax.Array = random.PRNGKey(42),
     ) -> None:
         self._hf_dataset = datasets.load_dataset(
@@ -664,6 +675,7 @@ class ImageNet1KDataModule(HuggingFaceImageDataModule):
             num_workers=num_workers,
             shuffle_buffer_size=shuffle_buffer_size,
             transform=transform,
+            use_cache=use_cache,
             rng=rng,
         )
 
@@ -701,6 +713,8 @@ class MNISTDataModule(HuggingFaceImageDataModule):
             Defaults to `10_000`.
         streaming (bool, optional): Whether to stream the dataset using the
             `datasets` library. Defaults to `False`.
+        use_cache (bool, optional): Whether to use cached dataset.
+            Default is `False`.
         rng (jax.Array, optional): Random key for shuffling.
             Default is `random.PRNGKey(42)`.
     """
@@ -714,6 +728,7 @@ class MNISTDataModule(HuggingFaceImageDataModule):
         shuffle_buffer_size: int = 10_000,
         streaming: bool = False,
         transform: typing.Optional[typing.Callable] = None,
+        use_cache: bool = False,
         rng: jax.Array = random.PRNGKey(42),
     ) -> None:
         self._hf_dataset = datasets.load_dataset(
@@ -729,6 +744,7 @@ class MNISTDataModule(HuggingFaceImageDataModule):
             num_workers=num_workers,
             shuffle_buffer_size=shuffle_buffer_size,
             transform=transform,
+            use_cache=use_cache,
             rng=rng,
         )
 
