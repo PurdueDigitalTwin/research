@@ -53,7 +53,7 @@ def _frechet_distance(
     cov_right = np.atleast_2d(np.array(cov_right))
 
     diff = mu_left - mu_right
-    covmean, _ = splin.sqrtm(cov_left @ cov_right, disp=False)
+    covmean, _ = splin.sqrtm(np.dot(cov_left, cov_right), disp=False)
     if not np.isfinite(covmean).all():
         logging.rank_zero_warning(
             "Singular product detected during FID calculation. "
@@ -62,7 +62,7 @@ def _frechet_distance(
         )
         offset = np.eye(cov_left.shape[0]) * eps
         covmean, _ = splin.sqrtm(
-            (cov_left + offset) @ (cov_right + offset),
+            np.dot((cov_left + offset), (cov_right + offset)),
             disp=False,
         )
 
@@ -74,18 +74,19 @@ def _frechet_distance(
         covmean = covmean.real
 
     trm = np.trace(covmean)
-    out = diff @ diff + np.trace(cov_left) + np.trace(cov_right) - 2 * trm
+    out = diff.dot(diff) + np.trace(cov_left) + np.trace(cov_right) - 2 * trm
 
     return out
 
 
 def _process_image(image: npt.NDArray[np.float_]) -> npt.NDArray[np.float_]:
     def __resize(channel: npt.NDArray[np.float_]) -> npt.NDArray[np.float_]:
-        pil_image = Image.fromarray(channel)
+        pil_image = Image.fromarray(channel, mode="F")
         pil_image = pil_image.resize((299, 299), Image.Resampling.BICUBIC)
-        out = np.asarray(pil_image).clip(0, 1).reshape(299, 299, 1)
+        out = np.asarray(pil_image).clip(0, 255).reshape(299, 299, 1)
         return out
 
+    image = np.array(image).astype(np.float32)
     image = np.concatenate(
         [__resize(image[..., c]) for c in range(image.shape[-1])],
         axis=-1,
@@ -144,7 +145,6 @@ class FrechetInceptionDistance:
                     raise ValueError(
                         f"FATAL: Image key '{image_key}' not found in dataset."
                     )
-                image = np.array(image).astype(np.float32) / 255.0
                 image = _process_image(image)
                 ref_images.append(image)
 
@@ -169,6 +169,59 @@ class FrechetInceptionDistance:
             jnp.matrix_transpose(jnp.concatenate(ref_features, axis=0)),
         )
 
+    def __call__(
+        self,
+        images: typing.Iterable[npt.NDArray[np.float_]],
+    ) -> npt.NDArray[np.float_]:
+        r"""Computes the FID score between the given images and the reference.
+
+        Args:
+            images (Iterable[npt.NDArray[np.float]]): An iterable of images to
+                compute the FID score against the reference statistics.
+
+        Returns:
+            The FID score as a scalar array.
+        """
+        processed_images = []
+        with tqdm_logging.logging_redirect_tqdm():
+            for image in tqdm.tqdm(
+                images,
+                desc="Processing sampled images...",
+                unit="images",
+            ):
+                image = _process_image(image)
+                processed_images.append(image)
+
+        sampled_features = []
+        for i in tqdm.tqdm(
+            range(0, len(processed_images), 32),
+            desc="Extracting sampled features...",
+            unit="batches",
+        ):
+            batch_images = jnp.array(processed_images[i : i + 32])
+            feats = self._compute_feat(
+                batch_images,
+                params=self._variables["params"],
+                batch_stats=self._variables["batch_stats"],
+            )
+            sampled_features.append(feats)
+
+        samp_mu = jnp.mean(
+            jnp.concatenate(sampled_features, axis=0),
+            axis=0,
+        )
+        samp_cov = jnp.cov(
+            jnp.matrix_transpose(jnp.concatenate(sampled_features, axis=0)),
+        )
+        fid_score = _frechet_distance(
+            mu_left=samp_mu,
+            cov_left=samp_cov,
+            mu_right=self._ref_mu,
+            cov_right=self._ref_cov,
+        )
+
+        return fid_score
+
     @property
     def ref_mu(self) -> jxt.ArrayLike:
         """ArrayLike: The reference mean vector of shape `(D,)`."""
@@ -189,6 +242,7 @@ class FrechetInceptionDistance:
         r"""Computes the feature map from the deepest layer of Inception V3."""
         _mean = jnp.array([0.485, 0.456, 0.406], dtype=jnp.float32)
         _std = jnp.array([0.229, 0.224, 0.225], dtype=jnp.float32)
+        inputs = jnp.astype(inputs, jnp.float32) / 255.0
         inputs = jnp.true_divide(inputs - _mean[None, :], _std[None, :])
         feat, _ = model.apply(
             variables={"params": params, "batch_stats": batch_stats},
