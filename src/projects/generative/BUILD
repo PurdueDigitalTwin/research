@@ -30,6 +30,7 @@ ml_py_binary(
         "//src/core:evaluate",
         "//src/core:train",
         "//src/core:train_state",
+        "//src/projects/generative/tools:fid",
         "//src/utilities:logging",
         "//src/utilities:visualization",
     ],

@@ -19,7 +19,6 @@ def meanflow_unet_cifar_10() -> _config.ExperimentConfig:
         data=_config.DataConfig(
             module=fdl.Partial(
                 huggingface.CIFAR10DataModule,
-                resize=32,
                 transform=preprocess.chain(
                     functools.partial(
                         preprocess.filter_keys,
