@@ -15,12 +15,14 @@ from jax import numpy as jnp
 import jaxtyping
 import optax
 import tensorflow as tf
+from tqdm import auto as tqdm
+from tqdm.contrib import logging as tqdm_logging
 
 from src.core import config as _config
-from src.core import evaluate as _evaluate
 from src.core import model as _model
 from src.core import train as _train
 from src.core import train_state as _train_state
+from src.projects.generative.tools import fid
 from src.utilities import logging
 from src.utilities import visualization
 
@@ -46,27 +48,63 @@ tf.config.experimental.set_visible_devices([], "TPU")
 assert not tf.config.experimental.get_visible_devices("GPU")
 
 
-def evaluation_step(
+def evaluate(
     rngs: jax.Array,
     model: _model.Model,
     params: PyTree,
-    batch: PyTree,
+    batch: typing.Dict[str, typing.Any],
+    fid_metric: fid.FrechetInceptionDistance,
     **kwargs,
 ) -> _model.StepOutputs:
     r"""Conduct a single evaluation step and compute metrics."""
-    local_rng = jax.random.fold_in(rngs, jax.lax.axis_index("batch"))
-    outputs = model.forward(
-        rngs=local_rng,
-        params=params,
-        deterministic=True,
-        batch=batch,
-        **kwargs,
+
+    def _generate(params: PyTree) -> jax.Array:
+        local_rng = jax.random.fold_in(rngs, jax.lax.axis_index("batch"))
+        outputs = model.forward(
+            rngs=local_rng,
+            params=params,
+            deterministic=True,
+            batch=batch,
+            **kwargs,
+        )
+        assert isinstance(outputs, _model.StepOutputs)
+        assert outputs.output is not None
+        img = jnp.astype(
+            jnp.clip(outputs.output * 0.5 + 0.5, 0.0, 1.0) * 255.0,
+            jnp.uint8,
+        )
+        return img
+
+    generate_fn = jax.pmap(_generate, axis_name="batch")
+    with tqdm_logging.logging_redirect_tqdm():
+        images, count = [], 0
+        with tqdm.tqdm(total=50_000, unit="sample") as pbar:
+            while count < 50_000:
+                img = jnp.zeros_like(batch["image"])
+                img = jnp.reshape(
+                    img,
+                    (jax.local_device_count(), -1) + img.shape[-3:],
+                )
+                out = generate_fn(params=params)
+                out = jnp.reshape(out, (-1,) + out.shape[-3:])
+                images.append(out)
+                count += out.shape[0]
+                pbar.update(out.shape[0])
+
+    outputs = _model.StepOutputs()
+    images = jnp.concatenate(images, axis=0)
+
+    fid_score = fid_metric(images=images[0:50_000])
+    outputs.scalars = {"fid": fid_score}
+
+    img_grid = visualization.make_grid(
+        images[0:32],
+        n_rows=4,
+        n_cols=8,
+        padding=2,
     )
-    out = outputs.output
-    assert isinstance(out, jax.Array)
-    out = jnp.clip(out * 0.5 + 0.5, 0.0, 1.0)
-    img_grid = visualization.make_grid(out, n_rows=4, n_cols=8, padding=2)
     outputs.images = {"sampled images": img_grid}
+
     return outputs
 
 
@@ -207,13 +245,23 @@ def main(_: typing.List[str]) -> int:
         return 1
 
     p_training_step = functools.partial(training_step, model=model)
-    p_evaluation_step = functools.partial(evaluation_step, model=model)
+    evaluation_fn = functools.partial(
+        evaluate,
+        model=model,
+        rngs=rng,
+        batch=next(datamodule.eval_dataloader()),
+        # TODO (juanwu): make `fid_metric` configurable
+        fid_metric=fid.FrechetInceptionDistance(
+            train_dataset=datamodule._hf_dataset["train"],  # type: ignore
+            image_key="img",
+        ),
+    )
     if exp_config.mode == "train":
         _train.run(
             state=state,
             datamodule=datamodule,
             training_step=p_training_step,
-            evaluation_step=p_evaluation_step,
+            evaluation_fn=evaluation_fn,
             num_train_steps=exp_config.trainer.num_train_steps,
             writer=writer,
             work_dir=log_dir,
@@ -224,14 +272,7 @@ def main(_: typing.List[str]) -> int:
             profile=exp_config.trainer.profile,
         )
     elif exp_config.mode == "evaluate":
-        _evaluate.run(
-            datamodule=datamodule,
-            evaluation_step=p_evaluation_step,
-            params=params,
-            writer=writer,
-            work_dir=log_dir,
-            rng=rng,
-        )
+        evaluation_fn(params=state.ema_params)
     else:
         logging.rank_zero_error("Mode %s not implemented.", exp_config.mode)
         return 1

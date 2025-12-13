@@ -1,5 +1,7 @@
 load("//third_party:defs.bzl", "ml_py_library", "ml_py_test")
 
+package(default_visibility = ["//src/projects/generative:__subpackages__"])
+
 ml_py_library(
     name = "fid",
     srcs = ["fid.py"],
@@ -8,6 +10,7 @@ ml_py_library(
         "jax",
         "numpy",
         "scipy",
+        "//src/projects/generative/model:inception",
         "//src/utilities:logging",
     ],
 )
