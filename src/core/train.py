@@ -44,12 +44,17 @@ def run(
     state: _train_state.TrainState,
     datamodule: _data.DataModule,
     training_step: typing.Callable[..., TRAIN_STEP_OUTPUT],
-    evaluation_step: typing.Callable[..., EVAL_STEP_OUTPUT],
     num_train_steps: int,
     writer: metric_writers.MetricWriter,
     work_dir: str,
     rng: typing.Any,
     checkpoint_every_n_steps: typing.Optional[int] = None,
+    evaluation_step: typing.Optional[
+        typing.Callable[..., EVAL_STEP_OUTPUT]
+    ] = None,
+    evaluation_fn: typing.Optional[
+        typing.Callable[..., EVAL_STEP_OUTPUT]
+    ] = None,
     log_every_n_steps: int = 50,
     eval_every_n_steps: int = 1_000,
     profile: bool = False,
@@ -59,13 +64,14 @@ def run(
     Args:
         datamodule (DataModule): The data module for loading data.
         training_step (Callable): The training step function.
-        evaluation_step (Callable): The evaluation step function.
         num_train_steps (int): Number of training steps.
         writer (MetricWriter): The metric writer for logging.
         work_dir (str): The working directory for saving checkpoints and logs.
         rng (Any): The random number generator.
         checkpoint_every_n_steps (Optional[int]): Frequency of checkpointing.
             If `None`, defaults to `eval_every_n_steps`.
+        evaluation_step (Optional[Callable]): Optional evaluation step function.
+        evaluation_fn (Optional[Callable]): Optional evaluation function.
         log_every_n_steps (int): Frequency of logging. Default is `50`.
         eval_every_n_steps (int): Frequency of evaluation. Default is `1000`.
         profile (bool): Whether to enable profiling.
@@ -84,11 +90,14 @@ def run(
     p_training_step = jax.pmap(p_training_step, axis_name="batch")
     logging.rank_zero_info("Compiling training step function... DONE!")
 
-    logging.rank_zero_info("Compiling evaluation step function...")
-    rng, eval_rng = jax.random.split(rng, num=2)
-    p_evaluation_step = functools.partial(evaluation_step, rngs=eval_rng)
-    p_evaluation_step = jax.pmap(p_evaluation_step, axis_name="batch")
-    logging.rank_zero_info("Compiling evaluation step function... DONE!")
+    if evaluation_step is not None:
+        logging.rank_zero_info("Compiling evaluation step function...")
+        rng, eval_rng = jax.random.split(rng, num=2)
+        p_evaluation_step = functools.partial(evaluation_step, rngs=eval_rng)
+        p_evaluation_step = jax.pmap(p_evaluation_step, axis_name="batch")
+        logging.rank_zero_info("Compiling evaluation step function... DONE!")
+    else:
+        p_evaluation_step = None
 
     hooks = []
     report_progress = periodic_actions.ReportProgress(
@@ -119,23 +128,37 @@ def run(
                     ):
                         logging.rank_zero_info("Running evaluation...")
                         eval_metrics = collections.defaultdict(list)
-                        outputs = None
-                        for eval_batch in datamodule.eval_dataloader():
-                            eval_batch = _shard(eval_batch)
-                            outputs = p_evaluation_step(
-                                params=state.ema_params,
-                                batch=eval_batch,
-                            )
-                            if not isinstance(outputs, _model.StepOutputs):
-                                raise RuntimeError(
-                                    "FATAL: Output from `evaluation_step` is "
-                                    "not a `StepOutputs` object."
+                        if p_evaluation_step is not None:
+                            outputs = None
+                            for eval_batch in datamodule.eval_dataloader():
+                                eval_batch = _shard(eval_batch)
+                                outputs = p_evaluation_step(
+                                    params=state.ema_params,
+                                    batch=eval_batch,
                                 )
+                                if not isinstance(outputs, _model.StepOutputs):
+                                    raise RuntimeError(
+                                        "FATAL: Output from `evaluation_step` "
+                                        "is not a `StepOutputs` object."
+                                    )
+                                if outputs.scalars is not None:
+                                    for k, v in outputs.scalars.items():
+                                        eval_metrics[k].append(
+                                            jax.device_get(v).mean()
+                                        )
+                        elif evaluation_fn is not None:
+                            outputs = evaluation_fn(params=state.ema_params)
                             if outputs.scalars is not None:
                                 for k, v in outputs.scalars.items():
-                                    eval_metrics[k].append(
+                                    eval_metrics[k] = [
                                         jax.device_get(v).mean()
-                                    )
+                                    ]
+                        else:
+                            logging.rank_zero_error(
+                                "No evaluation step or function provided. "
+                                "Skipping evaluation..."
+                            )
+                            outputs = None
                         logging.rank_zero_info("Evaluation done.")
 
                         if isinstance(outputs, _model.StepOutputs):
