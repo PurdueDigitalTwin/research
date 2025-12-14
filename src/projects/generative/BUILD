@@ -6,12 +6,14 @@ ml_py_library(
     name = "config",
     srcs = ["config.py"],
     deps = [
+        "datasets",
         "fiddle",
         "optax",
         ":meanflow",
         "//src/core:config",
         "//src/data:huggingface",
         "//src/data:preprocess",
+        "//src/projects/generative/tools:fid",
     ],
 )
 
@@ -26,10 +28,9 @@ ml_py_binary(
         "optax",
         "tensorflow",
         ":config",
-        "//src/core:config",
-        "//src/core:evaluate",
         "//src/core:train",
         "//src/core:train_state",
+        "//src/projects/generative/tools:fid",
         "//src/utilities:logging",
         "//src/utilities:visualization",
     ],

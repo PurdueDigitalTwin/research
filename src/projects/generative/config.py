@@ -1,6 +1,9 @@
+import dataclasses
 import functools
 import math
+import os
 
+import datasets
 import fiddle as fdl
 import optax
 
@@ -8,18 +11,35 @@ from src.core import config as _config
 from src.data import huggingface
 from src.data import preprocess
 from src.projects.generative import meanflow
+from src.projects.generative.tools import fid
+
+
+@dataclasses.dataclass(frozen=True)
+class ImageGenerationExperimentConfig(_config.ExperimentConfig):
+    r"""Configurations for image generation experiments."""
+
+    fid_metric: fdl.Config[fid.FrechetInceptionDistance] = fdl.Config(
+        fid.FrechetInceptionDistance,
+        train_dataset=datasets.load_dataset(
+            path="uoft-cs/cifar10",
+            token=os.getenv("HF_TOKEN", None),
+            revision="0b2714987fa478483af9968de7c934580d0bb9a2",
+            split="train",
+        ),
+        image_key="img",
+        batch_size=32,
+    )
 
 
 # ==============================================================================
 # MeanFlow Models
-def meanflow_unet_cifar_10() -> _config.ExperimentConfig:
-    return _config.ExperimentConfig(
+def meanflow_unet_cifar_10() -> ImageGenerationExperimentConfig:
+    return ImageGenerationExperimentConfig(
         name="meanflow_unet_cifar_10",
         mode="train",
         data=_config.DataConfig(
             module=fdl.Partial(
                 huggingface.CIFAR10DataModule,
-                resize=32,
                 transform=preprocess.chain(
                     functools.partial(
                         preprocess.filter_keys,
@@ -31,6 +51,7 @@ def meanflow_unet_cifar_10() -> _config.ExperimentConfig:
                         std=(0.5, 0.5, 0.5),
                     ),
                 ),
+                use_cache=True,
             ),
             batch_size=1024,
             num_workers=2,
@@ -55,7 +76,7 @@ def meanflow_unet_cifar_10() -> _config.ExperimentConfig:
             num_train_steps=800_000,
             log_every_n_steps=50,
             checkpoint_every_n_steps=10_000,  # save every 10k steps
-            eval_every_n_steps=1_000,
+            eval_every_n_steps=2_500,
             max_checkpoints_to_keep=3,
             profile=False,
         ),

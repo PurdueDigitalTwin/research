@@ -5,7 +5,7 @@ import jax
 from jax import numpy as jnp
 import pytest
 
-from src.projects.generative.tools.fid import inception
+from src.projects.generative.model import inception
 
 
 @pytest.mark.parametrize("dtype", [jnp.float32, jnp.bfloat16])
