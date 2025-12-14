@@ -26,7 +26,7 @@ def _frechet_distance(
     cov_left: jxt.ArrayLike,
     mu_right: jxt.ArrayLike,
     cov_right: jxt.ArrayLike,
-    eps: float = 1e-6,
+    eps: float = 0.000001,
 ) -> npt.NDArray[np.float_]:
     r"""Computes the Fréchet Distance between two multivariate Gaussians.
 
@@ -116,6 +116,7 @@ class FrechetInceptionDistance:
         image_key: str = "image",
         batch_size: int = 32,
     ) -> None:
+        self._batch_size = batch_size
         self._model = inception.InceptionV3()
         logging.rank_zero_info("Downloading FID Inception V3 weights...")
         with open(
@@ -194,11 +195,13 @@ class FrechetInceptionDistance:
 
         sampled_features = []
         for i in tqdm.tqdm(
-            range(0, len(processed_images), 32),
+            range(0, len(processed_images), self._batch_size),
             desc="Extracting sampled features...",
             unit="batches",
         ):
-            batch_images = jnp.array(processed_images[i : i + 32])
+            batch_images = jnp.array(
+                processed_images[i : i + self._batch_size]
+            )
             feats = self._compute_feat(
                 batch_images,
                 params=self._variables["params"],

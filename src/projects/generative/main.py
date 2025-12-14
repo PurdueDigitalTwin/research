@@ -80,11 +80,6 @@ def evaluate(
         images, count = [], 0
         with tqdm.tqdm(total=50_000, unit="sample") as pbar:
             while count < 50_000:
-                img = jnp.zeros_like(batch["image"])
-                img = jnp.reshape(
-                    img,
-                    (jax.local_device_count(), -1) + img.shape[-3:],
-                )
                 out = generate_fn(params=params)
                 out = jnp.reshape(out, (-1,) + out.shape[-3:])
                 images.append(out)
@@ -167,8 +162,10 @@ def main(_: typing.List[str]) -> int:
     exp_config = CONFIG.value
     if not isinstance(exp_config, config.ImageGenerationExperimentConfig):
         logging.rank_zero_error(
-            "Expect configuration to be of an "
-            + "`ImageGenerationExperimentConfig` instance, but got %s.",
+            (
+                "Expect configuration to be of an "
+                "`ImageGenerationExperimentConfig` instance, but got %s."
+            ),
             type(exp_config),
         )
         return 1

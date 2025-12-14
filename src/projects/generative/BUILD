@@ -28,7 +28,6 @@ ml_py_binary(
         "optax",
         "tensorflow",
         ":config",
-        "//src/core:evaluate",
         "//src/core:train",
         "//src/core:train_state",
         "//src/projects/generative/tools:fid",
