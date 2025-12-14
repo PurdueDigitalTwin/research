@@ -18,10 +18,10 @@ import tensorflow as tf
 from tqdm import auto as tqdm
 from tqdm.contrib import logging as tqdm_logging
 
-from src.core import config as _config
 from src.core import model as _model
 from src.core import train as _train
 from src.core import train_state as _train_state
+from src.projects.generative import config
 from src.projects.generative.tools import fid
 from src.utilities import logging
 from src.utilities import visualization
@@ -165,9 +165,10 @@ def main(_: typing.List[str]) -> int:
 
     # Setup Experiment
     exp_config = CONFIG.value
-    if not isinstance(exp_config, _config.ExperimentConfig):
+    if not isinstance(exp_config, config.ImageGenerationExperimentConfig):
         logging.rank_zero_error(
-            "Expect configuration to be of type `ExperimentConfig`, got %s.",
+            "Expect configuration to be of an "
+            + "`ImageGenerationExperimentConfig` instance, but got %s.",
             type(exp_config),
         )
         return 1
@@ -251,10 +252,7 @@ def main(_: typing.List[str]) -> int:
         rngs=rng,
         batch=next(datamodule.eval_dataloader()),
         # TODO (juanwu): make `fid_metric` configurable
-        fid_metric=fid.FrechetInceptionDistance(
-            train_dataset=datamodule._hf_dataset["train"],  # type: ignore
-            image_key="img",
-        ),
+        fid_metric=fdl.build(exp_config.fid_metric),
     )
     if exp_config.mode == "train":
         _train.run(
