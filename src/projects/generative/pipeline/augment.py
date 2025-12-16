@@ -187,7 +187,7 @@ WAVELETS = {
 # Helpers for constructing transformation matrices.
 def matrix(*rows) -> jax.Array:
     r"""Construct a matrix from rows, broadcasting as needed."""
-    rows = [jnp.asarray(r) for r in rows]
+    rows = [jnp.asarray(r, dtype=jnp.float_) for r in rows]
     batch_dims = rows[0].shape[:-1]
     out = jnp.stack(rows, axis=-2)
     out = out.reshape(*batch_dims, len(rows), -1)
@@ -246,7 +246,8 @@ def scale2d(
     Returns:
         A three by three scaling matrix for 2D transformations.
     """
-    return matrix([sx, 0, 0], [0, sy, 0], [0, 0, 1], **kwargs)
+    del kwargs
+    return matrix([sx, 0, 0], [0, sy, 0], [0, 0, 1])
 
 
 def scale3d(
@@ -265,13 +266,8 @@ def scale3d(
     Returns:
         A four by four scaling matrix for 3D transformations.
     """
-    return matrix(
-        [sx, 0, 0, 0],
-        [0, sy, 0, 0],
-        [0, 0, sz, 0],
-        [0, 0, 0, 1],
-        **kwargs,
-    )
+    del kwargs
+    return matrix([sx, 0, 0, 0], [0, sy, 0, 0], [0, 0, sz, 0], [0, 0, 0, 1])
 
 
 def rotate2d(theta: jax_typing.ArrayLike, **kwargs) -> jax.Array:

@@ -28,8 +28,9 @@ def test_matrix() -> None:
     chex.assert_trees_all_close(mat, test_output)
 
 
-def test_translate_2d() -> None:
-    r"""Tests the 2D translation transformation."""
+def test_translate() -> None:
+    r"""Tests the 2D and 3D translation transformation."""
+    # test 2D translation
     tx, ty = 5.0, -3.0
     mat = augment.translate2d(tx, ty)
     assert isinstance(mat, jax.Array)
@@ -46,9 +47,7 @@ def test_translate_2d() -> None:
     inv_mat = augment.translate2d_inv(tx=tx, ty=ty)
     chex.assert_trees_all_close(inv_mat @ mat, jnp.eye(3, dtype=jnp.float32))
 
-
-def test_translate_3d() -> None:
-    r"""Tests the 3D translation transformation."""
+    # test 3D translation
     tx, ty, tz = 2.0, -4.0, 7.0
     mat = augment.translate3d(tx, ty, tz)
     assert isinstance(mat, jax.Array)
@@ -64,6 +63,43 @@ def test_translate_3d() -> None:
     )
     chex.assert_trees_all_close(mat, test_output)
     inv_mat = augment.translate3d(tx=-tx, ty=-ty, tz=-tz)
+    chex.assert_trees_all_close(inv_mat @ mat, jnp.eye(4, dtype=jnp.float32))
+
+
+def test_scale() -> None:
+    r"""Tests the 2D and 3D scaling transformation."""
+    sx, sy, sz = 2.0, 3.0, 4.0
+    # test 2D scaling
+    mat = augment.scale2d(sx, sy)
+    assert isinstance(mat, jax.Array)
+    chex.assert_shape(mat, (3, 3))
+    test_output = jnp.array(
+        [
+            [sx, 0.0, 0.0],
+            [0.0, sy, 0.0],
+            [0.0, 0.0, 1.0],
+        ],
+        dtype=jnp.float32,
+    )
+    chex.assert_trees_all_close(mat, test_output)
+    inv_mat = augment.scale2d_inv(sx=sx, sy=sy)
+    chex.assert_trees_all_close(inv_mat @ mat, jnp.eye(3, dtype=jnp.float32))
+
+    # test 3D scaling
+    mat = augment.scale3d(sx, sy, sz)
+    assert isinstance(mat, jax.Array)
+    chex.assert_shape(mat, (4, 4))
+    test_output = jnp.array(
+        [
+            [sx, 0.0, 0.0, 0.0],
+            [0.0, sy, 0.0, 0.0],
+            [0.0, 0.0, sz, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ],
+        dtype=jnp.float32,
+    )
+    chex.assert_trees_all_close(mat, test_output)
+    inv_mat = augment.scale3d(sx=1.0 / sx, sy=1.0 / sy, sz=1.0 / sz)
     chex.assert_trees_all_close(inv_mat @ mat, jnp.eye(4, dtype=jnp.float32))
 
 
