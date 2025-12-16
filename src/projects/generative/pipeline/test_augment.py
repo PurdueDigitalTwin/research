@@ -125,5 +125,28 @@ def test_rotate_2d() -> None:
     chex.assert_trees_all_close(inv_mat @ mat, jnp.eye(3, dtype=jnp.float32))
 
 
+def test_augmentor() -> None:
+    r"""Tests the EDM augmentation pipeline."""
+    augmentor = augment.EDMAugmentor(
+        p=0.12,
+        xflip=1e8,
+        yflip=0,
+        scale=1,
+        rotate_frac=0,
+        aniso=1,
+        translate_frac=1,
+    )
+    test_input = jnp.ones((2, 32, 32, 3), dtype=jnp.float32)
+    test_output, test_labels = augmentor.apply(
+        variables={},
+        images=test_input,
+        rngs=jax.random.PRNGKey(0),
+    )
+    assert isinstance(test_output, jax.Array)
+    chex.assert_shape(test_output, (2, 32, 32, 3))
+    assert isinstance(test_labels, jax.Array)
+    chex.assert_shape(test_labels, (2, 1))
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main(["-xv", __file__]))

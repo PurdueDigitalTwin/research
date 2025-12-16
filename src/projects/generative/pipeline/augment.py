@@ -363,7 +363,7 @@ def rotate2d_inv(
 
 # ==============================================================================
 # Augmentation pipeline
-class Augmentor(nn.Module):
+class EDMAugmentor(nn.Module):
     r"""Image augmentation pipeline for generative models.
 
     Args:
