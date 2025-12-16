@@ -187,6 +187,7 @@ WAVELETS = {
 # Helpers for constructing transformation matrices.
 def matrix(*rows) -> jax.Array:
     r"""Construct a matrix from rows, broadcasting as needed."""
+    rows = [jnp.asarray(r) for r in rows]
     batch_dims = rows[0].shape[:-1]
     out = jnp.stack(rows, axis=-2)
     out = out.reshape(*batch_dims, len(rows), -1)
@@ -208,11 +209,7 @@ def translate2d(
         A three by three translation matrix for 2D transformations.
     """
     del kwargs
-    return matrix(
-        jnp.array([1.0, 0.0, tx]),
-        jnp.array([0.0, 1.0, ty]),
-        jnp.array([0.0, 0.0, 1.0]),
-    )
+    return matrix([1.0, 0.0, tx], [0.0, 1.0, ty], [0.0, 0.0, 1.0])
 
 
 def translate3d(
@@ -231,13 +228,8 @@ def translate3d(
     Returns:
         A four by four translation matrix for 3D transformations.
     """
-    return matrix(
-        [1, 0, 0, tx],
-        [0, 1, 0, ty],
-        [0, 0, 1, tz],
-        [0, 0, 0, 1],
-        **kwargs,
-    )
+    del kwargs
+    return matrix([1, 0, 0, tx], [0, 1, 0, ty], [0, 0, 1, tz], [0, 0, 0, 1])
 
 
 def scale2d(

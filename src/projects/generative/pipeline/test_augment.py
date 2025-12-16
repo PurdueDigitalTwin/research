@@ -47,5 +47,25 @@ def test_translate_2d() -> None:
     chex.assert_trees_all_close(inv_mat @ mat, jnp.eye(3, dtype=jnp.float32))
 
 
+def test_translate_3d() -> None:
+    r"""Tests the 3D translation transformation."""
+    tx, ty, tz = 2.0, -4.0, 7.0
+    mat = augment.translate3d(tx, ty, tz)
+    assert isinstance(mat, jax.Array)
+    chex.assert_shape(mat, (4, 4))
+    test_output = jnp.array(
+        [
+            [1.0, 0.0, 0.0, tx],
+            [0.0, 1.0, 0.0, ty],
+            [0.0, 0.0, 1.0, tz],
+            [0.0, 0.0, 0.0, 1.0],
+        ],
+        dtype=jnp.float32,
+    )
+    chex.assert_trees_all_close(mat, test_output)
+    inv_mat = augment.translate3d(tx=-tx, ty=-ty, tz=-tz)
+    chex.assert_trees_all_close(inv_mat @ mat, jnp.eye(4, dtype=jnp.float32))
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main(["-xv", __file__]))
