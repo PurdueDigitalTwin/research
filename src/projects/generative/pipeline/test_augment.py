@@ -103,5 +103,27 @@ def test_scale() -> None:
     chex.assert_trees_all_close(inv_mat @ mat, jnp.eye(4, dtype=jnp.float32))
 
 
+def test_rotate_2d() -> None:
+    r"""Tests the 2D rotation transformation."""
+    # test 2D rotation
+    theta = jnp.pi / 4  # 45 degrees
+    mat = augment.rotate2d(theta)
+    assert isinstance(mat, jax.Array)
+    chex.assert_shape(mat, (3, 3))
+    cos_theta = jnp.cos(theta)
+    sin_theta = jnp.sin(theta)
+    test_output = jnp.array(
+        [
+            [cos_theta, -sin_theta, 0.0],
+            [sin_theta, cos_theta, 0.0],
+            [0.0, 0.0, 1.0],
+        ],
+        dtype=jnp.float32,
+    )
+    chex.assert_trees_all_close(mat, test_output)
+    inv_mat = augment.rotate2d_inv(theta)
+    chex.assert_trees_all_close(inv_mat @ mat, jnp.eye(3, dtype=jnp.float32))
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main(["-xv", __file__]))

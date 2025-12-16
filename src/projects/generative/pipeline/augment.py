@@ -279,11 +279,11 @@ def rotate2d(theta: jax_typing.ArrayLike, **kwargs) -> jax.Array:
     Returns:
         A three by three rotation matrix for 2D transformations.
     """
+    del kwargs
     return matrix(
         [jnp.cos(theta), jnp.sin(jnp.negative(theta)), 0],
         [jnp.sin(theta), jnp.cos(theta), 0],
         [0, 0, 1],
-        **kwargs,
     )
 
 
@@ -297,6 +297,7 @@ def rotate3d(v: jax.Array, theta: jax_typing.ArrayLike, **kwargs) -> jax.Array:
     Returns:
         A four by four rotation matrix for 3D transformations.
     """
+    del kwargs
     vx = v[..., 0]
     vy = v[..., 1]
     vz = v[..., 2]
@@ -308,7 +309,6 @@ def rotate3d(v: jax.Array, theta: jax_typing.ArrayLike, **kwargs) -> jax.Array:
         [vy * vx * cc + vz * s, vy * vy * cc + c, vy * vz * cc - vx * s, 0],
         [vz * vx * cc - vy * s, vz * vy * cc + vx * s, vz * vz * cc + c, 0],
         [0, 0, 0, 1],
-        **kwargs,
     )
 
 
