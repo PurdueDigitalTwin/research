@@ -795,21 +795,21 @@ class EDMAugmentor(nn.Module):
             M = scale3d(c, c, c) @ M
             labels += [w]
 
-        # if self.lumaflip > 0:
-        #     key, w_key, u_key = jrnd.split(key, 3)
-        #     w = jax.random.randint(w_key, [num, 1, 1], 0, 2)
-        #     w = jnp.where(
-        #         jnp.less(
-        #             jax.random.uniform(u_key, shape=(num, 1, 1)),
-        #             self.lumaflip * self.p,
-        #         ),
-        #         w,
-        #         jnp.zeros_like(w),
-        #     )
-        #     luma_outer = jnp.outer(luma_axis, luma_axis)
-        #     correction = 2 * luma_outer[None, ...] * w[..., None]
-        #     M = (ind_4[None, ...] - correction) @ M
-        #     labels += [w]
+        if self.lumaflip > 0:
+            key, w_key, u_key = jrnd.split(key, 3)
+            w = jax.random.randint(w_key, (num, 1, 1), 0, 2)
+            w = jnp.where(
+                jnp.less(
+                    jax.random.uniform(u_key, shape=(num, 1, 1)),
+                    self.lumaflip * self.p,
+                ),
+                w,
+                jnp.zeros_like(w),
+            )
+            luma_outer = jnp.outer(luma_axis, luma_axis)
+            correction = 2 * luma_outer[None, ...] * w
+            M = (ind_4[None, ...] - correction) @ M
+            labels += [w]
 
         # if self.hue > 0:
         #     key, w_key, u_key = jrnd.split(key, 3)
