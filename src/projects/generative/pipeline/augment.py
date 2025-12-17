@@ -272,7 +272,15 @@ def scale3d(
         A four by four scaling matrix for 3D transformations.
     """
     del kwargs
-    return matrix([sx, 0, 0, 0], [0, sy, 0, 0], [0, 0, sz, 0], [0, 0, 0, 1])
+    sx, sy, sz = jnp.asarray(sx), jnp.asarray(sy), jnp.asarray(sz)
+    batch_dims = jnp.shape(sx)
+    ind_4 = jnp.eye(4, dtype=sx.dtype)
+    if len(batch_dims) > 0:
+        ind_4 = jnp.broadcast_to(ind_4, (*batch_dims, 4, 4))
+    out = ind_4.at[..., 0, 0].set(sx)
+    out = out.at[..., 1, 1].set(sy)
+    out = out.at[..., 2, 2].set(sz)
+    return out
 
 
 def rotate2d(theta: jax_typing.ArrayLike, **kwargs) -> jax.Array:
@@ -772,20 +780,20 @@ class EDMAugmentor(nn.Module):
             M = translate3d(b, b, b) @ M
             labels += [w]
 
-        # if self.contrast > 0:
-        #     key, w_key, u_key = jrnd.split(key, 3)
-        #     w = jax.random.normal(w_key, [num, 1, 1, 1])
-        #     w = jnp.where(
-        #         jnp.less(
-        #             jax.random.uniform(u_key, shape=(num, 1, 1, 1)),
-        #             self.contrast * self.p,
-        #         ),
-        #         w,
-        #         jnp.zeros_like(w),
-        #     )
-        #     c = jnp.exp2(jnp.multiply(w, self.contrast_std))
-        #     M = scale3d(c, c, c) @ M
-        #     labels += [w]
+        if self.contrast > 0:
+            key, w_key, u_key = jrnd.split(key, 3)
+            w = jax.random.normal(w_key, shape=(num,))
+            w = jnp.where(
+                jnp.less(
+                    jax.random.uniform(u_key, shape=(num,)),
+                    self.contrast * self.p,
+                ),
+                w,
+                jnp.zeros_like(w),
+            )
+            c = jnp.exp2(jnp.multiply(w, self.contrast_std))
+            M = scale3d(c, c, c) @ M
+            labels += [w]
 
         # if self.lumaflip > 0:
         #     key, w_key, u_key = jrnd.split(key, 3)
