@@ -6,6 +6,7 @@ ml_py_library(
     name = "augment",
     srcs = ["augment.py"],
     deps = [
+        "chex",
         "flax",
         "jax",
     ],

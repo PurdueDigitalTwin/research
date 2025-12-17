@@ -1,5 +1,6 @@
 import typing
 
+import chex
 from flax import linen as nn
 import jax
 from jax import numpy as jnp
@@ -395,6 +396,7 @@ class EDMAugmentor(nn.Module):
     r"""Image augmentation pipeline for generative models.
 
     Args:
+        image_size (tuple[int, int]): Image dimensions as `(height, width)`.
         p (float): Base probability multiplier for all augmentations.
         xflip (float): Probability multiplier for flipping along the x-axis.
         yflip (float): Probability multiplier for flipping along the y-axis.
@@ -426,6 +428,7 @@ class EDMAugmentor(nn.Module):
         saturation_std (float): Log2 standard deviation of saturation.
     """
 
+    image_size: typing.Tuple[int, int]
     p: float = 1
 
     # arguments for pixel blitting
@@ -471,8 +474,10 @@ class EDMAugmentor(nn.Module):
         Returns:
             A tuple of the augmented images and the conditioning label vector.
         """
-        batch_dims = images.shape[:-3]
-        height, width, channels = images.shape[-3:]
+        chex.assert_shape(images, (..., *self.image_size, None))
+
+        batch_dims, channels = images.shape[:-3], images.shape[-1]
+        height, width = self.image_size
         images = jnp.reshape(images, [-1, height, width, channels])
         num = images.shape[0]
         labels = [jnp.zeros([*batch_dims, 0])]
@@ -557,23 +562,16 @@ class EDMAugmentor(nn.Module):
                 jnp.int32,
             )
 
-            b_idx = jnp.arange(num)[:, None, None, None]
-            y_idx, x_idx = jnp.meshgrid(
-                jnp.arange(height),
-                jnp.arange(width),
+            b, y, x, c = jnp.meshgrid(
+                *(jnp.arange(x) for x in images.shape),
                 indexing="ij",
             )
-            x_new = jnp.abs(
-                width
-                - 1
-                - (width - 1 - (x_idx[None, ...] - tx) % (width * 2 - 2))
+            x = jnp.abs(width - 1 - (width - 1 - (x - tx) % (width * 2 - 2)))
+            y = jnp.abs(
+                height - 1 - (height - 1 - (y + ty) % (height * 2 - 2))
             )
-            y_new = jnp.abs(
-                height
-                - 1
-                - (height - 1 - (y_idx[None, ...] + ty) % (height * 2 - 2))
-            )
-            images = images[b_idx, y_new, x_new, :]
+            images = images.flatten()
+            images = images[(((b * channels) + c) * height + y) * width + x]
             labels += [
                 jnp.divide(tx, (width * self.translate_int_max)),
                 jnp.divide(ty, (height * self.translate_int_max)),
@@ -582,7 +580,7 @@ class EDMAugmentor(nn.Module):
         # =============================================
         # geometric transformations.
         ind_3 = jnp.eye(3)
-        g_inv = ind_3
+        g_inv = jnp.tile(ind_3[None, :, :], reps=(num, 1, 1))
 
         if self.scale > 0:
             key, w_key, u_key = jrnd.split(key, 3)
@@ -662,120 +660,88 @@ class EDMAugmentor(nn.Module):
             )
             labels += [w[0], w[1]]
 
-        # if g_inv is not ind_3:
-        #     cx = (width - 1) / 2
-        #     cy = (height - 1) / 2
-        #     cp = matrix(
-        #         [-cx, -cy, 1],
-        #         [cx, -cy, 1],
-        #         [cx, cy, 1],
-        #         [-cx, cy, 1],
-        #     )  # [idx, xyz]
-        #     cp = g_inv @ jnp.matrix_transpose(cp)  # [batch, xyz, idx]
-        #     Hz = jnp.asarray(WAVELETS["sym6"], dtype=jnp.float32)
-        #     Hz_pad = len(Hz) // 4
-        #     margin = jnp.transpose(cp[:, :2, :], axes=(1, 0, 2))
-        #     margin = jnp.reshape(margin, [2, -1])  # [x/y, corners]
-        #     margin = jnp.max(
-        #         jnp.concatenate([-margin, margin]),
-        #         axis=1,
-        #     )  # [x0, y0, x1, y1]
-        #     margin = margin + jnp.array([Hz_pad * 2 - cx, Hz_pad * 2 - cy] * 2)
-        #     margin = margin.max(jnp.array([0, 0] * 2))
-        #     margin = margin.min(constant([W - 1, H - 1] * 2, device=device))
-        #     mx0, my0, mx1, my1 = margin.ceil().to(torch.int32)
+        # Execute transformation with polyphase upsampling pipeline
+        Hz = jnp.array(WAVELETS["sym6"], dtype=jnp.float32)
+        Hz_pad = len(Hz) // 4
+        pad_len = Hz_pad + int(min(height, width) * 0.125)
+        images = jnp.pad(
+            images,
+            pad_width=((0, 0), (pad_len, pad_len), (pad_len, pad_len), (0, 0)),
+            mode="reflect",
+        )
 
-        #     # Pad image and adjust origin.
-        #     images = jnp.pad(
-        #         images,
-        #         pad_width=[mx0, mx1, my0, my1],
-        #         mode="reflect",
-        #     )
-        #     g_inv = translate2d((mx0 - mx1) / 2, (my0 - my1) / 2) @ g_inv
+        # Upsample with polyphase filter
+        conv_weight_up = Hz[::-1][None, :, None, None]
+        conv_weight_up = jnp.tile(conv_weight_up, (1, 1, 1, 3))
+        pad_0 = (len(Hz) - 1) // 2
+        pad_1 = len(Hz) - pad_0
+        images = jax.lax.conv_general_dilated(
+            lhs=images,
+            rhs=conv_weight_up,
+            window_strides=(1, 1),
+            padding=((0, 0), (pad_0, pad_1)),
+            lhs_dilation=(1, 2),
+            dimension_numbers=("NHWC", "HWIO", "NHWC"),
+            feature_group_count=channels,
+        )
+        images = jax.lax.conv_general_dilated(
+            lhs=images,
+            rhs=jnp.transpose(conv_weight_up, (1, 0, 2, 3)),
+            window_strides=(1, 1),
+            padding=((pad_0, pad_1), (0, 0)),
+            lhs_dilation=(2, 1),
+            dimension_numbers=("NHWC", "HWIO", "NHWC"),
+            feature_group_count=channels,
+        )
 
-        #     # Upsample.
-        #     conv_weight = jnp.tile(
-        #         jnp.array(
-        #             Hz[None, None, ::-1],
-        #             dtype=images.dtype,
-        #             device=images.device,
-        #         ),
-        #         [images.shape[1], 1, 1],
-        #     )
-        #     conv_pad = (len(Hz) + 1) // 2
-        #     images = jnp.stack(
-        #         [images, jnp.zeros_like(images)], axis=4
-        #     ).reshape(num, channels, images.shape[2], -1)[:, :, :, :-1]
-        #     images = torch.nn.functional.conv2d(
-        #         images,
-        #         conv_weight.unsqueeze(2),
-        #         groups=images.shape[1],
-        #         padding=[0, conv_pad],
-        #     )
-        #     images = torch.stack(
-        #         [images, torch.zeros_like(images)], dim=3
-        #     ).reshape(N, C, -1, images.shape[3])[:, :, :-1, :]
-        #     images = torch.nn.functional.conv2d(
-        #         images,
-        #         conv_weight.unsqueeze(3),
-        #         groups=images.shape[1],
-        #         padding=[conv_pad, 0],
-        #     )
-        #     G_inv = (
-        #         scale2d(2, 2, device=device)
-        #         @ G_inv
-        #         @ scale2d_inv(2, 2, device=device)
-        #     )
-        #     G_inv = (
-        #         translate2d(-0.5, -0.5, device=device)
-        #         @ G_inv
-        #         @ translate2d_inv(-0.5, -0.5, device=device)
-        #     )
+        # update the inverse transformation
+        g_inv = scale2d(2, 2) @ g_inv @ scale2d_inv(2, 2)
+        g_inv = translate2d(-0.5, -0.5) @ g_inv @ translate2d_inv(-0.5, -0.5)
 
-        #     # Execute transformation.
-        #     shape = [N, C, (H + Hz_pad * 2) * 2, (W + Hz_pad * 2) * 2]
-        #     G_inv = (
-        #         scale2d(
-        #             2 / images.shape[3], 2 / images.shape[2], device=device
-        #         )
-        #         @ G_inv
-        #         @ scale2d_inv(2 / shape[3], 2 / shape[2], device=device)
-        #     )
-        #     grid = torch.nn.functional.affine_grid(
-        #         theta=G_inv[:, :2, :], size=shape, align_corners=False
-        #     )
-        #     images = torch.nn.functional.grid_sample(
-        #         images,
-        #         grid,
-        #         mode="bilinear",
-        #         padding_mode="zeros",
-        #         align_corners=False,
-        #     )
+        # TODO(juanwu): Execute transformation.
+        # shape = [N, C, (H + Hz_pad * 2) * 2, (W + Hz_pad * 2) * 2]
+        # G_inv = (
+        #     scale2d(2 / images.shape[3], 2 / images.shape[2], device=device)
+        #     @ G_inv
+        #     @ scale2d_inv(2 / shape[3], 2 / shape[2], device=device)
+        # )
+        # grid = torch.nn.functional.affine_grid(
+        #     theta=G_inv[:, :2, :], size=shape, align_corners=False
+        # )
+        # images = torch.nn.functional.grid_sample(
+        #     images,
+        #     grid,
+        #     mode="bilinear",
+        #     padding_mode="zeros",
+        #     align_corners=False,
+        # )
 
-        #     # Downsample and crop.
-        #     conv_weight = constant(
-        #         Hz[None, None, :], dtype=images.dtype, device=images.device
-        #     ).tile([images.shape[1], 1, 1])
-        #     conv_pad = (len(Hz) - 1) // 2
-        #     images = torch.nn.functional.conv2d(
-        #         images,
-        #         conv_weight.unsqueeze(2),
-        #         groups=images.shape[1],
-        #         stride=[1, 2],
-        #         padding=[0, conv_pad],
-        #     )[:, :, :, Hz_pad:-Hz_pad]
-        #     images = torch.nn.functional.conv2d(
-        #         images,
-        #         conv_weight.unsqueeze(3),
-        #         groups=images.shape[1],
-        #         stride=[2, 1],
-        #         padding=[conv_pad, 0],
-        #     )[:, :, Hz_pad:-Hz_pad, :]
+        # Downsample and crop.
+        conv_weight_down = Hz[None, :, None, None]
+        conv_weight_down = jnp.tile(conv_weight_down, [1, 1, 1, channels])
+        conv_pad = (len(Hz) - 1) // 2
+        images = jax.lax.conv_general_dilated(
+            lhs=images,
+            rhs=conv_weight_down,
+            window_strides=(1, 2),
+            padding=((0, 0), (conv_pad, conv_pad)),
+            dimension_numbers=("NHWC", "HWIO", "NHWC"),
+            feature_group_count=channels,
+        )
+        images = jax.lax.conv_general_dilated(
+            lhs=images,
+            rhs=jnp.transpose(conv_weight_down, (1, 0, 2, 3)),
+            window_strides=(2, 1),
+            padding=((conv_pad, conv_pad), (0, 0)),
+            dimension_numbers=("NHWC", "HWIO", "NHWC"),
+            feature_group_count=channels,
+        )
+        images = images[..., pad_len:-pad_len, pad_len:-pad_len, :]
 
         # ============================================
         # color transformations.
         ind_4 = jnp.eye(4)
-        mat = ind_4
+        mat = jnp.tile(ind_4[None, :, :], reps=(num, 1, 1))
         luma_axis = jnp.true_divide(jnp.asarray([1, 1, 1, 0]), jnp.sqrt(3))
 
         if self.brightness > 0:

@@ -108,6 +108,7 @@ def test_rotate_2d() -> None:
 def test_augmentor() -> None:
     r"""Tests the EDM augmentation pipeline."""
     augmentor = augment.EDMAugmentor(
+        image_size=(32, 32),
         p=0.12,
         # pixel blitting toggles
         xflip=1e8,
