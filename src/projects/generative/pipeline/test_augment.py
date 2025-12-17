@@ -130,12 +130,12 @@ def test_augmentor() -> None:
     test_output, test_labels = augmentor.apply(
         variables={},
         images=test_input,
-        rngs=jax.random.PRNGKey(0),
+        rngs=jnp.array([0, 0], dtype=jnp.uint32),
     )
     assert isinstance(test_output, jax.Array)
     chex.assert_shape(test_output, (2, 32, 32, 3))
     assert isinstance(test_labels, jax.Array)
-    chex.assert_shape(test_labels, (2, 12))
+    chex.assert_shape(test_labels, (2, 19))
 
 
 if __name__ == "__main__":

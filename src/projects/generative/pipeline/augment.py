@@ -182,7 +182,7 @@ WAVELETS = {
 }
 
 
-# ----------------------------------------------------------------------------
+# ==============================================================================
 # Helpers for constructing transformation matrices.
 def translate2d(
     tx: jax_typing.ArrayLike,
@@ -581,88 +581,86 @@ class EDMAugmentor(nn.Module):
 
         # =============================================
         # geometric transformations.
-        # ind_3 = jnp.eye(3)
-        # g_inv = ind_3
+        ind_3 = jnp.eye(3)
+        g_inv = ind_3
 
-        # if self.scale > 0:
-        #     key, w_key, u_key = jrnd.split(key, 3)
-        #     w = jrnd.normal(w_key, [num])
-        #     w = jnp.where(
-        #         jnp.less(
-        #             jrnd.uniform(u_key, shape=(num,)),
-        #             self.scale * self.p,
-        #         ),
-        #         w,
-        #         jnp.zeros_like(w),
-        #     )
-        #     # s = w.mul(self.scale_std).exp2()
-        #     s = 2 ** (w * self.scale_std)
-        #     g_inv = g_inv @ scale2d_inv(s, s)
-        #     labels += [w]
+        if self.scale > 0:
+            key, w_key, u_key = jrnd.split(key, 3)
+            w = jrnd.normal(w_key, shape=(num,))
+            w = jnp.where(
+                jnp.less(
+                    jrnd.uniform(u_key, shape=(num,)),
+                    self.scale * self.p,
+                ),
+                w,
+                jnp.zeros_like(w),
+            )
+            s = jnp.exp2(w * self.scale_std)
+            g_inv = g_inv @ scale2d_inv(s, s)
+            labels += [w]
 
-        # if self.rotate_frac > 0:
-        #     key, w_key, u_key = jrnd.split(key, 3)
-        #     w = jnp.multiply(
-        #         jrnd.uniform(w_key, [num]) * 2 - 1,
-        #         np.pi * self.rotate_frac_max,
-        #     )
-        #     w = jnp.where(
-        #         jnp.less(
-        #             jrnd.uniform(u_key, shape=(num,)),
-        #             self.rotate_frac * self.p,
-        #         ),
-        #         w,
-        #         jnp.zeros_like(w),
-        #     )
-        #     g_inv = g_inv @ rotate2d_inv(-w)
-        #     labels += [jnp.cos(w) - 1, jnp.sin(w)]
+        if self.rotate_frac > 0:
+            key, w_key, u_key = jrnd.split(key, 3)
+            w = jnp.multiply(
+                jrnd.uniform(w_key, shape=(num,)) * 2 - 1,
+                jnp.pi * self.rotate_frac_max,
+            )
+            w = jnp.where(
+                jnp.less(
+                    jrnd.uniform(u_key, shape=(num,)),
+                    self.rotate_frac * self.p,
+                ),
+                w,
+                jnp.zeros_like(w),
+            )
+            g_inv = g_inv @ rotate2d_inv(-w)
+            labels += [jnp.cos(w) - 1, jnp.sin(w)]
 
-        # if self.aniso > 0:
-        #     key, w_key, r_key, u_key1, u_key2 = jrnd.split(key, 5)
-        #     w = jrnd.normal(w_key, [num])
-        #     r = jnp.multiply(jrnd.uniform(r_key, [num]) * 2 - 1, jnp.pi)
-        #     w = jnp.where(
-        #         jnp.less(
-        #             jrnd.uniform(u_key1, shape=(num,)),
-        #             self.aniso * self.p,
-        #         ),
-        #         w,
-        #         jnp.zeros_like(w),
-        #     )
-        #     r = jnp.where(
-        #         jnp.less(
-        #             jrnd.uniform(u_key2, shape=(num,)),
-        #             self.aniso_rotate_prob,
-        #         ),
-        #         r,
-        #         jnp.zeros_like(r),
-        #     )
-        #     # s = w.mul(self.aniso_std).exp2()
-        #     s = 2 ** (jnp.multiply(w, self.aniso_std))
-        #     g_inv = (
-        #         g_inv
-        #         @ rotate2d_inv(r)
-        #         @ scale2d_inv(s, 1 / s)
-        #         @ rotate2d_inv(-r)
-        #     )
-        #     labels += [w * jnp.cos(r), w * jnp.sin(r)]
+        if self.aniso > 0:
+            key, w_key, r_key, u_key1, u_key2 = jrnd.split(key, 5)
+            w = jrnd.normal(w_key, shape=(num,))
+            r = jnp.multiply(jrnd.uniform(r_key, shape=(num,)) * 2 - 1, jnp.pi)
+            w = jnp.where(
+                jnp.less(
+                    jrnd.uniform(u_key1, shape=(num,)),
+                    self.aniso * self.p,
+                ),
+                w,
+                jnp.zeros_like(w),
+            )
+            r = jnp.where(
+                jnp.less(
+                    jrnd.uniform(u_key2, shape=(num,)),
+                    self.aniso_rotate_prob,
+                ),
+                r,
+                jnp.zeros_like(r),
+            )
+            s = jnp.exp2(jnp.multiply(w, self.aniso_std))
+            g_inv = (
+                g_inv
+                @ rotate2d_inv(r)
+                @ scale2d_inv(s, 1 / s)
+                @ rotate2d_inv(-r)
+            )
+            labels += [w * jnp.cos(r), w * jnp.sin(r)]
 
-        # if self.translate_frac > 0:
-        #     key, w_key, u_key = jrnd.split(key, 3)
-        #     w = jrnd.normal(w_key, [2, num])
-        #     w = jnp.where(
-        #         jnp.less(
-        #             jrnd.uniform(u_key, shape=(1, num)),
-        #             self.translate_frac * self.p,
-        #         ),
-        #         w,
-        #         jnp.zeros_like(w),
-        #     )
-        #     g_inv = g_inv @ translate2d_inv(
-        #         jnp.multiply(w[0], (width * self.translate_frac_std)),
-        #         jnp.multiply(w[1], (height * self.translate_frac_std)),
-        #     )
-        #     labels += [w[0], w[1]]
+        if self.translate_frac > 0:
+            key, w_key, u_key = jrnd.split(key, 3)
+            w = jrnd.normal(w_key, shape=(2, num))
+            w = jnp.where(
+                jnp.less(
+                    jrnd.uniform(u_key, shape=(1, num)),
+                    self.translate_frac * self.p,
+                ),
+                w,
+                jnp.zeros_like(w),
+            )
+            g_inv = g_inv @ translate2d_inv(
+                jnp.multiply(w[0], (width * self.translate_frac_std)),
+                jnp.multiply(w[1], (height * self.translate_frac_std)),
+            )
+            labels += [w[0], w[1]]
 
         # if g_inv is not ind_3:
         #     cx = (width - 1) / 2
@@ -782,10 +780,10 @@ class EDMAugmentor(nn.Module):
 
         if self.brightness > 0:
             key, w_key, u_key = jrnd.split(key, 3)
-            w = jax.random.uniform(w_key, shape=(num,))
+            w = jrnd.uniform(w_key, shape=(num,))
             w = jnp.where(
                 jnp.less(
-                    jax.random.uniform(u_key, shape=(num,)),
+                    jrnd.uniform(u_key, shape=(num,)),
                     self.brightness * self.p,
                 ),
                 w,
@@ -797,10 +795,10 @@ class EDMAugmentor(nn.Module):
 
         if self.contrast > 0:
             key, w_key, u_key = jrnd.split(key, 3)
-            w = jax.random.normal(w_key, shape=(num,))
+            w = jrnd.normal(w_key, shape=(num,))
             w = jnp.where(
                 jnp.less(
-                    jax.random.uniform(u_key, shape=(num,)),
+                    jrnd.uniform(u_key, shape=(num,)),
                     self.contrast * self.p,
                 ),
                 w,
@@ -812,10 +810,10 @@ class EDMAugmentor(nn.Module):
 
         if self.lumaflip > 0:
             key, w_key, u_key = jrnd.split(key, 3)
-            w = jax.random.randint(w_key, (num, 1, 1), 0, 2)
+            w = jrnd.randint(w_key, (num, 1, 1), 0, 2)
             w = jnp.where(
                 jnp.less(
-                    jax.random.uniform(u_key, shape=(num, 1, 1)),
+                    jrnd.uniform(u_key, shape=(num, 1, 1)),
                     self.lumaflip * self.p,
                 ),
                 w,
@@ -828,11 +826,11 @@ class EDMAugmentor(nn.Module):
 
         if self.hue > 0:
             key, w_key, u_key = jrnd.split(key, 3)
-            w = jax.random.uniform(w_key, shape=(num,)) * 2 - 1
+            w = jrnd.uniform(w_key, shape=(num,)) * 2 - 1
             w = w * (jnp.pi * self.hue_max)
             w = jnp.where(
                 jnp.less(
-                    jax.random.uniform(u_key, shape=(num,)),
+                    jrnd.uniform(u_key, shape=(num,)),
                     self.hue * self.p,
                 ),
                 w,
@@ -844,10 +842,10 @@ class EDMAugmentor(nn.Module):
 
         if self.saturation > 0:
             key, w_key, u_key = jrnd.split(key, 3)
-            w = jax.random.normal(w_key, shape=(num, 1, 1))
+            w = jrnd.normal(w_key, shape=(num, 1, 1))
             w = jnp.where(
                 jnp.less(
-                    jax.random.uniform(u_key, shape=(num, 1, 1)),
+                    jrnd.uniform(u_key, shape=(num, 1, 1)),
                     self.saturation * self.p,
                 ),
                 w,
