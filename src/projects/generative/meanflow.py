@@ -11,6 +11,7 @@ import typing_extensions
 
 from src.core import model as _model
 from src.projects.generative.model import unet
+from src.projects.generative.pipeline import augment
 
 # Type Aliases
 PyTree = jaxtyping.PyTree
@@ -415,50 +416,12 @@ class MeanFlowUNetModule(nn.Module):
     param_dtype: typing.Any = None
     precision: typing.Any = None
 
-    def setup(self) -> None:
-        r"""Instantiate a `MeanFlowUNetModel` module."""
-        # backbone U-Net model
-        self.backbone = unet.ScoreNet(
-            features=self.features,
-            num_groups=self.num_groups,
-            epsilon=self.epsilon,
-            dropout_rate=self.dropout_rate,
-            skip_scale=self.skip_scale,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-        )
-
-        # conditional embeddings
-        self.time_embed = SinusoidalEmbed(self.features * 2, endpoint=True)
-        self.cond_in = nn.Dense(
-            features=self.features * 4,
-            kernel_init=jax.nn.initializers.variance_scaling(
-                scale=1.0,
-                mode="fan_avg",
-                distribution="uniform",
-            ),
-            bias_init=jax.nn.initializers.zeros,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="cond_fc_1",
-        )
-        self.cond_out = nn.Dense(
-            features=self.features * 4,
-            kernel_init=jax.nn.initializers.variance_scaling(
-                scale=1.0,
-                mode="fan_avg",
-                distribution="uniform",
-            ),
-            bias_init=jax.nn.initializers.zeros,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="cond_fc_2",
-        )
-
+    @nn.compact
     def __call__(
         self,
         image: jax.Array,
         timestamps: typing.Tuple[jax.Array],
+        edm_cond: typing.Optional[jax.Array] = None,
         deterministic: typing.Optional[bool] = None,
     ) -> jax.Array:
         r"""Forward pass the `MeanFlowUNetModel`.
@@ -478,11 +441,66 @@ class MeanFlowUNetModule(nn.Module):
             deterministic,
         )
 
-        emb = [self.time_embed(time) for time in timestamps]
+        # encode the conditions
+        time_embed = SinusoidalEmbed(self.features * 2, endpoint=True)
+        emb = [time_embed(time) for time in timestamps]
         cond = jnp.concatenate(emb, axis=-1)
-        cond = self.cond_out(jax.nn.silu(self.cond_in(cond)))
+        aug_embed = nn.Dense(
+            features=cond.shape[-1],
+            kernel_init=jax.nn.initializers.variance_scaling(
+                scale=1.0,
+                mode="fan_avg",
+                distribution="uniform",
+            ),
+            bias_init=jax.nn.initializers.zeros,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="aug_fc",
+        )
+        if edm_cond is not None:
+            aug_cond = aug_embed(edm_cond)
+            cond = cond + aug_cond
 
-        output = self.backbone(
+        # projects the conditioning embeddings
+        cond_in = nn.Dense(
+            features=self.features * 4,
+            kernel_init=jax.nn.initializers.variance_scaling(
+                scale=1.0,
+                mode="fan_avg",
+                distribution="uniform",
+            ),
+            bias_init=jax.nn.initializers.zeros,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="cond_fc_1",
+        )
+        cond_out = nn.Dense(
+            features=self.features * 4,
+            kernel_init=jax.nn.initializers.variance_scaling(
+                scale=1.0,
+                mode="fan_avg",
+                distribution="uniform",
+            ),
+            bias_init=jax.nn.initializers.zeros,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="cond_fc_2",
+        )
+        cond = cond_out(jax.nn.silu(cond_in(cond)))
+
+        # pass through the backbone U-Net
+        backbone = unet.ScoreNet(
+            features=self.features,
+            num_groups=self.num_groups,
+            epsilon=self.epsilon,
+            dropout_rate=self.dropout_rate,
+            skip_scale=self.skip_scale,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            precision=self.precision,
+            name="backbone",
+        )
+        output = backbone(
             inputs=image,
             cond=cond,
             deterministic=m_deterministic,
@@ -549,6 +567,16 @@ class MeanFlowUNetModel(_model.Model):
         self.timestamp_sampler_kwargs = timestamp_sampler_kwargs
         self.timestamp_overlap_rate = timestamp_overlap_rate
         self.adaptive_weight_power = adaptive_weight_power
+        self._augment = augment.EDMAugmentor(
+            image_size=(image_size, image_size),
+            p=0.12,
+            xflip=1e8,
+            yflip=0,
+            scale=1,
+            rotate_frac=0,
+            aniso=1,
+            translate_frac=1,
+        )
         self._network = MeanFlowUNetModule(
             features=features,
             skip_scale=skip_scale,
@@ -600,11 +628,13 @@ class MeanFlowUNetModel(_model.Model):
                 dtype=jnp.float32,
             ),
             "timestamps": timestamps,
+            "edm_cond": jnp.zeros((1, 6), dtype=jnp.float32),
         }
         variables = self.network.init(
             rngs=rngs,
             image=dummy_inputs["image"],
             timestamps=dummy_inputs["timestamps"],
+            edm_cond=dummy_inputs["edm_cond"],
             deterministic=True,
         )
         _tabulate_fn = nn.summary.tabulate(self.network, rngs=rngs)
@@ -643,15 +673,20 @@ class MeanFlowUNetModel(_model.Model):
         image = batch["image"]
         assert isinstance(image, jax.Array)
         batch_dims = image.shape[:-3]
-        tr_rng, dropout_rng, f_rng, m_rng, e_rng = jax.random.split(rngs, 5)
+        tr_rng, dropout_rng, a_rng, m_rng, e_rng = jax.random.split(rngs, 5)
 
-        # randomly flip image horizontally for data augmentation
-        flip_mask = jax.random.bernoulli(key=f_rng, p=0.5, shape=batch_dims)
-        image = jnp.where(
-            flip_mask[..., None, None, None],
-            jnp.flip(image, axis=-2),
-            image,
-        )
+        # pre-process the inputs
+        if not deterministic:
+            image, cond = self._augment.apply(
+                variables={},
+                images=image,
+                rngs=a_rng,
+            )
+            assert isinstance(image, jax.Array)
+            assert isinstance(cond, jax.Array)
+        else:
+            cond = None
+        image = jnp.clip(image, 0.0, 1.0) * 2.0 - 1.0
 
         # sample begin and end timestamps
         t, r = sample_t_r(
@@ -703,6 +738,7 @@ class MeanFlowUNetModel(_model.Model):
                 variables={"params": params},
                 image=z_t,
                 timestamps=timestamps,
+                edm_cond=cond,
                 deterministic=deterministic,
                 rngs={"dropout": dropout_rng},
             )
@@ -806,6 +842,7 @@ class MeanFlowUNetModel(_model.Model):
             variables={"params": params},
             image=e,
             timestamps=timestamps,
+            edm_cond=None,
             deterministic=deterministic,
         )
 
