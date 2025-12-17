@@ -837,25 +837,24 @@ class EDMAugmentor(nn.Module):
             M = rotate3d(luma_vec, w) @ M
             labels += [jnp.cos(w) - 1, jnp.sin(w)]
 
-        # if self.saturation > 0:
-        #     key, w_key, u_key = jrnd.split(key, 3)
-        #     w = jax.random.normal(w_key, [num, 1, 1])
-        #     w = jnp.where(
-        #         jnp.less(
-        #             jax.random.uniform(u_key, shape=(num, 1, 1)),
-        #             self.saturation * self.p,
-        #         ),
-        #         w,
-        #         jnp.zeros_like(w),
-        #     )
-        #     luma_outer = jnp.outer(luma_axis, luma_axis)
-        #     s = 2 ** (w * self.saturation_std)
-        #     s = s[..., None]
-        #     M = (
-        #         luma_outer[None, ...]
-        #         + (ind_4[None, ...] - luma_outer[None, ...]) * s
-        #     ) @ M
-        #     labels += [w]
+        if self.saturation > 0:
+            key, w_key, u_key = jrnd.split(key, 3)
+            w = jax.random.normal(w_key, shape=(num, 1, 1))
+            w = jnp.where(
+                jnp.less(
+                    jax.random.uniform(u_key, shape=(num, 1, 1)),
+                    self.saturation * self.p,
+                ),
+                w,
+                jnp.zeros_like(w),
+            )
+            luma_outer = jnp.outer(luma_axis, luma_axis)
+            s = jnp.exp2(w * self.saturation_std)
+            M = (
+                luma_outer[None, ...]
+                + (ind_4[None, ...] - luma_outer[None, ...]) * s
+            ) @ M
+            labels += [w]
 
         images = images.reshape([num, height * width, channels])
         if channels == 3:
