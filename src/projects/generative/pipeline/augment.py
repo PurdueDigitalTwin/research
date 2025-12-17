@@ -184,15 +184,6 @@ WAVELETS = {
 
 # ----------------------------------------------------------------------------
 # Helpers for constructing transformation matrices.
-def matrix(*rows, dtype: typing.Optional[typing.Any] = None) -> jax.Array:
-    r"""Construct a matrix from rows, broadcasting as needed."""
-    rows = [jnp.asarray(r, dtype=dtype) for r in rows]
-    batch_dims = rows[0].shape[:-1]
-    out = jnp.stack(rows, axis=-2)
-    out = out.reshape(*batch_dims, len(rows), -1)
-    return out
-
-
 def translate2d(
     tx: jax_typing.ArrayLike,
     ty: jax_typing.ArrayLike,
@@ -208,7 +199,14 @@ def translate2d(
         A three by three translation matrix for 2D transformations.
     """
     del kwargs
-    return matrix([1.0, 0.0, tx], [0.0, 1.0, ty], [0.0, 0.0, 1.0])
+    tx, ty = jnp.asarray(tx), jnp.asarray(ty)
+    batch_dims = jnp.shape(tx)
+    ind_3 = jnp.eye(3, dtype=tx.dtype)
+    if len(batch_dims) > 0:
+        ind_3 = jnp.broadcast_to(ind_3, (*batch_dims, 3, 3))
+    out = ind_3.at[..., 0, 2].set(tx)
+    out = out.at[..., 1, 2].set(ty)
+    return out
 
 
 def translate3d(
@@ -252,7 +250,14 @@ def scale2d(
         A three by three scaling matrix for 2D transformations.
     """
     del kwargs
-    return matrix([sx, 0, 0], [0, sy, 0], [0, 0, 1])
+    sx, sy = jnp.asarray(sx), jnp.asarray(sy)
+    batch_dims = jnp.shape(sx)
+    ind_3 = jnp.eye(3, dtype=sx.dtype)
+    if len(batch_dims) > 0:
+        ind_3 = jnp.broadcast_to(ind_3, (*batch_dims, 3, 3))
+    out = ind_3.at[..., 0, 0].set(sx)
+    out = out.at[..., 1, 1].set(sy)
+    return out
 
 
 def scale3d(
@@ -772,7 +777,7 @@ class EDMAugmentor(nn.Module):
         # ============================================
         # color transformations.
         ind_4 = jnp.eye(4)
-        M = ind_4
+        mat = ind_4
         luma_axis = jnp.true_divide(jnp.asarray([1, 1, 1, 0]), jnp.sqrt(3))
 
         if self.brightness > 0:
@@ -787,7 +792,7 @@ class EDMAugmentor(nn.Module):
                 jnp.zeros_like(w),
             )
             b = w * self.brightness_std
-            M = translate3d(b, b, b) @ M
+            mat = translate3d(b, b, b) @ mat
             labels += [w]
 
         if self.contrast > 0:
@@ -802,7 +807,7 @@ class EDMAugmentor(nn.Module):
                 jnp.zeros_like(w),
             )
             c = jnp.exp2(jnp.multiply(w, self.contrast_std))
-            M = scale3d(c, c, c) @ M
+            mat = scale3d(c, c, c) @ mat
             labels += [w]
 
         if self.lumaflip > 0:
@@ -818,7 +823,7 @@ class EDMAugmentor(nn.Module):
             )
             luma_outer = jnp.outer(luma_axis, luma_axis)
             correction = 2 * luma_outer[None, ...] * w
-            M = (ind_4[None, ...] - correction) @ M
+            mat = (ind_4[None, ...] - correction) @ mat
             labels += [w]
 
         if self.hue > 0:
@@ -834,7 +839,7 @@ class EDMAugmentor(nn.Module):
                 jnp.zeros_like(w),
             )
             luma_vec = jnp.tile(luma_axis[None, :3], (num, 1))
-            M = rotate3d(luma_vec, w) @ M
+            mat = rotate3d(luma_vec, w) @ mat
             labels += [jnp.cos(w) - 1, jnp.sin(w)]
 
         if self.saturation > 0:
@@ -850,20 +855,20 @@ class EDMAugmentor(nn.Module):
             )
             luma_outer = jnp.outer(luma_axis, luma_axis)
             s = jnp.exp2(w * self.saturation_std)
-            M = (
+            mat = (
                 luma_outer[None, ...]
                 + (ind_4[None, ...] - luma_outer[None, ...]) * s
-            ) @ M
+            ) @ mat
             labels += [w]
 
         images = images.reshape([num, height * width, channels])
         if channels == 3:
-            images = images @ M[:, :3, :3] + jnp.matrix_transpose(M[:, :3, 3:])
+            images = images @ mat[:, :3, :3]
+            images = images + jnp.matrix_transpose(mat[:, :3, 3:])
         elif channels == 1:
-            M = jnp.mean(M[:, :3, :], axis=-2, keepdims=True)
-            images = images * jnp.sum(
-                M[:, :, :3], axis=-1, keepdims=True
-            ) + jnp.matrix_transpose(M[:, :, 3:])
+            mat = jnp.mean(mat[:, :3, :], axis=-2, keepdims=True)
+            images = images * jnp.sum(mat[:, :, :3], axis=-1, keepdims=True)
+            images = images + jnp.matrix_transpose(mat[:, :, 3:])
         else:
             raise ValueError(
                 "Image must be RGB (3 channels) or Grayscale (1 channel)"

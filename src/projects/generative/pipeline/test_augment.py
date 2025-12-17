@@ -8,26 +8,6 @@ import pytest
 from src.projects.generative.pipeline import augment
 
 
-def test_matrix() -> None:
-    r"""Tests the matrix constructor."""
-    mat = augment.matrix(
-        jnp.array([0.0, 1.0, 0.0], dtype=jnp.float32),
-        jnp.array([1.0, 0.0, 0.0], dtype=jnp.float32),
-        jnp.array([0.0, 0.0, 1.0], dtype=jnp.float32),
-    )
-    assert isinstance(mat, jax.Array)
-    chex.assert_shape(mat, (3, 3))
-    test_output = jnp.array(
-        [
-            [0.0, 1.0, 0.0],
-            [1.0, 0.0, 0.0],
-            [0.0, 0.0, 1.0],
-        ],
-        dtype=jnp.float32,
-    )
-    chex.assert_trees_all_close(mat, test_output)
-
-
 def test_translate() -> None:
     r"""Tests the 2D and 3D translation transformation."""
     # test 2D translation
