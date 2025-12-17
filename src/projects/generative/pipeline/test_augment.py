@@ -143,7 +143,7 @@ def test_augmentor() -> None:
         brightness=1e8,
         contrast=1e8,
         lumaflip=1e8,
-        hue=0.0,
+        hue=1e8,
         saturation=0.0,
     )
     test_input = jnp.ones((2, 32, 32, 3), dtype=jnp.float32)
@@ -155,7 +155,7 @@ def test_augmentor() -> None:
     assert isinstance(test_output, jax.Array)
     chex.assert_shape(test_output, (2, 32, 32, 3))
     assert isinstance(test_labels, jax.Array)
-    chex.assert_shape(test_labels, (2, 9))
+    chex.assert_shape(test_labels, (2, 11))
 
 
 if __name__ == "__main__":

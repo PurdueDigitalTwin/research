@@ -293,11 +293,15 @@ def rotate2d(theta: jax_typing.ArrayLike, **kwargs) -> jax.Array:
         A three by three rotation matrix for 2D transformations.
     """
     del kwargs
-    return matrix(
-        [jnp.cos(theta), jnp.sin(jnp.negative(theta)), 0],
-        [jnp.sin(theta), jnp.cos(theta), 0],
-        [0, 0, 1],
-    )
+    theta = jnp.asarray(theta)
+    cos_theta, sin_theta = jnp.cos(theta), jnp.sin(theta)
+    batch_dims = jnp.shape(theta)
+    ind_3 = jnp.eye(3, dtype=theta.dtype)
+    if len(batch_dims) > 0:
+        ind_3 = jnp.broadcast_to(ind_3, (*batch_dims, 3, 3))
+    out = ind_3.at[..., 0:2, 0].set(jnp.stack([cos_theta, sin_theta], axis=-1))
+    out = out.at[..., 0:2, 1].set(jnp.stack([-sin_theta, cos_theta], axis=-1))
+    return out
 
 
 def rotate3d(v: jax.Array, theta: jax_typing.ArrayLike, **kwargs) -> jax.Array:
@@ -311,18 +315,24 @@ def rotate3d(v: jax.Array, theta: jax_typing.ArrayLike, **kwargs) -> jax.Array:
         A four by four rotation matrix for 3D transformations.
     """
     del kwargs
-    vx = v[..., 0]
-    vy = v[..., 1]
-    vz = v[..., 2]
-    s = jnp.sin(theta)
-    c = jnp.cos(theta)
-    cc = 1 - c
-    return matrix(
-        [vx * vx * cc + c, vx * vy * cc - vz * s, vx * vz * cc + vy * s, 0],
-        [vy * vx * cc + vz * s, vy * vy * cc + c, vy * vz * cc - vx * s, 0],
-        [vz * vx * cc - vy * s, vz * vy * cc + vx * s, vz * vz * cc + c, 0],
-        [0, 0, 0, 1],
-    )
+    v, theta = jnp.asarray(v), jnp.asarray(theta)
+    batch_dims = jnp.shape(theta)
+    ind_4 = jnp.eye(4, dtype=theta.dtype)
+    if len(batch_dims) > 0:
+        ind_4 = jnp.broadcast_to(ind_4, (*batch_dims, 4, 4))
+    v = v / jnp.linalg.norm(v, axis=-1, keepdims=True)
+    vx, vy, vz = v[..., 0], v[..., 1], v[..., 2]
+    sin_theta, cos_theta = jnp.sin(theta), jnp.cos(theta)
+    out = ind_4.at[..., 0, 0].set(cos_theta + vx * vx * (1 - cos_theta))
+    out = out.at[..., 0, 1].set(vx * vy * (1 - cos_theta) - vz * sin_theta)
+    out = out.at[..., 0, 2].set(vx * vz * (1 - cos_theta) + vy * sin_theta)
+    out = out.at[..., 1, 0].set(vy * vx * (1 - cos_theta) + vz * sin_theta)
+    out = out.at[..., 1, 1].set(cos_theta + vy * vy * (1 - cos_theta))
+    out = out.at[..., 1, 2].set(vy * vz * (1 - cos_theta) - vx * sin_theta)
+    out = out.at[..., 2, 0].set(vz * vx * (1 - cos_theta) - vy * sin_theta)
+    out = out.at[..., 2, 1].set(vz * vy * (1 - cos_theta) + vx * sin_theta)
+    out = out.at[..., 2, 2].set(cos_theta + vz * vz * (1 - cos_theta))
+    return out
 
 
 def translate2d_inv(
@@ -811,21 +821,21 @@ class EDMAugmentor(nn.Module):
             M = (ind_4[None, ...] - correction) @ M
             labels += [w]
 
-        # if self.hue > 0:
-        #     key, w_key, u_key = jrnd.split(key, 3)
-        #     w = jax.random.uniform(w_key, [num]) * 2 - 1
-        #     w = w * (np.pi * self.hue_max)
-        #     w = jnp.where(
-        #         jnp.less(
-        #             jax.random.uniform(u_key, shape=(num,)),
-        #             self.hue * self.p,
-        #         ),
-        #         w,
-        #         jnp.zeros_like(w),
-        #     )
-        #     luma_vec = jnp.tile(luma_axis[None, :3], (num, 1))
-        #     M = rotate3d(luma_vec, w) @ M
-        #     labels += [jnp.cos(w) - 1, jnp.sin(w)]
+        if self.hue > 0:
+            key, w_key, u_key = jrnd.split(key, 3)
+            w = jax.random.uniform(w_key, shape=(num,)) * 2 - 1
+            w = w * (jnp.pi * self.hue_max)
+            w = jnp.where(
+                jnp.less(
+                    jax.random.uniform(u_key, shape=(num,)),
+                    self.hue * self.p,
+                ),
+                w,
+                jnp.zeros_like(w),
+            )
+            luma_vec = jnp.tile(luma_axis[None, :3], (num, 1))
+            M = rotate3d(luma_vec, w) @ M
+            labels += [jnp.cos(w) - 1, jnp.sin(w)]
 
         # if self.saturation > 0:
         #     key, w_key, u_key = jrnd.split(key, 3)
