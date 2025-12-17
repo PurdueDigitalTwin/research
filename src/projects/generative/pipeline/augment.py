@@ -390,6 +390,202 @@ def rotate2d_inv(
     return rotate2d(jnp.negative(theta), **kwargs)
 
 
+def affine_grid_2d(
+    theta: jax_typing.ArrayLike,
+    size: typing.Sequence[int],
+    align_corners: bool = False,
+) -> jax.Array:
+    r"""Generates 2D flow field given a affine matrices as `theta`.
+
+    Args:
+        theta (ArrayLike): Affine matrices with a shape of `(*, 2, 3)`.
+        size (Sequence[int]): Size of the output grid as `(*, H, W, C)`.
+        align_corners (bool, optional): If `True`, consider `-1` and `1` to
+            refer to the centers of the corner pixels rather than the
+            actual image corners. Defaults to `False`.
+
+    Returns:
+        A grid of flow fields with a shape of `(*, H, W, 2)`.
+    """
+    batch_dims, height, width = size[:-3], size[-3], size[-2]
+    chex.assert_shape(theta, (*batch_dims, 2, 3))
+
+    if align_corners:
+        # If `align_corners=True`, set the range exactly -1 to 1
+        xs = jnp.linspace(-1, 1, width) if width > 1 else jnp.array([0.0])
+        ys = jnp.linspace(-1, 1, height) if height > 1 else jnp.array([0.0])
+    else:
+        # If `align_corners=False`, set the range from -1 + (1/W) to 1 - (1/W)
+        # this is equivalent to: (arange(W) + 0.5) * (2/W) - 1
+        xs = (jnp.arange(width) + 0.5) * (2.0 / width) - 1.0
+        ys = (jnp.arange(height) + 0.5) * (2.0 / height) - 1.0
+
+    y_grid, x_grid = jnp.meshgrid(ys, xs, indexing="ij")
+    grid_flat = jnp.stack([x_grid, y_grid, jnp.ones_like(x_grid)], axis=-1)
+    grid_flat = grid_flat.reshape(-1, 3)  # shape: (H*W, 3)
+
+    theta_flat = jnp.reshape(theta, (-1, 2, 3))
+    out = jnp.einsum("nrc,lc->nlr", theta_flat, grid_flat)
+    out = out.reshape(*batch_dims, height, width, 2)
+
+    return out
+
+
+def grid_sample_2d(
+    images: jax.Array,
+    grid: jax.Array,
+    mode: str = "bilinear",
+    padding_mode: str = "zeros",
+    align_corners: bool = False,
+) -> jax.Array:
+    r"""Sample from given 2D images `images` using a given flow field `grid`.
+
+    Args:
+        images (jax.Array): Input images with a shape of `(..., H, W, C)`.
+        grid (jax.Array): Flow fields with a shape of `(..., H, W, 2)`.
+        mode (str, optional): Interpolation mode. Must be one of `nearest`,
+            `bilinear`, or `bicubic`. Defaults to `bilinear`.
+        padding_mode (str, optional): Padding mode. Must be one of `zeros`,
+            `border`, or `reflection`. Defaults to `zeros`.
+        align_corners (bool, optional): If `True`, consider `-1` and `1` to
+            refer to the centers of the corner pixels rather than the
+            actual image corners. Defaults to `False`.
+
+    Returns:
+        Sampled images with the same shape as `images`.
+    """
+    batch_dims = images.shape[:-3]
+    height, width, channels = images.shape[-3:]
+    images = images.reshape(-1, height, width, channels)
+    chex.assert_shape(grid, (*batch_dims, height, width, 2))
+    grid = grid.reshape(-1, height, width, 2)
+    flow_x, flow_y = grid[..., 0], grid[..., 1]
+
+    # Handle cases where `padding_model` is `reflection`
+    if padding_mode == "reflection":
+        flow_x = jnp.abs((flow_x - 1.0) % 4.0 - 2.0) - 1.0
+        flow_y = jnp.abs((flow_y - 1.0) % 4.0 - 2.0) - 1.0
+
+    # Handle `align_corners` flag
+    if align_corners:
+        x_pix = ((flow_x + 1.0) / 2.0) * (width - 1.0)
+        y_pix = ((flow_y + 1.0) / 2.0) * (height - 1.0)
+    else:
+        x_pix = ((flow_x + 1.0) * width - 1.0) / 2.0
+        y_pix = ((flow_y + 1.0) * height - 1.0) / 2.0
+
+    # Helper to gather pixels safely with clamping (handles 'border' mode)
+    def _gather(x_coords, y_coords):
+        xc = jnp.clip(x_coords, 0, width - 1).astype(jnp.int32)
+        yc = jnp.clip(y_coords, 0, height - 1).astype(jnp.int32)
+        b_idx = jnp.arange(images.shape[0])[:, None, None]
+        return images[b_idx, yc, xc, :]
+
+    # Cubic weighting function (Catmull-Rom spline, a=-0.75)
+    def _cubic_weight(x):
+        # x is distance to the pixel center
+        abs_x = jnp.abs(x)
+        abs_x2 = abs_x * abs_x
+        abs_x3 = abs_x2 * abs_x
+
+        # Condition 1: |x| <= 1
+        w1 = (1.5 * abs_x3 - 2.5 * abs_x2 + 1.0) * (abs_x <= 1.0)
+        # Condition 2: 1 < |x| < 2
+        w2 = (-0.5 * abs_x3 + 2.5 * abs_x2 - 4.0 * abs_x + 2.0) * (
+            (abs_x > 1.0) & (abs_x < 2.0)
+        )
+        return w1 + w2
+
+    # -------------------------------------------------
+    # 4. Interpolation Modes
+    # -------------------------------------------------
+
+    if mode == "nearest":
+        x_int = jnp.rint(x_pix).astype(jnp.int32)
+        y_int = jnp.rint(y_pix).astype(jnp.int32)
+        output = _gather(x_int, y_int)
+
+    elif mode == "bilinear":
+        x0 = jnp.floor(x_pix).astype(jnp.int32)
+        y0 = jnp.floor(y_pix).astype(jnp.int32)
+        x1 = x0 + 1
+        y1 = y0 + 1
+
+        wa = (x1 - x_pix) * (y1 - y_pix)
+        wb = (x1 - x_pix) * (y_pix - y0)
+        wc = (x_pix - x0) * (y1 - y_pix)
+        wd = (x_pix - x0) * (y_pix - y0)
+
+        output = (
+            wa[..., None] * _gather(x0, y0)
+            + wb[..., None] * _gather(x0, y1)
+            + wc[..., None] * _gather(x1, y0)
+            + wd[..., None] * _gather(x1, y1)
+        )
+
+    elif mode == "bicubic":
+        # Bicubic needs a 4x4 neighborhood
+        x_floor = jnp.floor(x_pix).astype(jnp.int32)
+        y_floor = jnp.floor(y_pix).astype(jnp.int32)
+
+        # NOTE: the 4 weights for the x-dimension
+        # Distances: x - (floor-1), x - floor, x - (floor+1), x - (floor+2)
+        # Simplified: let t = x - floor. Distances are t+1, t, t-1, t-2.
+        # But wait, cubic_weight expects distance to center.
+        # Neighbor -1 (x-1): dist = (x_pix - (x_floor - 1)) = t + 1
+        # Neighbor  0 (x):   dist = (x_pix - x_floor)       = t
+        # Neighbor  1 (x+1): dist = (x_pix - (x_floor + 1)) = t - 1
+        # Neighbor  2 (x+2): dist = (x_pix - (x_floor + 2)) = t - 2
+
+        tx = x_pix - x_floor
+        ty = y_pix - y_floor
+
+        wx = [
+            _cubic_weight(tx + 1),
+            _cubic_weight(tx),
+            _cubic_weight(tx - 1),
+            _cubic_weight(tx - 2),
+        ]
+        wy = [
+            _cubic_weight(ty + 1),
+            _cubic_weight(ty),
+            _cubic_weight(ty - 1),
+            _cubic_weight(ty - 2),
+        ]
+
+        # Iterate over 4x4 grid (i=x, j=y)
+        output = jnp.zeros_like(_gather(x_floor, y_floor))
+        for j in range(4):  # y-offset: -1, 0, 1, 2
+            # Calculate sum of row 'j'
+            row_sum = jnp.zeros_like(output)
+            y_curr = y_floor - 1 + j
+
+            for i in range(4):  # x-offset: -1, 0, 1, 2
+                x_curr = x_floor - 1 + i
+                pixel = _gather(x_curr, y_curr)
+                # Weight = wy[j] * wx[i]
+                row_sum += pixel * wx[i][..., None]
+
+            output += row_sum * wy[j][..., None]
+
+    else:
+        raise ValueError(f"Mode {mode} not supported.")
+
+    # -------------------------------------------------
+    # 5. Final Masking for 'zeros'
+    # -------------------------------------------------
+    if padding_mode == "zeros":
+        mask = (
+            (flow_x >= -1.0)
+            & (flow_x <= 1.0)
+            & (flow_y >= -1.0)
+            & (flow_y <= 1.0)
+        )
+        output = output * mask[..., None].astype(output.dtype)
+
+    return output
+
+
 # ==============================================================================
 # Augmentation pipeline
 class EDMAugmentor(nn.Module):
@@ -699,22 +895,22 @@ class EDMAugmentor(nn.Module):
         g_inv = translate2d(-0.5, -0.5) @ g_inv @ translate2d_inv(-0.5, -0.5)
 
         # TODO(juanwu): Execute transformation.
-        # shape = [N, C, (H + Hz_pad * 2) * 2, (W + Hz_pad * 2) * 2]
-        # G_inv = (
-        #     scale2d(2 / images.shape[3], 2 / images.shape[2], device=device)
-        #     @ G_inv
-        #     @ scale2d_inv(2 / shape[3], 2 / shape[2], device=device)
-        # )
-        # grid = torch.nn.functional.affine_grid(
-        #     theta=G_inv[:, :2, :], size=shape, align_corners=False
-        # )
-        # images = torch.nn.functional.grid_sample(
-        #     images,
-        #     grid,
-        #     mode="bilinear",
-        #     padding_mode="zeros",
-        #     align_corners=False,
-        # )
+        new_height = (height + pad_len * 2) * 2
+        new_width = (width + pad_len * 2) * 2
+        g_inv = scale2d(2.0 / new_width, 2.0 / new_height) @ g_inv
+        g_inv = g_inv @ scale2d_inv(2.0 / new_width, 2.0 / new_height)
+        grid = affine_grid_2d(
+            theta=g_inv[:, :2, :],
+            size=(num, new_height, new_width, 3),
+            align_corners=False,
+        )
+        images = grid_sample_2d(
+            images,
+            grid,
+            mode="bilinear",
+            padding_mode="zeros",
+            align_corners=False,
+        )
 
         # Downsample and crop.
         conv_weight_down = Hz[None, :, None, None]
