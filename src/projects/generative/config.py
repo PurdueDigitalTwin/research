@@ -47,8 +47,8 @@ def meanflow_unet_cifar_10() -> ImageGenerationExperimentConfig:
                     ),
                     functools.partial(
                         preprocess.normalize,
-                        mean=(0.5, 0.5, 0.5),
-                        std=(0.5, 0.5, 0.5),
+                        mean=(0.0, 0.0, 0.0),
+                        std=(1.0, 1.0, 1.0),
                     ),
                 ),
                 use_cache=True,
@@ -88,7 +88,7 @@ def meanflow_unet_cifar_10() -> ImageGenerationExperimentConfig:
                 warmup_steps=10_000,
             ),
             optimizer=fdl.Partial(optax.adam, b1=0.9, b2=0.999),
-            ema_rate=0.9999,
+            ema_rate=0.99995,
         ),
         seed=42,
     )

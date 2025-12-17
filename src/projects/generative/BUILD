@@ -48,5 +48,6 @@ ml_py_library(
         "//src/core:model",
         "//src/core:train_state",
         "//src/projects/generative/model:unet",
+        "//src/projects/generative/pipeline:augment",
     ],
 )
