@@ -185,9 +185,9 @@ WAVELETS = {
 
 # ----------------------------------------------------------------------------
 # Helpers for constructing transformation matrices.
-def matrix(*rows) -> jax.Array:
+def matrix(*rows, dtype: typing.Optional[typing.Any] = None) -> jax.Array:
     r"""Construct a matrix from rows, broadcasting as needed."""
-    rows = [jnp.asarray(r, dtype=jnp.float_) for r in rows]
+    rows = [jnp.asarray(r, dtype=dtype) for r in rows]
     batch_dims = rows[0].shape[:-1]
     out = jnp.stack(rows, axis=-2)
     out = out.reshape(*batch_dims, len(rows), -1)
@@ -502,7 +502,7 @@ class EDMAugmentor(nn.Module):
 
         if self.translate_int > 0:
             key, w_key, u_key = jrnd.split(key, 3)
-            w = jrnd.uniform(w_key, [2, num, 2, 1, 1]) * 2 - 1
+            w = jrnd.uniform(w_key, [2, num, 1, 1, 1]) * 2 - 1
             w = jnp.where(
                 jnp.less(
                     jrnd.uniform(u_key, shape=(1, num, 1, 1, 1)),
@@ -519,18 +519,26 @@ class EDMAugmentor(nn.Module):
                 jnp.round(w[1] * (height * self.translate_int_max)),
                 jnp.int32,
             )
+            jax.debug.print("tx.shape: {s}", s=list(tx.shape))
+            jax.debug.print("ty.shape: {s}", s=list(ty.shape))
 
-            b, y, x, c = jnp.meshgrid(
-                *(jnp.arange(x) for x in images.shape),
+            b_idx = jnp.arange(num)[:, None, None, None]
+            y_idx, x_idx = jnp.meshgrid(
+                jnp.arange(height),
+                jnp.arange(width),
                 indexing="ij",
             )
-            x = jnp.abs(width - 1 - (width - 1 - (x - tx) % (width * 2 - 2)))
-            y = jnp.abs(
-                height - 1 - (height - 1 - (y + ty) % (height * 2 - 2))
+            x_new = jnp.abs(
+                width
+                - 1
+                - (width - 1 - (x_idx[None, ...] - tx) % (width * 2 - 2))
             )
-            images = images.flatten()[
-                (((b * channels) + c) * height + y) * width + x
-            ]
+            y_new = jnp.abs(
+                height
+                - 1
+                - (height - 1 - (y_idx[None, ...] + ty) % (height * 2 - 2))
+            )
+            images = images[b_idx, y_new, x_new, :]
             labels += [
                 jnp.divide(tx, (width * self.translate_int_max)),
                 jnp.divide(ty, (height * self.translate_int_max)),
@@ -731,92 +739,111 @@ class EDMAugmentor(nn.Module):
         #         padding=[conv_pad, 0],
         #     )[:, :, Hz_pad:-Hz_pad, :]
 
-        # = ===========================================
+        # ============================================
         # color transformations.
         # ind_4 = jnp.eye(4)
         # M = ind_4
-        # luma_axis = constant(
-        #     np.asarray([1, 1, 1, 0]) / np.sqrt(3), device=device
-        # )
+        # luma_axis = jnp.true_divide(jnp.asarray([1, 1, 1, 0]), jnp.sqrt(3))
 
         # if self.brightness > 0:
-        #     w = torch.randn([N], device=device)
-        #     w = torch.where(
-        #         torch.rand([N], device=device) < self.brightness * self.p,
+        #     key, w_key, u_key = jrnd.split(key, 3)
+        #     w = jax.random.uniform(w_key, [num, 1, 1, 1])
+        #     w = jnp.where(
+        #         jnp.less(
+        #             jax.random.uniform(u_key, shape=(num, 1, 1, 1)),
+        #             self.brightness * self.p,
+        #         ),
         #         w,
-        #         torch.zeros_like(w),
+        #         jnp.zeros_like(w),
         #     )
         #     b = w * self.brightness_std
         #     M = translate3d(b, b, b) @ M
         #     labels += [w]
 
         # if self.contrast > 0:
-        #     w = torch.randn([N], device=device)
-        #     w = torch.where(
-        #         torch.rand([N], device=device) < self.contrast * self.p,
+        #     key, w_key, u_key = jrnd.split(key, 3)
+        #     w = jax.random.normal(w_key, [num, 1, 1, 1])
+        #     w = jnp.where(
+        #         jnp.less(
+        #             jax.random.uniform(u_key, shape=(num, 1, 1, 1)),
+        #             self.contrast * self.p,
+        #         ),
         #         w,
-        #         torch.zeros_like(w),
+        #         jnp.zeros_like(w),
         #     )
-        #     c = w.mul(self.contrast_std).exp2()
+        #     c = jnp.exp2(jnp.multiply(w, self.contrast_std))
         #     M = scale3d(c, c, c) @ M
         #     labels += [w]
 
         # if self.lumaflip > 0:
-        #     w = torch.randint(2, [N, 1, 1], device=device)
-        #     w = torch.where(
-        #         torch.rand([N, 1, 1], device=device) < self.lumaflip * self.p,
+        #     key, w_key, u_key = jrnd.split(key, 3)
+        #     w = jax.random.randint(w_key, [num, 1, 1], 0, 2)
+        #     w = jnp.where(
+        #         jnp.less(
+        #             jax.random.uniform(u_key, shape=(num, 1, 1)),
+        #             self.lumaflip * self.p,
+        #         ),
         #         w,
-        #         torch.zeros_like(w),
+        #         jnp.zeros_like(w),
         #     )
-        #     M = (I_4 - 2 * luma_axis.ger(luma_axis) * w) @ M
+        #     luma_outer = jnp.outer(luma_axis, luma_axis)
+        #     correction = 2 * luma_outer[None, ...] * w[..., None]
+        #     M = (ind_4[None, ...] - correction) @ M
         #     labels += [w]
 
         # if self.hue > 0:
-        #     w = (torch.rand([N], device=device) * 2 - 1) * (
-        #         np.pi * self.hue_max
-        #     )
-        #     w = torch.where(
-        #         torch.rand([N], device=device) < self.hue * self.p,
+        #     key, w_key, u_key = jrnd.split(key, 3)
+        #     w = jax.random.uniform(w_key, [num]) * 2 - 1
+        #     w = w * (np.pi * self.hue_max)
+        #     w = jnp.where(
+        #         jnp.less(
+        #             jax.random.uniform(u_key, shape=(num,)),
+        #             self.hue * self.p,
+        #         ),
         #         w,
-        #         torch.zeros_like(w),
+        #         jnp.zeros_like(w),
         #     )
-        #     M = rotate3d(luma_axis, w) @ M
-        #     labels += [w.cos() - 1, w.sin()]
+        #     luma_vec = jnp.tile(luma_axis[None, :3], (num, 1))
+        #     M = rotate3d(luma_vec, w) @ M
+        #     labels += [jnp.cos(w) - 1, jnp.sin(w)]
 
         # if self.saturation > 0:
-        #     w = torch.randn([N, 1, 1], device=device)
-        #     w = torch.where(
-        #         torch.rand([N, 1, 1], device=device)
-        #         < self.saturation * self.p,
+        #     key, w_key, u_key = jrnd.split(key, 3)
+        #     w = jax.random.normal(w_key, [num, 1, 1])
+        #     w = jnp.where(
+        #         jnp.less(
+        #             jax.random.uniform(u_key, shape=(num, 1, 1)),
+        #             self.saturation * self.p,
+        #         ),
         #         w,
-        #         torch.zeros_like(w),
+        #         jnp.zeros_like(w),
         #     )
+        #     luma_outer = jnp.outer(luma_axis, luma_axis)
+        #     s = 2 ** (w * self.saturation_std)
+        #     s = s[..., None]
         #     M = (
-        #         luma_axis.ger(luma_axis)
-        #         + (I_4 - luma_axis.ger(luma_axis))
-        #         * w.mul(self.saturation_std).exp2()
+        #         luma_outer[None, ...]
+        #         + (ind_4[None, ...] - luma_outer[None, ...]) * s
         #     ) @ M
         #     labels += [w]
 
-        # # =============================================
-        # # color transformations.
-
-        # if M is not I_4:
+        # if M is not ind_4:
         #     images = images.reshape([num, channels, height * width])
         #     if channels == 3:
         #         images = M[:, :3, :3] @ images + M[:, :3, 3:]
-        #     elif C == 1:
-        #         M = M[:, :3, :].mean(dim=1, keepdims=True)
+        #     elif channels == 1:
+        #         M = jnp.mean(M[:, :3, :], axis=1, keepdims=True)
         #         images = (
-        #             images * M[:, :, :3].sum(dim=2, keepdims=True)
+        #             images * jnp.sum(M[:, :, :3], axis=2, keepdims=True)
         #             + M[:, :, 3:]
         #         )
         #     else:
         #         raise ValueError(
-        #             "Image must be RGB (3 channels) or L (1 channel)"
+        #             "Image must be RGB (3 channels) or Grayscale (1 channel)"
         #         )
-        #     images = images.reshape([N, C, H, W])
+        #     images = images.reshape([num, channels, height, width])
 
+        # Post-processing non-leaky conditioning vector
         labels = jnp.concatenate(
             [jnp.astype(x, jnp.float32).reshape(num, -1) for x in labels],
             axis=-1,

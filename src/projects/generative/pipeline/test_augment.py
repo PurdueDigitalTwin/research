@@ -129,12 +129,22 @@ def test_augmentor() -> None:
     r"""Tests the EDM augmentation pipeline."""
     augmentor = augment.EDMAugmentor(
         p=0.12,
+        # pixel blitting toggles
         xflip=1e8,
-        yflip=0,
-        scale=1,
-        rotate_frac=0,
-        aniso=1,
-        translate_frac=1,
+        yflip=1e8,
+        rotate_int=1e8,
+        translate_int=1e8,
+        # geometric transformation toggles
+        scale=1e8,
+        rotate_frac=1e8,
+        aniso=1e8,
+        translate_frac=1e8,
+        # color transformation toggles
+        brightness=0.0,
+        contrast=0.0,
+        lumaflip=0.0,
+        hue=0.0,
+        saturation=0.0,
     )
     test_input = jnp.ones((2, 32, 32, 3), dtype=jnp.float32)
     test_output, test_labels = augmentor.apply(
@@ -145,7 +155,7 @@ def test_augmentor() -> None:
     assert isinstance(test_output, jax.Array)
     chex.assert_shape(test_output, (2, 32, 32, 3))
     assert isinstance(test_labels, jax.Array)
-    chex.assert_shape(test_labels, (2, 1))
+    chex.assert_shape(test_labels, (2, 6))
 
 
 if __name__ == "__main__":
