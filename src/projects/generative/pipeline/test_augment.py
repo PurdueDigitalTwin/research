@@ -131,7 +131,7 @@ def test_augmentor() -> None:
     test_output, test_labels = augmentor.apply(
         variables={},
         images=test_input,
-        rngs=jnp.array([0, 0], dtype=jnp.uint32),
+        rngs={"augment": jnp.array([0, 0], dtype=jnp.uint32)},
     )
     assert isinstance(test_output, jax.Array)
     chex.assert_shape(test_output, (2, 32, 32, 3))

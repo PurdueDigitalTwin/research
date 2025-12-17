@@ -601,10 +601,9 @@ class EDMAugmentor(nn.Module):
         translate_int_max (float): Range of integer translation as a factor
             relative to image dimensions.
         scale (float): Probability multiplier for isotropic scaling.
-        rotate_frac (float): Probability multiplier for fractional rotation.
+        rotate_frac (float): Probability multiplier for rotation by fraction.
         aniso (float): Probability multiplier for anisotropic scaling.
-        translate_frac (float): Probability multiplier for fractiona
-            translation.
+        translate_frac (float): Probability multiplier for translation.
         scale_std (float): Log2 standard deviation of isotropic scaling.
         rotate_frac_max (float): Range of fractional rotation, where `1` equals
             to a full circle.

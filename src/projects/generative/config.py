@@ -45,6 +45,11 @@ def meanflow_unet_cifar_10() -> ImageGenerationExperimentConfig:
                         preprocess.filter_keys,
                         keys=["image", "label"],
                     ),
+                    functools.partial(
+                        preprocess.normalize,
+                        mean=(0.0, 0.0, 0.0),
+                        std=(1.0, 1.0, 1.0),
+                    ),
                 ),
                 use_cache=True,
             ),

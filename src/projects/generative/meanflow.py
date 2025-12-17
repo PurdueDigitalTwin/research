@@ -428,8 +428,9 @@ class MeanFlowUNetModule(nn.Module):
 
         Args:
             inputs (jax.Array): Input images of shape `(*, H, W, C)`.
-            begin (jax.Array): Begin timestamp `r` of shape `(*, )`.
-            end (jax.Array): End timestamp `t` of shape `(*, )`.
+            timestamps (Tuple[jax.Array, ...]): Timestamps of shape `(*, 1)`.
+            edm_cond (jax.Array, optional): Conditioning embeddings for
+                EDM data augmentation of shape `(*, 6)`.
             deterministic (bool, optional): Whether to run deterministically.
 
         Returns:
@@ -680,7 +681,7 @@ class MeanFlowUNetModel(_model.Model):
             image, cond = self._augment.apply(
                 variables={},
                 images=image,
-                rngs=a_rng,
+                rngs={"augment": a_rng},
             )
             assert isinstance(image, jax.Array)
             assert isinstance(cond, jax.Array)
