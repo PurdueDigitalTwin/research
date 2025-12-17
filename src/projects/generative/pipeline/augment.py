@@ -5,7 +5,6 @@ import jax
 from jax import numpy as jnp
 from jax import random as jrnd
 from jax import typing as jax_typing
-import numpy as np
 
 # ==============================================================================
 # Coefficients of various wavelet decomposition low-pass filters.
@@ -229,7 +228,13 @@ def translate3d(
         A four by four translation matrix for 3D transformations.
     """
     del kwargs
-    return matrix([1, 0, 0, tx], [0, 1, 0, ty], [0, 0, 1, tz], [0, 0, 0, 1])
+    tx, ty, tz = jnp.asarray(tx), jnp.asarray(ty), jnp.asarray(tz)
+    batch_dims = jnp.shape(tx)
+    ind_4 = jnp.eye(4, dtype=tx.dtype)
+    if len(batch_dims) > 0:
+        ind_4 = jnp.broadcast_to(ind_4, (*batch_dims, 4, 4))
+    out = ind_4.at[..., :3, 3].set(jnp.stack([tx, ty, tz], axis=-1))
+    return out
 
 
 def scale2d(
@@ -434,6 +439,15 @@ class EDMAugmentor(nn.Module):
         self,
         images: jax.Array,
     ) -> typing.Tuple[jax.Array, jax.Array]:
+        r"""Apply augmentations to the input images.
+
+        Args:
+            images (jax.Array): Input images with a shape of `(..., H, W, C)`.
+                Note that images should be floating-point array with values in the range `[0, 1]`.
+
+        Returns:
+            A tuple of the augmented images and the conditioning label vector.
+        """
         batch_dims = images.shape[:-3]
         height, width, channels = images.shape[-3:]
         images = jnp.reshape(images, [-1, height, width, channels])
@@ -519,8 +533,6 @@ class EDMAugmentor(nn.Module):
                 jnp.round(w[1] * (height * self.translate_int_max)),
                 jnp.int32,
             )
-            jax.debug.print("tx.shape: {s}", s=list(tx.shape))
-            jax.debug.print("ty.shape: {s}", s=list(ty.shape))
 
             b_idx = jnp.arange(num)[:, None, None, None]
             y_idx, x_idx = jnp.meshgrid(
@@ -741,24 +753,24 @@ class EDMAugmentor(nn.Module):
 
         # ============================================
         # color transformations.
-        # ind_4 = jnp.eye(4)
-        # M = ind_4
-        # luma_axis = jnp.true_divide(jnp.asarray([1, 1, 1, 0]), jnp.sqrt(3))
+        ind_4 = jnp.eye(4)
+        M = ind_4
+        luma_axis = jnp.true_divide(jnp.asarray([1, 1, 1, 0]), jnp.sqrt(3))
 
-        # if self.brightness > 0:
-        #     key, w_key, u_key = jrnd.split(key, 3)
-        #     w = jax.random.uniform(w_key, [num, 1, 1, 1])
-        #     w = jnp.where(
-        #         jnp.less(
-        #             jax.random.uniform(u_key, shape=(num, 1, 1, 1)),
-        #             self.brightness * self.p,
-        #         ),
-        #         w,
-        #         jnp.zeros_like(w),
-        #     )
-        #     b = w * self.brightness_std
-        #     M = translate3d(b, b, b) @ M
-        #     labels += [w]
+        if self.brightness > 0:
+            key, w_key, u_key = jrnd.split(key, 3)
+            w = jax.random.uniform(w_key, shape=(num,))
+            w = jnp.where(
+                jnp.less(
+                    jax.random.uniform(u_key, shape=(num,)),
+                    self.brightness * self.p,
+                ),
+                w,
+                jnp.zeros_like(w),
+            )
+            b = w * self.brightness_std
+            M = translate3d(b, b, b) @ M
+            labels += [w]
 
         # if self.contrast > 0:
         #     key, w_key, u_key = jrnd.split(key, 3)
@@ -827,21 +839,20 @@ class EDMAugmentor(nn.Module):
         #     ) @ M
         #     labels += [w]
 
-        # if M is not ind_4:
-        #     images = images.reshape([num, channels, height * width])
-        #     if channels == 3:
-        #         images = M[:, :3, :3] @ images + M[:, :3, 3:]
-        #     elif channels == 1:
-        #         M = jnp.mean(M[:, :3, :], axis=1, keepdims=True)
-        #         images = (
-        #             images * jnp.sum(M[:, :, :3], axis=2, keepdims=True)
-        #             + M[:, :, 3:]
-        #         )
-        #     else:
-        #         raise ValueError(
-        #             "Image must be RGB (3 channels) or Grayscale (1 channel)"
-        #         )
-        #     images = images.reshape([num, channels, height, width])
+        images = images.reshape([num, height * width, channels])
+        if channels == 3:
+            images = images @ M[:, :3, :3] + jnp.matrix_transpose(M[:, :3, 3:])
+        elif channels == 1:
+            M = jnp.mean(M[:, :3, :], axis=-2, keepdims=True)
+            images = images * jnp.sum(
+                M[:, :, :3], axis=-1, keepdims=True
+            ) + jnp.matrix_transpose(M[:, :, 3:])
+        else:
+            raise ValueError(
+                "Image must be RGB (3 channels) or Grayscale (1 channel)"
+            )
+        images = images.reshape([num, height, width, channels])
+        images = jnp.clip(images, 0.0, 1.0)
 
         # Post-processing non-leaky conditioning vector
         labels = jnp.concatenate(

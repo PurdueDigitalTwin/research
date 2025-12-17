@@ -8,7 +8,6 @@ ml_py_library(
     deps = [
         "flax",
         "jax",
-        "numpy",
     ],
 )
 

@@ -140,7 +140,7 @@ def test_augmentor() -> None:
         aniso=1e8,
         translate_frac=1e8,
         # color transformation toggles
-        brightness=0.0,
+        brightness=1e8,
         contrast=0.0,
         lumaflip=0.0,
         hue=0.0,
@@ -155,7 +155,7 @@ def test_augmentor() -> None:
     assert isinstance(test_output, jax.Array)
     chex.assert_shape(test_output, (2, 32, 32, 3))
     assert isinstance(test_labels, jax.Array)
-    chex.assert_shape(test_labels, (2, 6))
+    chex.assert_shape(test_labels, (2, 7))
 
 
 if __name__ == "__main__":
