@@ -11,7 +11,7 @@ CONFIG = absl_flags.DEFINE_fiddle_config(
     name="experiment",
     default=None,
     help_string="Function to call for experiment configurations.",
-    required=True,
+    required=False,
 )
 flags.DEFINE_bool(
     name="distributed",
