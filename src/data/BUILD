@@ -10,7 +10,7 @@ ml_py_library(
         "datasets",
         "jax",
         "jaxtyping",
-        "tensorflow",
+        "tensorflow-cpu",
         "typing_extensions",
         "//src/core:datamodule",
     ],
@@ -22,7 +22,7 @@ ml_py_test(
     deps = [
         "jax",
         "numpy",
-        "tensorflow",
+        "tensorflow-cpu",
         ":huggingface",
     ],
 )
@@ -31,7 +31,7 @@ ml_py_library(
     name = "preprocess",
     srcs = ["preprocess.py"],
     deps = [
-        "tensorflow",
+        "tensorflow-cpu",
     ],
 )
 
@@ -40,7 +40,7 @@ ml_py_test(
     srcs = ["test_preprocess.py"],
     deps = [
         "numpy",
-        "tensorflow",
+        "tensorflow-cpu",
         ":preprocess",
     ],
 )

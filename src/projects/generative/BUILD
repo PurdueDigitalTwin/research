@@ -26,7 +26,7 @@ ml_py_library(
         "jaxtyping",
         "optax",
         "orbax-checkpoint",
-        "tensorflow",
+        "tensorflow-cpu",
         "tqdm",
         "wandb",
         ":config",
