@@ -16,10 +16,10 @@ from tqdm.contrib import logging as tqdm_logging
 import wandb
 from wandb import sdk as wandb_sdk
 
+from src.core import config as _config
 from src.core import model as _model
 from src.core import train as _train
 from src.core import train_state as _train_state
-from src.projects.generative import config
 from src.projects.generative.tools import fid
 from src.utilities import logging
 from src.utilities import visualization
@@ -36,14 +36,14 @@ assert not tf.config.experimental.get_visible_devices("GPU")
 # ==============================================================================
 # Helper Functions
 def init_wandb(
-    config: config.ImageGenerationExperimentConfig,
+    config: _config.ExperimentConfig,
     work_dir: str,
     resume: bool = False,
 ) -> None:
     r"""Initializes the Weights & Biases logging.
 
     Args:
-        config (ImageGenerationExperimentConfig): The experiment configuration.
+        config (ExperimentConfig): The experiment configuration.
         work_dir (str): The working directory for experiment outputs.
         resume (bool, optional): Whether to resume from an existing wandb run.
             Default is `False`.
@@ -164,7 +164,7 @@ def training_step(
 
 
 def train_and_evaluate(
-    exp_config: config.ImageGenerationExperimentConfig,
+    exp_config: _config.ExperimentConfig,
     work_dir: str,
 ) -> int:
     r"""Main entry point for training and evaluate generative models."""
@@ -180,7 +180,7 @@ def train_and_evaluate(
     logging.rank_zero_info("Running on JAX devices: %r", jax.devices())
 
     # Setup Experiment
-    if not isinstance(exp_config, config.ImageGenerationExperimentConfig):
+    if not isinstance(exp_config, _config.ExperimentConfig):
         logging.rank_zero_error(
             (
                 "Expect configuration to be of an "
@@ -281,13 +281,14 @@ def train_and_evaluate(
         init_wandb(config=exp_config, work_dir=log_dir, resume=False)
 
     p_training_step = functools.partial(training_step, model=model)
+    fid_metric = fdl.build(exp_config.metric)
+    assert isinstance(fid_metric, fid.FrechetInceptionDistance)
     evaluation_fn = functools.partial(
         evaluate,
         model=model,
         rngs=rng,
         batch=next(datamodule.eval_dataloader()),
-        # TODO (juanwu): make `fid_metric` configurable
-        fid_metric=fdl.build(exp_config.fid_metric),
+        fid_metric=fid_metric,
     )
     if exp_config.mode == "train":
         _train.run(
