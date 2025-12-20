@@ -110,6 +110,8 @@ class ExperimentConfig:
         trainer (TrainerConfig): The trainer configuration.
         optimizer (OptimizerConfig): The optimizer configuration.
         model (fiddle.Partial): A factory function to create the model.
+        metric (Optional[fiddle.Config[Callable]]): A factory function to create
+            the evaluation metric.
         dtype (Any): The global computation dtype.
         param_dtype (Any): The parameter dtype.
         precision (Any): The precision policy for computation.
@@ -128,6 +130,9 @@ class ExperimentConfig:
 
     # Fiddle config for the model, which implements the BaseModel interface
     model: fdl.Partial[_model.Model]
+
+    # Fiddle config for the metric, which is a callable that outputs arrays
+    metric: typing.Optional[fdl.Config[typing.Callable]] = None
 
     # Global settings
     dtype: typing.Any = None
