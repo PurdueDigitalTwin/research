@@ -4,16 +4,14 @@ import os
 import platform
 import typing
 
-from absl import app
 from absl import flags
-from clu import metric_writers
-from clu import platform as clu_platform
 from fiddle import absl_flags
 import fiddle as fdl
 import jax
 from jax import numpy as jnp
 import jaxtyping
 import optax
+from orbax import checkpoint as ocp
 import tensorflow as tf
 from tqdm import auto as tqdm
 from tqdm.contrib import logging as tqdm_logging
@@ -48,6 +46,8 @@ tf.config.experimental.set_visible_devices([], "TPU")
 assert not tf.config.experimental.get_visible_devices("GPU")
 
 
+# ==============================================================================
+# Helper Functions
 def evaluate(
     rngs: jax.Array,
     model: _model.Model,
@@ -132,14 +132,14 @@ def training_step(
     return new_state, outputs
 
 
-def main(_: typing.List[str]) -> int:
+def train_and_evaluate(
+    exp_config: config.ImageGenerationExperimentConfig,
+    work_dir: str,
+) -> int:
     r"""Main entry point for training and evaluate generative models."""
-    del _  # unused.
 
     # Log the current platform
     logging.rank_zero_info("Running on platform: %s", platform.node())
-
-    # Setup JAX runtime
     logging.rank_zero_info("Running on JAX backend: %s", jax.default_backend())
     logging.rank_zero_info(
         "Running on JAX process: %d / %d",
@@ -147,16 +147,6 @@ def main(_: typing.List[str]) -> int:
         jax.process_count(),
     )
     logging.rank_zero_info("Running on JAX devices: %r", jax.devices())
-
-    clu_platform.work_unit().set_task_status(
-        "process_index: %d, process_count: %d"
-        % (jax.process_index() + 1, jax.process_count()),
-    )
-    clu_platform.work_unit().create_artifact(
-        clu_platform.ArtifactType.DIRECTORY,
-        FLAGS.work_dir,
-        "Working directory.",
-    )
 
     # Setup Experiment
     exp_config = CONFIG.value
@@ -172,15 +162,13 @@ def main(_: typing.List[str]) -> int:
     logging.rank_zero_info("Experiment Configuration:\n%s", exp_config)
 
     rng = jax.random.PRNGKey(exp_config.seed)
-    log_dir = os.path.join(
+    log_dir = tf.io.gfile.join(
         FLAGS.work_dir,
-        exp_config.name,
-        datetime.now().strftime("%Y%m%d_%H%M%S"),
+        exp_config.project_name,
+        exp_config.exp_name,
     )
-    writer = metric_writers.create_default_writer(
-        logdir=log_dir,
-        just_logging=(jax.process_index() > 0),
-    )
+    if not tf.io.gfile.exists(log_dir):
+        tf.io.gfile.makedirs(log_dir)
 
     logging.rank_zero_info("Building dataset...")
     rng, data_rng = jax.random.split(rng, num=2)
@@ -236,9 +224,27 @@ def main(_: typing.List[str]) -> int:
         tx=tx,
         ema_rate=exp_config.optimizer.ema_rate,
     )
+    jax.block_until_ready(state)
     logging.rank_zero_info("Building train state... DONE!")
 
+    checkpoint_manager = ocp.CheckpointManager(
+        directory=tf.io.gfile.join(log_dir, "checkpoints"),
+        item_handlers={
+            "state": ocp.PyTreeCheckpointHandler(),
+            "params": ocp.PyTreeCheckpointHandler(),
+        },
+        options=ocp.CheckpointManagerOptions(
+            max_to_keep=exp_config.trainer.max_checkpoints_to_keep,
+            create=False,
+            async_options=ocp.AsyncOptions(timeout_secs=7_200),
+        ),
+    )
+    checkpoint_every_n_steps = (
+        exp_config.trainer.checkpoint_every_n_steps
+        or exp_config.trainer.eval_every_n_steps
+    )
     if exp_config.trainer.checkpoint_dir is not None:
+        # TODO (juanwu): support loading from custom checkpoint dir
         logging.rank_zero_error("Resuming from checkpoint not implemented.")
         return 1
 
@@ -258,10 +264,9 @@ def main(_: typing.List[str]) -> int:
             training_step=p_training_step,
             evaluation_fn=evaluation_fn,
             num_train_steps=exp_config.trainer.num_train_steps,
-            writer=writer,
-            work_dir=log_dir,
+            checkpoint_manager=checkpoint_manager,
+            checkpoint_every_n_steps=checkpoint_every_n_steps,
             rng=rng,
-            checkpoint_every_n_steps=exp_config.trainer.checkpoint_every_n_steps,
             log_every_n_steps=exp_config.trainer.log_every_n_steps,
             eval_every_n_steps=exp_config.trainer.eval_every_n_steps,
             profile=exp_config.trainer.profile,
@@ -273,8 +278,3 @@ def main(_: typing.List[str]) -> int:
         return 1
 
     return 0
-
-
-if __name__ == "__main__":
-    jax.config.config_with_absl()
-    app.run(main=main)
