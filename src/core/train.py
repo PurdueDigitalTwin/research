@@ -116,10 +116,14 @@ def run(
                         outputs = None
                         for eval_batch in datamodule.eval_dataloader():
                             eval_batch = _shard(eval_batch)
-                            outputs = p_evaluation_step(
-                                params=state.ema_params,
-                                batch=eval_batch,
-                            )
+                            with jax.profiler.StepTraceAnnotation(
+                                name="evaluation",
+                                step_num=step,
+                            ):
+                                outputs = p_evaluation_step(
+                                    params=state.ema_params,
+                                    batch=eval_batch,
+                                )
                             if not isinstance(outputs, _model.StepOutputs):
                                 raise RuntimeError(
                                     "FATAL: Output from `evaluation_step` "
@@ -216,19 +220,18 @@ def run(
                 # checkpointing
                 if step % checkpoint_every_n_steps == 0:
                     logging.rank_zero_info("Checkpointing...")
-                    if jax.process_index() == 0:
-                        with jax.profiler.StepTraceAnnotation(
-                            name="checkpoint",
-                            step_num=step,
-                        ):
-                            state_to_save = jax_utils.unreplicate(state)
-                            checkpoint_manager.save(
-                                step=state_to_save.step,
-                                items={
-                                    "state": state_to_save,
-                                    "params": state_to_save.ema_params,
-                                },
-                            )
+                    with jax.profiler.StepTraceAnnotation(
+                        name="checkpoint",
+                        step_num=step,
+                    ):
+                        state_to_save = jax_utils.unreplicate(state)
+                        checkpoint_manager.save(
+                            step=state_to_save.step,
+                            items={
+                                "state": state_to_save,
+                                "params": state_to_save.ema_params,
+                            },
+                        )
 
             # logging on the end of epoch
             scalar_output = {
