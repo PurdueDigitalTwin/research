@@ -65,14 +65,16 @@ def init_wandb(
             resume="must",
             project=config.project_name,
             dir=work_dir,
+            group=config.exp_name,
             job_type="coordinator" if jax.process_index() == 0 else "worker",
         )
     else:
         wandb.init(
-            name=config.exp_name,
+            name="_".join([config.exp_name, str(jax.process_index())]),
             config=dataclasses.asdict(config),
             project=config.project_name,
             dir=work_dir,
+            group=config.exp_name,
             job_type="coordinator" if jax.process_index() == 0 else "worker",
         )
         _run = wandb.run
