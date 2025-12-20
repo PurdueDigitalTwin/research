@@ -65,6 +65,7 @@ def init_wandb(
             resume="must",
             project=config.project_name,
             dir=work_dir,
+            job_type="coordinator" if jax.process_index() == 0 else "worker",
         )
     else:
         wandb.init(
@@ -72,6 +73,7 @@ def init_wandb(
             config=dataclasses.asdict(config),
             project=config.project_name,
             dir=work_dir,
+            job_type="coordinator" if jax.process_index() == 0 else "worker",
         )
         _run = wandb.run
         if not isinstance(_run, wandb_sdk.wandb_run.Run):
