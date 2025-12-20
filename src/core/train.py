@@ -101,7 +101,6 @@ def run(
         while step < num_train_steps:
             train_metrics = collections.defaultdict(list)
             for train_batch in datamodule.train_dataloader():
-
                 # evaluation and sanity check running
                 if step % eval_every_n_steps == 0 or step == num_train_steps:
                     logging.rank_zero_info("Running evaluation...")
