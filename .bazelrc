@@ -3,8 +3,9 @@ build -c opt
 
 ## environment variables
 build --action_env=CUDA_HOME
+build --action_env=CUDA_CACHE_PATH=/var/tmp/bazel-build/cuda_cache
 build --action_env=LD_LIBRARY_PATH
-build --action_env=GOOGLEAPPLICATIONCREDENTIALS
+build --action_env=GOOGLE_APPLICATION_CREDENTIALS
 build --action_env=HF_HOME
 build --action_env=HF_TOKEN
 build --action_env=CURL_CA_BUNDLE
@@ -32,4 +33,4 @@ build:mps --define ml_platform=mps
 common --enable_bzlmod
 
 # startup options
-startup --output_user_root=/tmp/bazel-build
+startup --output_user_root=/var/tmp/bazel-build
