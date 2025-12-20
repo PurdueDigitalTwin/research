@@ -1,11 +1,9 @@
 import collections
 import functools
-import os
 import traceback
 import typing
 
 from flax import jax_utils
-from flax.training import checkpoints
 import jax
 import jaxtyping
 from orbax import checkpoint as ocp
@@ -95,6 +93,14 @@ def run(
         p_evaluation_step = None
 
     step = state.step
+    pbar = tqdm.tqdm(
+        initial=step,
+        total=num_train_steps,
+        desc="Training",
+        leave=False,
+        position=0,
+        unit="step",
+    )
     state = jax_utils.replicate(state)
     logging.rank_zero_info("Training...")
     try:
@@ -204,6 +210,7 @@ def run(
                             step=step,
                         )
                 step += 1
+                pbar.update(1)
 
                 # checkpointing
                 if step % checkpoint_every_n_steps == 0:
@@ -238,6 +245,7 @@ def run(
         error_trace = traceback.format_exc()
         logging.rank_zero_error(error_trace)
         _status = 1
+
     finally:
         state = jax_utils.unreplicate(state)
         checkpoint_manager.wait_until_finished()
