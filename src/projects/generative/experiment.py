@@ -35,7 +35,7 @@ assert not tf.config.experimental.get_visible_devices("GPU")
 
 # ==============================================================================
 # Helper Functions
-def _init_wandb(
+def init_wandb(
     config: config.ImageGenerationExperimentConfig,
     work_dir: str,
     resume: bool = False,
@@ -204,7 +204,7 @@ def train_and_evaluate(
     rng, data_rng = jax.random.split(rng, num=2)
     p_datamodule = fdl.build(exp_config.data.module)
     datamodule = p_datamodule(
-        batch_size=exp_config.data.batch_size,
+        batch_size=int(exp_config.data.batch_size // jax.process_count()),
         deterministic=exp_config.data.deterministic,
         drop_remainder=exp_config.data.drop_remainder,
         num_workers=exp_config.data.num_workers,
@@ -278,7 +278,7 @@ def train_and_evaluate(
         logging.rank_zero_error("Resuming from checkpoint not implemented.")
         return 1
     else:
-        _init_wandb(config=exp_config, work_dir=log_dir, resume=False)
+        init_wandb(config=exp_config, work_dir=log_dir, resume=False)
 
     p_training_step = functools.partial(training_step, model=model)
     evaluation_fn = functools.partial(
