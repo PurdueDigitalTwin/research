@@ -14,7 +14,7 @@ from src.projects.generative import meanflow
 from src.projects.generative.tools import fid
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass(frozen=False, kw_only=True)
 class ImageGenerationExperimentConfig(_config.ExperimentConfig):
     r"""Configurations for image generation experiments."""
 
@@ -35,7 +35,8 @@ class ImageGenerationExperimentConfig(_config.ExperimentConfig):
 # MeanFlow Models
 def meanflow_unet_cifar_10() -> ImageGenerationExperimentConfig:
     return ImageGenerationExperimentConfig(
-        name="meanflow_unet_cifar_10",
+        project_name="meanflow",
+        exp_name="unet_cifar_10",
         mode="train",
         data=_config.DataConfig(
             module=fdl.Partial(
