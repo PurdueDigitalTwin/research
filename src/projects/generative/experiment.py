@@ -1,11 +1,9 @@
-from datetime import datetime
+import dataclasses
 import functools
-import os
+import pathlib
 import platform
 import typing
 
-from absl import flags
-from fiddle import absl_flags
 import fiddle as fdl
 import jax
 from jax import numpy as jnp
@@ -15,6 +13,8 @@ from orbax import checkpoint as ocp
 import tensorflow as tf
 from tqdm import auto as tqdm
 from tqdm.contrib import logging as tqdm_logging
+import wandb
+from wandb import sdk as wandb_sdk
 
 from src.core import model as _model
 from src.core import train as _train
@@ -24,19 +24,6 @@ from src.projects.generative.tools import fid
 from src.utilities import logging
 from src.utilities import visualization
 
-CONFIG = absl_flags.DEFINE_fiddle_config(
-    name="experiment",
-    default=None,
-    help_string="Experiment configuration.",
-    required=True,
-)
-FLAGS = flags.FLAGS
-flags.DEFINE_string(
-    name="work_dir",
-    default=None,
-    help="Directory to store the experiment results.",
-    required=True,
-)
 PyTree = jaxtyping.PyTree
 
 
@@ -48,6 +35,50 @@ assert not tf.config.experimental.get_visible_devices("GPU")
 
 # ==============================================================================
 # Helper Functions
+def _init_wandb(
+    config: config.ImageGenerationExperimentConfig,
+    work_dir: str,
+    resume: bool = False,
+) -> None:
+    r"""Initializes the Weights & Biases logging.
+
+    Args:
+        config (ImageGenerationExperimentConfig): The experiment configuration.
+        work_dir (str): The working directory for experiment outputs.
+        resume (bool, optional): Whether to resume from an existing wandb run.
+            Default is `False`.
+
+    Raises:
+        FileNotFoundError: If resuming and checkpoint directory does not exist.
+        RuntimeError: If wandb run initialization fails.
+    """
+
+    ckpt_dir = config.trainer.checkpoint_dir
+    if resume:
+        if not pathlib.Path(str(ckpt_dir)).exists():
+            raise FileNotFoundError(
+                f"Checkpoint directory {ckpt_dir} does not exist for resuming."
+            )
+        run_id = pathlib.Path(str(ckpt_dir), "wandb.txt").read_text().strip()
+        wandb.init(
+            id=run_id,
+            resume="must",
+            project=config.project_name,
+            dir=work_dir,
+        )
+    else:
+        wandb.init(
+            name=config.exp_name,
+            config=dataclasses.asdict(config),
+            project=config.project_name,
+            dir=work_dir,
+        )
+        _run = wandb.run
+        if not isinstance(_run, wandb_sdk.wandb_run.Run):
+            raise RuntimeError("Failed to initialize wandb run.")
+        pathlib.Path(work_dir, "wandb.txt").write_text(_run.id)
+
+
 def evaluate(
     rngs: jax.Array,
     model: _model.Model,
@@ -149,7 +180,6 @@ def train_and_evaluate(
     logging.rank_zero_info("Running on JAX devices: %r", jax.devices())
 
     # Setup Experiment
-    exp_config = CONFIG.value
     if not isinstance(exp_config, config.ImageGenerationExperimentConfig):
         logging.rank_zero_error(
             (
@@ -163,7 +193,7 @@ def train_and_evaluate(
 
     rng = jax.random.PRNGKey(exp_config.seed)
     log_dir = tf.io.gfile.join(
-        FLAGS.work_dir,
+        work_dir,
         exp_config.project_name,
         exp_config.exp_name,
     )
@@ -247,6 +277,8 @@ def train_and_evaluate(
         # TODO (juanwu): support loading from custom checkpoint dir
         logging.rank_zero_error("Resuming from checkpoint not implemented.")
         return 1
+    else:
+        _init_wandb(config=exp_config, work_dir=log_dir, resume=False)
 
     p_training_step = functools.partial(training_step, model=model)
     evaluation_fn = functools.partial(
