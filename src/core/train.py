@@ -6,6 +6,7 @@ import typing
 from flax import jax_utils
 import jax
 import jaxtyping
+import numpy as np
 from orbax import checkpoint as ocp
 from tqdm import auto as tqdm
 import wandb
@@ -153,7 +154,7 @@ def run(
                         if outputs.images is not None:
                             wandb.log(
                                 data={
-                                    f"eval/{k}": wandb.Image(v)
+                                    f"eval/{k}": wandb.Image(np.asarray(v))
                                     for k, v in outputs.images.items()
                                 },
                                 step=step,
@@ -197,7 +198,7 @@ def run(
                     if outputs.images is not None:
                         wandb.log(
                             data={
-                                f"train/{k}": wandb.Image(v)
+                                f"train/{k}": wandb.Image(np.asarray(v))
                                 for k, v in outputs.images.items()
                             },
                         )
