@@ -169,6 +169,20 @@ def train_and_evaluate(
 ) -> int:
     r"""Main entry point for training and evaluate generative models."""
 
+    rng = jax.random.PRNGKey(exp_config.seed)
+    log_dir = tf.io.gfile.join(
+        work_dir,
+        exp_config.project_name,
+        exp_config.exp_name,
+    )
+    if not tf.io.gfile.exists(log_dir):
+        tf.io.gfile.makedirs(log_dir)
+    init_wandb(
+        config=exp_config,
+        work_dir=log_dir,
+        resume=exp_config.trainer.checkpoint_dir is not None,
+    )
+
     # Log the current platform
     logging.rank_zero_info("Running on platform: %s", platform.node())
     logging.rank_zero_info("Running on JAX backend: %s", jax.default_backend())
@@ -190,15 +204,6 @@ def train_and_evaluate(
         )
         return 1
     logging.rank_zero_info("Experiment Configuration:\n%s", exp_config)
-
-    rng = jax.random.PRNGKey(exp_config.seed)
-    log_dir = tf.io.gfile.join(
-        work_dir,
-        exp_config.project_name,
-        exp_config.exp_name,
-    )
-    if not tf.io.gfile.exists(log_dir):
-        tf.io.gfile.makedirs(log_dir)
 
     logging.rank_zero_info("Building dataset...")
     rng, data_rng = jax.random.split(rng, num=2)
@@ -277,12 +282,18 @@ def train_and_evaluate(
         # TODO (juanwu): support loading from custom checkpoint dir
         logging.rank_zero_error("Resuming from checkpoint not implemented.")
         return 1
-    else:
-        init_wandb(config=exp_config, work_dir=log_dir, resume=False)
 
     p_training_step = functools.partial(training_step, model=model)
     fid_metric = fdl.build(exp_config.metric)
-    assert isinstance(fid_metric, fid.FrechetInceptionDistance)
+    if not isinstance(fid_metric, fid.FrechetInceptionDistance):
+        logging.rank_zero_error(
+            (
+                "Expect metric to be of an `FrechetInceptionDistance` "
+                "instance, but got %s."
+            ),
+            type(fid_metric),
+        )
+        return 1
     evaluation_fn = functools.partial(
         evaluate,
         model=model,
