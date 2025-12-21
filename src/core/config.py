@@ -8,7 +8,7 @@ from src.core import datamodule as _datamodule
 from src.core import model as _model
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass(frozen=False, kw_only=True)
 class DataConfig:
     r"""Configurations for data module.
 
@@ -39,7 +39,7 @@ class DataConfig:
         return f"{self.__class__.__name__}(\n{field_string_joined}\n)"
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass(frozen=False, kw_only=True)
 class TrainerConfig:
     r"""Configuration for the training loop and evaluation.
 
@@ -75,9 +75,9 @@ class TrainerConfig:
         return f"{self.__class__.__name__}(\n{field_string_joined}\n)"
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass(frozen=False, kw_only=True)
 class OptimizerConfig:
-    """Configuration for the optimizer and learning rate schedule."""
+    r"""Configuration for the optimizer and learning rate schedule."""
 
     lr_schedule: fdl.Config[typing.Callable]
     optimizer: fdl.Partial[optax.GradientTransformation]
@@ -98,11 +98,29 @@ class OptimizerConfig:
         return f"{self.__class__.__name__}(\n{field_string_joined}\n)"
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass(frozen=False, kw_only=True)
 class ExperimentConfig:
-    """The master configuration for a complete experiment."""
+    r"""The master configuration for a complete experiment.
 
-    name: str
+    Attributes:
+        project_name (str): The name of the project.
+        exp_name (str): The name of the experiment tag.
+        mode (str): The running mode, one of "train", "evaluate", "inference".
+        data (DataConfig): The data module configuration.
+        trainer (TrainerConfig): The trainer configuration.
+        optimizer (OptimizerConfig): The optimizer configuration.
+        model (fiddle.Partial): A factory function to create the model.
+        metric (Optional[fiddle.Config[Callable]]): A factory function to create
+            the evaluation metric.
+        dtype (Any): The global computation dtype.
+        param_dtype (Any): The parameter dtype.
+        precision (Any): The precision policy for computation.
+        seed (int, optional): The random seed for initialization.
+            Default is `42`.
+    """
+
+    project_name: str
+    exp_name: str
     mode: typing.Literal["train", "evaluate", "inference"]
 
     # Composed configuration objects
@@ -112,6 +130,9 @@ class ExperimentConfig:
 
     # Fiddle config for the model, which implements the BaseModel interface
     model: fdl.Partial[_model.Model]
+
+    # Fiddle config for the metric, which is a callable that outputs arrays
+    metric: typing.Optional[fdl.Config[typing.Callable]] = None
 
     # Global settings
     dtype: typing.Any = None

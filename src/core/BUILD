@@ -19,11 +19,18 @@ ml_py_library(
 )
 
 ml_py_library(
+    name = "distributed",
+    srcs = ["distributed.py"],
+    deps = ["jax"],
+)
+
+ml_py_library(
     name = "evaluate",
     srcs = ["evaluate.py"],
     deps = [
-        "clu",
         "jax",
+        "jaxtyping",
+        "wandb",
         ":datamodule",
         ":model",
         "//src/utilities:logging",
@@ -56,10 +63,13 @@ ml_py_library(
     name = "train",
     srcs = ["train.py"],
     deps = [
-        "clu",
         "flax",
         "jax",
         "jaxtyping",
+        "numpy",
+        "orbax-checkpoint",
+        "tqdm",
+        "wandb",
         ":datamodule",
         ":model",
         ":train_state",

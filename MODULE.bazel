@@ -47,29 +47,29 @@ use_repo(
 ## adds set of pip repository
 pip = use_extension("@rules_python//python/extensions:pip.bzl", "pip")
 pip.parse(
-    hub_name = "ml_infra_cpu_3_10",
+    hub_name = "ml_infra_cpu",
     python_version = "3.10",
     requirements_lock = "//third_party:requirements_3_10_lock.txt",
 )
 pip.parse(
-    hub_name = "ml_infra_cuda_3_10",
+    hub_name = "ml_infra_cuda",
     python_version = "3.10",
     requirements_lock = "//third_party:requirements_3_10_cuda_lock.txt",
 )
 pip.parse(
-    hub_name = "ml_infra_tpu_3_10",
+    hub_name = "ml_infra_tpu",
     python_version = "3.10",
     requirements_lock = "//third_party:requirements_3_10_tpu_lock.txt",
 )
 pip.parse(
-    hub_name = "ml_infra_mps_3_10",
+    hub_name = "ml_infra_mps",
     python_version = "3.10",
     requirements_lock = "//third_party:requirements_3_10_mps_lock.txt",
 )
 use_repo(
     pip,
-    ml_infra_cpu_3_10 = "ml_infra_cpu_3_10",
-    ml_infra_cuda_3_10 = "ml_infra_cuda_3_10",
-    ml_infra_mps_3_10 = "ml_infra_mps_3_10",
-    ml_infra_tpu_3_10 = "ml_infra_tpu_3_10",
+    ml_infra_cpu_3_10 = "ml_infra_cpu",
+    ml_infra_cuda_3_10 = "ml_infra_cuda",
+    ml_infra_mps_3_10 = "ml_infra_mps",
+    ml_infra_tpu_3_10 = "ml_infra_tpu",
 )

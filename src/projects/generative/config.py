@@ -1,4 +1,3 @@
-import dataclasses
 import functools
 import math
 import os
@@ -14,28 +13,12 @@ from src.projects.generative import meanflow
 from src.projects.generative.tools import fid
 
 
-@dataclasses.dataclass(frozen=True)
-class ImageGenerationExperimentConfig(_config.ExperimentConfig):
-    r"""Configurations for image generation experiments."""
-
-    fid_metric: fdl.Config[fid.FrechetInceptionDistance] = fdl.Config(
-        fid.FrechetInceptionDistance,
-        train_dataset=datasets.load_dataset(
-            path="uoft-cs/cifar10",
-            token=os.getenv("HF_TOKEN", None),
-            revision="0b2714987fa478483af9968de7c934580d0bb9a2",
-            split="train",
-        ),
-        image_key="img",
-        batch_size=32,
-    )
-
-
 # ==============================================================================
 # MeanFlow Models
-def meanflow_unet_cifar_10() -> ImageGenerationExperimentConfig:
-    return ImageGenerationExperimentConfig(
-        name="meanflow_unet_cifar_10",
+def meanflow_unet_cifar_10() -> _config.ExperimentConfig:
+    return _config.ExperimentConfig(
+        project_name="meanflow",
+        exp_name="unet_cifar_10",
         mode="train",
         data=_config.DataConfig(
             module=fdl.Partial(
@@ -71,6 +54,17 @@ def meanflow_unet_cifar_10() -> ImageGenerationExperimentConfig:
             timestamp_sampler_kwargs=dict(mean=-2.0, stddev=2.0),
             timestamp_overlap_rate=0.25,
             adaptive_weight_power=0.75,
+        ),
+        metric=fdl.Config(
+            fid.FrechetInceptionDistance,
+            train_dataset=datasets.load_dataset(
+                path="uoft-cs/cifar10",
+                token=os.getenv("HF_TOKEN", None),
+                revision="0b2714987fa478483af9968de7c934580d0bb9a2",
+                split="train",
+            ),
+            image_key="img",
+            batch_size=32,
         ),
         trainer=_config.TrainerConfig(
             num_train_steps=800_000,

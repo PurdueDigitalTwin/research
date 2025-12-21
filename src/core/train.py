@@ -1,15 +1,17 @@
 import collections
+import dataclasses
 import functools
-import os
 import traceback
 import typing
 
-from clu import metric_writers
-from clu import periodic_actions
 from flax import jax_utils
-from flax.training import checkpoints
 import jax
 import jaxtyping
+import numpy as np
+from orbax import checkpoint as ocp
+from orbax.checkpoint import utils as ocp_utils
+from tqdm import auto as tqdm
+import wandb
 
 from src.core import datamodule as _data
 from src.core import model as _model
@@ -21,7 +23,7 @@ TRAIN_STEP_OUTPUT = typing.Tuple[_train_state.TrainState, _model.StepOutputs]
 
 
 def _shard(tree: jaxtyping.PyTree) -> jaxtyping.PyTree:
-    """Helper function for `jax.pmap` to shard a pytree onto local devices.
+    r"""Helper function for `jax.pmap` to shard a pytree onto local devices.
 
     Args:
         tree (PyTree): The pytree to shard.
@@ -45,10 +47,9 @@ def run(
     datamodule: _data.DataModule,
     training_step: typing.Callable[..., TRAIN_STEP_OUTPUT],
     num_train_steps: int,
-    writer: metric_writers.MetricWriter,
-    work_dir: str,
+    checkpoint_manager: ocp.CheckpointManager,
+    checkpoint_every_n_steps: int,
     rng: typing.Any,
-    checkpoint_every_n_steps: typing.Optional[int] = None,
     evaluation_step: typing.Optional[
         typing.Callable[..., EVAL_STEP_OUTPUT]
     ] = None,
@@ -57,32 +58,25 @@ def run(
     ] = None,
     log_every_n_steps: int = 50,
     eval_every_n_steps: int = 1_000,
-    profile: bool = False,
 ) -> int:
-    """Runs training and evaluation loop with given model and dataloaders.
+    r"""Runs training and evaluation loop with given model and dataloaders.
 
     Args:
         datamodule (DataModule): The data module for loading data.
         training_step (Callable): The training step function.
         num_train_steps (int): Number of training steps.
-        writer (MetricWriter): The metric writer for logging.
-        work_dir (str): The working directory for saving checkpoints and logs.
+        checkpoint_manager (CheckpointManager): The checkpoint manager.
+        checkpoint_every_n_steps (int): Frequency of checkpointing.
         rng (Any): The random number generator.
-        checkpoint_every_n_steps (Optional[int]): Frequency of checkpointing.
-            If `None`, defaults to `eval_every_n_steps`.
         evaluation_step (Optional[Callable]): Optional evaluation step function.
         evaluation_fn (Optional[Callable]): Optional evaluation function.
         log_every_n_steps (int): Frequency of logging. Default is `50`.
         eval_every_n_steps (int): Frequency of evaluation. Default is `1000`.
-        profile (bool): Whether to enable profiling.
 
     Returns:
         Integer status code.
     """
     _status = 0
-
-    if checkpoint_every_n_steps is None:
-        checkpoint_every_n_steps = eval_every_n_steps
 
     logging.rank_zero_info("Compiling training step function...")
     rng, train_rng = jax.random.split(rng, num=2)
@@ -99,191 +93,214 @@ def run(
     else:
         p_evaluation_step = None
 
-    hooks = []
-    report_progress = periodic_actions.ReportProgress(
-        num_train_steps=num_train_steps,
-        writer=writer,
-    )
-    if jax.process_index() == 0:
-        hooks.append(report_progress)
-        if profile:
-            hooks.append(
-                periodic_actions.Profile(
-                    logdir=work_dir,
-                    num_profile_steps=5,
-                )
-            )
-    step = state.step
     state = jax_utils.replicate(state)
+    step = int(jax.device_get(state.step)[0])
+    if jax.process_index() == 0:
+        pbar = tqdm.tqdm(
+            initial=step,
+            total=num_train_steps,
+            desc="Training",
+            leave=False,
+            position=0,
+            unit="step",
+        )
+    else:
+        pbar = None
+
     logging.rank_zero_info("Training...")
-    with metric_writers.ensure_flushes(writer):
-        try:
+    try:
+        while step < num_train_steps:
             train_metrics = collections.defaultdict(list)
-            while True:
-                for train_batch in datamodule.train_dataloader():
-                    # evaluation and sanity check running
-                    if (
-                        step % eval_every_n_steps == 0
-                        or step == num_train_steps
-                    ):
-                        logging.rank_zero_info("Running evaluation...")
-                        eval_metrics = collections.defaultdict(list)
-                        if p_evaluation_step is not None:
-                            outputs = None
-                            for eval_batch in datamodule.eval_dataloader():
-                                eval_batch = _shard(eval_batch)
+            for train_batch in datamodule.train_dataloader():
+                # evaluation and sanity check running
+                if step % eval_every_n_steps == 0 or step == num_train_steps:
+                    logging.rank_zero_info("Running evaluation...")
+                    eval_metrics = collections.defaultdict(list)
+                    if p_evaluation_step is not None:
+                        outputs = None
+                        for eval_batch in datamodule.eval_dataloader():
+                            eval_batch = _shard(eval_batch)
+                            with jax.profiler.StepTraceAnnotation(
+                                name="evaluation",
+                                step_num=step,
+                            ):
                                 outputs = p_evaluation_step(
                                     params=state.ema_params,
                                     batch=eval_batch,
                                 )
-                                if not isinstance(outputs, _model.StepOutputs):
-                                    raise RuntimeError(
-                                        "FATAL: Output from `evaluation_step` "
-                                        "is not a `StepOutputs` object."
-                                    )
-                                if outputs.scalars is not None:
-                                    for k, v in outputs.scalars.items():
-                                        eval_metrics[k].append(
-                                            jax.device_get(v).mean()
-                                        )
-                        elif evaluation_fn is not None:
-                            outputs = evaluation_fn(params=state.ema_params)
+                            if not isinstance(outputs, _model.StepOutputs):
+                                raise RuntimeError(
+                                    "FATAL: Output from `evaluation_step` "
+                                    "is not a `StepOutputs` object."
+                                )
                             if outputs.scalars is not None:
                                 for k, v in outputs.scalars.items():
-                                    eval_metrics[k] = [
+                                    eval_metrics[k].append(
                                         jax.device_get(v).mean()
-                                    ]
-                        else:
-                            logging.rank_zero_error(
-                                "No evaluation step or function provided. "
-                                "Skipping evaluation..."
-                            )
-                            outputs = None
-                        logging.rank_zero_info("Evaluation done.")
+                                    )
+                    elif evaluation_fn is not None:
+                        outputs = evaluation_fn(params=state.ema_params)
+                        if outputs.scalars is not None:
+                            for k, v in outputs.scalars.items():
+                                eval_metrics[k] = [jax.device_get(v).mean()]
+                    else:
+                        logging.rank_zero_error(
+                            "No evaluation step or function provided. "
+                            "Skipping evaluation..."
+                        )
+                        outputs = None
+                    logging.rank_zero_info("Evaluation done.")
 
-                        if isinstance(outputs, _model.StepOutputs):
-                            writer.write_scalars(
-                                step=step,
-                                scalars={
+                    if isinstance(outputs, _model.StepOutputs):
+                        if outputs.scalars is not None:
+                            wandb.log(
+                                data={
                                     f"eval/{k}": sum(v) / len(v)
                                     for k, v in eval_metrics.items()
                                 },
+                                step=step,
                             )
-                            if outputs.images is not None:
-                                writer.write_images(
-                                    step=step,
-                                    images={
-                                        f"eval/{k}": v
-                                        for k, v in outputs.images.items()
-                                    },
-                                )
-                            if outputs.histograms is not None:
-                                writer.write_histograms(
-                                    step=step,
-                                    arrays={
-                                        f"eval/{k}": v
-                                        for k, v in outputs.histograms.items()
-                                    },
-                                )
-                        writer.flush()
+                            scalar_str = ", ".join(
+                                [
+                                    f"{k}={sum(v) / len(v):.4f}"
+                                    for k, v in eval_metrics.items()
+                                ]
+                            )
+                            if pbar is not None:
+                                pbar.write(f"[eval end]: {scalar_str:s}")
 
-                    train_batch = _shard(train_batch)
-                    with jax.profiler.StepTraceAnnotation(
-                        name="train",
-                        step_num=step,
-                    ):
-                        state, outputs = p_training_step(
-                            state=state,
-                            batch=train_batch,
-                        )
-                    if not isinstance(outputs, _model.StepOutputs):
-                        raise RuntimeError(
-                            "FATAL: Output from `training_step` is not "
-                            "a `StepOutputs` object."
-                        )
-                    if outputs.scalars is not None:
-                        for k, v in outputs.scalars.items():
-                            train_metrics[k].append(jax.device_get(v).mean())
-                    for hook in hooks:
-                        hook(step)
-                    if step % log_every_n_steps == 0:
-                        if outputs.scalars is not None:
-                            writer.write_scalars(
-                                step=step,
-                                scalars={
-                                    f"train/{k}_step": sum(v) / len(v)
-                                    for k, v in outputs.scalars.items()
-                                },
-                            )
                         if outputs.images is not None:
-                            writer.write_images(
-                                step=step,
-                                images={
-                                    f"train/{k}": v
+                            wandb.log(
+                                data={
+                                    f"eval/{k}": wandb.Image(np.asarray(v))
                                     for k, v in outputs.images.items()
                                 },
+                                step=step,
                             )
                         if outputs.histograms is not None:
-                            writer.write_histograms(
-                                step=step,
-                                arrays={
-                                    f"train/{k}": v
+                            wandb.log(
+                                data={
+                                    f"eval/{k}": wandb.Histogram(list(v))
                                     for k, v in outputs.histograms.items()
                                 },
-                            )
-                        writer.flush()
-                    step += 1
-
-                    # checkpointing
-                    if step % checkpoint_every_n_steps == 0:
-                        logging.rank_zero_info("Checkpointing...")
-                        if jax.process_index() == 0:
-                            with report_progress.timed("checkpoint"):
-                                filepath = checkpoints.save_checkpoint(
-                                    ckpt_dir=os.path.join(
-                                        work_dir,
-                                        "checkpoints",
-                                    ),
-                                    target=jax_utils.unreplicate(state),
-                                    keep=3,
-                                    overwrite=True,
-                                    prefix="ckpt-",
-                                    step=step,
-                                )
-                            logging.rank_zero_info(
-                                "Checkpoint saved to %s",
-                                filepath,
+                                step=step,
                             )
 
-                # logging on the end of epoch
-                scalar_output = {
-                    f"train/{k}_epoch": sum(v) / len(v)
-                    for k, v in train_metrics.items()
-                }
-                writer.write_scalars(
-                    step=step,
-                    scalars=scalar_output,
-                )
-                writer.flush()
+                train_batch = _shard(train_batch)
+                with jax.profiler.StepTraceAnnotation(
+                    name="train",
+                    step_num=step,
+                ):
+                    state, outputs = p_training_step(
+                        state=state,
+                        batch=train_batch,
+                    )
+                if not isinstance(outputs, _model.StepOutputs):
+                    raise RuntimeError(
+                        "FATAL: Output from `training_step` is not "
+                        "a `StepOutputs` object."
+                    )
+                if outputs.scalars is not None:
+                    for k, v in outputs.scalars.items():
+                        train_metrics[k].append(jax.device_get(v).mean())
+
+                if step % log_every_n_steps == 0:
+                    if outputs.scalars is not None:
+                        wandb.log(
+                            data={
+                                f"train/{k}_step": sum(v) / len(v)
+                                for k, v in outputs.scalars.items()
+                            },
+                            step=step,
+                        )
+
+                    if outputs.images is not None:
+                        wandb.log(
+                            data={
+                                f"train/{k}": wandb.Image(np.asarray(v))
+                                for k, v in outputs.images.items()
+                            },
+                        )
+                    if outputs.histograms is not None:
+                        wandb.log(
+                            data={
+                                f"train/{k}": wandb.Histogram(list(v))
+                                for k, v in outputs.histograms.items()
+                            },
+                            step=step,
+                        )
+
+                # update step and progress bar
+                step += 1
+                if pbar is not None:
+                    pbar.update(1)
+
+                # checkpointing
+                if (
+                    step % checkpoint_every_n_steps == 0
+                    or step >= num_train_steps
+                ):
+                    logging.rank_zero_info("Checkpointing...")
+                    with jax.profiler.StepTraceAnnotation(
+                        name="checkpoint",
+                        step_num=step,
+                    ):
+                        state_to_save = jax.tree_util.tree_map(
+                            ocp_utils.fully_replicated_host_local_array_to_global_array,
+                            state,
+                        )
+
+                        if hasattr(state_to_save, "ema_params"):
+                            params = state_to_save.ema_params
+                            state_to_save = dataclasses.replace(
+                                state_to_save,
+                                ema_params={},
+                            )
+                        else:
+                            params = state_to_save.params
+                            state_to_save = dataclasses.replace(
+                                state_to_save,
+                                params={},
+                            )
+                        checkpoint_manager.save(
+                            step=state_to_save.step,
+                            items={"state": state_to_save, "params": params},
+                        )
 
                 # break outer loop if reach max steps
                 if step >= num_train_steps:
                     break
 
-        except Exception as e:
-            logging.rank_zero_error(
-                "Exception occurred during training: %s", e
+            # logging on the end of epoch
+            scalar_output = {
+                f"train/{k}_epoch": sum(v) / len(v)
+                for k, v in train_metrics.items()
+            }
+            wandb.log(data=scalar_output, step=step)
+            scalar_str = ", ".join(
+                [
+                    f"{k}={sum(v) / len(v):.4f}"
+                    for k, v in train_metrics.items()
+                ]
             )
-            error_trace = traceback.format_exc()
-            logging.rank_zero_error(error_trace)
-            _status = 1
-        finally:
-            state = jax_utils.unreplicate(state)
-            writer.close()
-            logging.rank_zero_info(
-                "Training finished. Final step: %d. Exit with code %d.",
-                state.step,
-                _status,
-            )
+            if pbar is not None:
+                pbar.write(f"[epoch end at step={step:d}]: {scalar_str:s}")
+
+    except Exception as e:
+        logging.rank_zero_error("Exception occurred during training: %s", e)
+        error_trace = traceback.format_exc()
+        logging.rank_zero_error(error_trace)
+        _status = 1
+
+    finally:
+        state = jax_utils.unreplicate(state)
+        checkpoint_manager.wait_until_finished()
+        if pbar is not None:
+            pbar.close()
+        logging.rank_zero_info(
+            "Training finished. Final step: %d. Exit with code %d.",
+            state.step,
+            _status,
+        )
 
     return _status

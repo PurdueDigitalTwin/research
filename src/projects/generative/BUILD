@@ -17,22 +17,36 @@ ml_py_library(
     ],
 )
 
-ml_py_binary(
-    name = "main",
-    srcs = ["main.py"],
+ml_py_library(
+    name = "experiment",
+    srcs = ["experiment.py"],
     deps = [
-        "absl-py",
-        "clu",
         "fiddle",
         "jax",
+        "jaxtyping",
         "optax",
-        "tensorflow",
+        "orbax-checkpoint",
+        "tensorflow-cpu",
+        "tqdm",
+        "wandb",
         ":config",
         "//src/core:train",
         "//src/core:train_state",
         "//src/projects/generative/tools:fid",
         "//src/utilities:logging",
         "//src/utilities:visualization",
+    ],
+)
+
+ml_py_binary(
+    name = "main",
+    srcs = ["main.py"],
+    deps = [
+        "absl-py",
+        "fiddle",
+        "jax",
+        ":experiment",
+        "//src/core:distributed",
     ],
 )
 
