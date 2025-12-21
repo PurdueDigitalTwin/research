@@ -121,19 +121,20 @@ def evaluate(
         while count < 50_000:
             out = generate_fn(params=params)
             out = jnp.reshape(out, (-1,) + out.shape[-3:])
-            _slice_int = min(50_000 - count, out.shape[0])
-            images.append(out[:_slice_int])
-            count += _slice_int
+            _slice = min(50_000 - count, out.shape[0])
+            images.append(out[:_slice])
+            count += _slice
             if pbar is not None:
-                pbar.update(_slice_int)
+                pbar.update(_slice)
 
     outputs = _model.StepOutputs()
+    images = jnp.concatenate(images, axis=0)
 
-    fid_score = fid_metric(images=images[0:50_000])
+    fid_score = fid_metric(images=jax.device_get(images[0:50_000]))
     outputs.scalars = {"fid": fid_score}
 
     img_grid = visualization.make_grid(
-        jnp.concatenate(images[0:32], axis=0),
+        images[0:32],
         n_rows=4,
         n_cols=8,
         padding=2,

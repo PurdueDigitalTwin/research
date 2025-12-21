@@ -189,15 +189,12 @@ class FrechetInceptionDistance:
             jnp.matrix_transpose(jnp.concatenate(ref_features, axis=0)),
         )
 
-    def __call__(
-        self,
-        images: typing.Sequence[npt.NDArray[np.float_]],
-    ) -> npt.NDArray[np.float_]:
+    def __call__(self, images: npt.NDArray) -> npt.NDArray:
         r"""Computes the FID score between the given images and the reference.
 
         Args:
-            images (Sequence[npt.NDArray[np.float]]): A sequence of images to
-                compute the FID score against the reference statistics.
+            images (npt.NDArray): A sequence of images to compute
+                the FID score against the reference statistics.
 
         Returns:
             The FID score as a scalar array.
