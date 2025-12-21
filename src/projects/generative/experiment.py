@@ -126,6 +126,8 @@ def evaluate(
             count += _slice
             if pbar is not None:
                 pbar.update(_slice)
+    if pbar is not None:
+        pbar.close()
 
     outputs = _model.StepOutputs()
     images = jnp.concatenate(images, axis=0)
@@ -208,7 +210,7 @@ def train_and_evaluate(
         logging.rank_zero_error(
             (
                 "Expect configuration to be of an "
-                "`ImageGenerationExperimentConfig` instance, but got %s."
+                "`ExperimentConfig` instance, but got %s."
             ),
             type(exp_config),
         )
@@ -218,8 +220,23 @@ def train_and_evaluate(
     logging.rank_zero_info("Building dataset...")
     rng, data_rng = jax.random.split(rng, num=2)
     p_datamodule = fdl.build(exp_config.data.module)
+    # properly handle batch size in distributed setting
+    _global_batch_size = exp_config.data.batch_size
+    if _global_batch_size % jax.process_count() != 0:
+        logging.rank_zero_warning(
+            (
+                "Global batch size %d is not evenly divisible by process count %d; "
+                "per-process batch size will be truncated to %d (effective global "
+                "batch size %d)."
+            ),
+            _global_batch_size,
+            jax.process_count(),
+            _global_batch_size // jax.process_count(),
+            (_global_batch_size // jax.process_count()) * jax.process_count(),
+        )
+    _per_process_batch_size = int(_global_batch_size // jax.process_count())
     datamodule = p_datamodule(
-        batch_size=int(exp_config.data.batch_size // jax.process_count()),
+        batch_size=_per_process_batch_size,
         deterministic=exp_config.data.deterministic,
         drop_remainder=exp_config.data.drop_remainder,
         num_workers=exp_config.data.num_workers,
@@ -285,10 +302,10 @@ def train_and_evaluate(
             cleanup_tmp_directories=True,
         ),
     )
-    checkpoint_every_n_steps = (
-        exp_config.trainer.checkpoint_every_n_steps
-        or exp_config.trainer.eval_every_n_steps
-    )
+    if exp_config.trainer.checkpoint_every_n_steps is not None:
+        checkpoint_every_n_steps = exp_config.trainer.checkpoint_every_n_steps
+    else:
+        checkpoint_every_n_steps = exp_config.trainer.eval_every_n_steps
     if exp_config.trainer.checkpoint_dir is not None:
         # TODO (juanwu): support loading from custom checkpoint dir
         logging.rank_zero_error("Resuming from checkpoint not implemented.")
@@ -313,7 +330,7 @@ def train_and_evaluate(
         fid_metric=fid_metric,
     )
     if exp_config.mode == "train":
-        _train.run(
+        status = _train.run(
             state=state,
             datamodule=datamodule,
             training_step=p_training_step,
@@ -326,9 +343,13 @@ def train_and_evaluate(
             eval_every_n_steps=exp_config.trainer.eval_every_n_steps,
         )
     elif exp_config.mode == "evaluate":
-        evaluation_fn(params=state.ema_params)
+        logging.rank_zero_error("Evaluation mode not implemented.")
+        status = 1
     else:
         logging.rank_zero_error("Mode %s not implemented.", exp_config.mode)
-        return 1
+        status = 1
 
-    return 0
+    # properly shutdown WandB
+    wandb.finish(exit_code=status)
+
+    return status
