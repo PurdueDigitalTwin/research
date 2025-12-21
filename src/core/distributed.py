@@ -40,10 +40,9 @@ def setup_jax_distributed() -> None:
             master_node = os.getenv("SLURM_LAUNCH_NODE_IPADDR", "localhost")
 
         port = int(os.getenv("MASTER_PORT", "12345"))
-        master_address = f"{master_node}:{port}"
         num_processes = int(os.getenv("SLURM_NTASKS", "1"))
         process_id = int(os.getenv("SLURM_PROCID", "0"))
-        coordinator_address = f"{master_address}:{port}"
+        coordinator_address = f"{master_node}:{port}"
 
         if isinstance(os.getenv("SLURM_LOCALID"), str):
             local_id = str(os.getenv("SLURM_LOCALID"))
