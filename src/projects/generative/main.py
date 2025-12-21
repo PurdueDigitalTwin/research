@@ -27,20 +27,24 @@ flags.DEFINE_string(
 )
 
 
-def main(_: typing.List[str]) -> None:
+def main(argv: typing.List[str]) -> int:
     r"""Main entry point for behavior models."""
-    del _  # unused argument
+    del argv  # unused command line arguments
 
     if flags.FLAGS.distributed:
         _distributed.setup_jax_distributed()
 
     from src.projects.generative import experiment
 
-    experiment.train_and_evaluate(
+    status = experiment.train_and_evaluate(
         exp_config=CONFIG.value,
         work_dir=flags.FLAGS.work_dir,
     )
-    jax.distributed.shutdown()
+
+    if flags.FLAGS.distributed:
+        jax.distributed.shutdown()
+
+    return status
 
 
 if __name__ == "__main__":
