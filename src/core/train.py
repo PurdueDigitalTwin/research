@@ -93,7 +93,7 @@ def run(
     else:
         p_evaluation_step = None
 
-    step = state.step
+    step = int(jax.device_get(state.step)[0])
     pbar = tqdm.tqdm(
         initial=step,
         total=num_train_steps,
@@ -208,13 +208,6 @@ def run(
                             },
                             step=step,
                         )
-                        scalar_str = ", ".join(
-                            [
-                                f"{k}={sum(v) / len(v):.4f}"
-                                for k, v in outputs.scalars.items()
-                            ]
-                        )
-                        pbar.write(f"[step={step:d}]: {scalar_str:s}")
 
                     if outputs.images is not None:
                         wandb.log(
