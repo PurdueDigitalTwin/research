@@ -23,7 +23,7 @@ TRAIN_STEP_OUTPUT = typing.Tuple[_train_state.TrainState, _model.StepOutputs]
 
 
 def _shard(tree: jaxtyping.PyTree) -> jaxtyping.PyTree:
-    """Helper function for `jax.pmap` to shard a pytree onto local devices.
+    r"""Helper function for `jax.pmap` to shard a pytree onto local devices.
 
     Args:
         tree (PyTree): The pytree to shard.
@@ -148,13 +148,22 @@ def run(
                     logging.rank_zero_info("Evaluation done.")
 
                     if isinstance(outputs, _model.StepOutputs):
-                        wandb.log(
-                            data={
-                                f"eval/{k}": sum(v) / len(v)
-                                for k, v in eval_metrics.items()
-                            },
-                            step=step,
-                        )
+                        if outputs.scalars is not None:
+                            wandb.log(
+                                data={
+                                    f"eval/{k}": sum(v) / len(v)
+                                    for k, v in eval_metrics.items()
+                                },
+                                step=step,
+                            )
+                            scalar_str = ", ".join(
+                                [
+                                    f"{k}={sum(v) / len(v):.4f}"
+                                    for k, v in eval_metrics.items()
+                                ]
+                            )
+                            pbar.write(f"[eval end]: {scalar_str:s}")
+
                         if outputs.images is not None:
                             wandb.log(
                                 data={
@@ -199,6 +208,14 @@ def run(
                             },
                             step=step,
                         )
+                        scalar_str = ", ".join(
+                            [
+                                f"{k}={sum(v) / len(v):.4f}"
+                                for k, v in outputs.scalars.items()
+                            ]
+                        )
+                        pbar.write(f"[step={step:d}]: {scalar_str:s}")
+
                     if outputs.images is not None:
                         wandb.log(
                             data={
@@ -215,17 +232,23 @@ def run(
                             step=step,
                         )
 
+                # update step and progress bar
+                step += 1
+                pbar.update(1)
+
                 # checkpointing
-                if step % checkpoint_every_n_steps == 0:
+                if (
+                    step % checkpoint_every_n_steps == 0
+                    or step >= num_train_steps
+                ):
                     logging.rank_zero_info("Checkpointing...")
                     with jax.profiler.StepTraceAnnotation(
                         name="checkpoint",
                         step_num=step,
                     ):
-                        state_to_save = jax_utils.unreplicate(state)
                         state_to_save = jax.tree_util.tree_map(
                             ocp_utils.fully_replicated_host_local_array_to_global_array,
-                            state_to_save,
+                            state,
                         )
 
                         if hasattr(state_to_save, "ema_params"):
@@ -245,9 +268,9 @@ def run(
                             items={"state": state_to_save, "params": params},
                         )
 
-                # update step and progress bar
-                step += 1
-                pbar.update(1)
+                # break outer loop if reach max steps
+                if step >= num_train_steps:
+                    break
 
             # logging on the end of epoch
             scalar_output = {
@@ -255,10 +278,13 @@ def run(
                 for k, v in train_metrics.items()
             }
             wandb.log(data=scalar_output, step=step)
-
-            # break outer loop if reach max steps
-            if step >= num_train_steps:
-                break
+            scalar_str = ", ".join(
+                [
+                    f"{k}={sum(v) / len(v):.4f}"
+                    for k, v in train_metrics.items()
+                ]
+            )
+            pbar.write(f"[epoch end at step={step:d}]: {scalar_str:s}")
 
     except Exception as e:
         logging.rank_zero_error("Exception occurred during training: %s", e)

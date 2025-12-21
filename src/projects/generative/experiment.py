@@ -276,6 +276,7 @@ def train_and_evaluate(
             max_to_keep=exp_config.trainer.max_checkpoints_to_keep,
             create=False,
             async_options=ocp.AsyncOptions(timeout_secs=7_200),
+            cleanup_tmp_directories=True,
         ),
     )
     checkpoint_every_n_steps = (
