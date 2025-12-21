@@ -1,4 +1,5 @@
 import collections
+import dataclasses
 import functools
 import traceback
 import typing
@@ -225,12 +226,21 @@ def run(
                         step_num=step,
                     ):
                         state_to_save = jax_utils.unreplicate(state)
+                        if hasattr(state_to_save, "ema_params"):
+                            params = state_to_save.ema_params
+                            state_to_save = dataclasses.replace(
+                                state_to_save,
+                                ema_params={},
+                            )
+                        else:
+                            params = state_to_save.params
+                            state_to_save = dataclasses.replace(
+                                state_to_save,
+                                params={},
+                            )
                         checkpoint_manager.save(
                             step=state_to_save.step,
-                            items={
-                                "state": state_to_save,
-                                "params": state_to_save.ema_params,
-                            },
+                            items={"state": state_to_save, "params": params},
                         )
 
             # logging on the end of epoch
