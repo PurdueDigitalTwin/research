@@ -317,7 +317,6 @@ def train_and_evaluate(
             rng=rng,
             log_every_n_steps=exp_config.trainer.log_every_n_steps,
             eval_every_n_steps=exp_config.trainer.eval_every_n_steps,
-            profile=exp_config.trainer.profile,
         )
     elif exp_config.mode == "evaluate":
         evaluation_fn(params=state.ema_params)

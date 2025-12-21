@@ -9,6 +9,7 @@ import jax
 import jaxtyping
 import numpy as np
 from orbax import checkpoint as ocp
+from orbax.checkpoint import utils as ocp_utils
 from tqdm import auto as tqdm
 import wandb
 
@@ -57,9 +58,8 @@ def run(
     ] = None,
     log_every_n_steps: int = 50,
     eval_every_n_steps: int = 1_000,
-    profile: bool = False,
 ) -> int:
-    """Runs training and evaluation loop with given model and dataloaders.
+    r"""Runs training and evaluation loop with given model and dataloaders.
 
     Args:
         datamodule (DataModule): The data module for loading data.
@@ -72,7 +72,6 @@ def run(
         evaluation_fn (Optional[Callable]): Optional evaluation function.
         log_every_n_steps (int): Frequency of logging. Default is `50`.
         eval_every_n_steps (int): Frequency of evaluation. Default is `1000`.
-        profile (bool): Whether to enable profiling.
 
     Returns:
         Integer status code.
@@ -215,8 +214,6 @@ def run(
                             },
                             step=step,
                         )
-                step += 1
-                pbar.update(1)
 
                 # checkpointing
                 if step % checkpoint_every_n_steps == 0:
@@ -226,6 +223,11 @@ def run(
                         step_num=step,
                     ):
                         state_to_save = jax_utils.unreplicate(state)
+                        state_to_save = jax.tree_util.tree_map(
+                            ocp_utils.fully_replicated_host_local_array_to_global_array,
+                            state_to_save,
+                        )
+
                         if hasattr(state_to_save, "ema_params"):
                             params = state_to_save.ema_params
                             state_to_save = dataclasses.replace(
@@ -242,6 +244,10 @@ def run(
                             step=state_to_save.step,
                             items={"state": state_to_save, "params": params},
                         )
+
+                # update step and progress bar
+                step += 1
+                pbar.update(1)
 
             # logging on the end of epoch
             scalar_output = {
