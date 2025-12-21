@@ -295,6 +295,8 @@ def run(
     finally:
         state = jax_utils.unreplicate(state)
         checkpoint_manager.wait_until_finished()
+        if pbar is not None:
+            pbar.close()
         logging.rank_zero_info(
             "Training finished. Final step: %d. Exit with code %d.",
             state.step,
