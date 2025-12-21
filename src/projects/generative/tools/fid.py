@@ -134,12 +134,17 @@ class FrechetInceptionDistance:
         )
 
         with tqdm_logging.logging_redirect_tqdm():
+            if jax.process_index() == 0:
+                pbar = tqdm.tqdm(
+                    total=len(train_dataset),
+                    desc="Computing reference statistics...",
+                    unit="images",
+                )
+            else:
+                pbar = None
+
             ref_images = []
-            for item in tqdm.tqdm(
-                train_dataset,
-                desc="Processing training images...",
-                unit="images",
-            ):
+            for item in train_dataset:
                 assert isinstance(item, typing.Dict)
                 image = item.get(image_key, None)
                 if image is None:
@@ -148,13 +153,22 @@ class FrechetInceptionDistance:
                     )
                 image = _process_image(image)
                 ref_images.append(image)
+                if pbar is not None:
+                    pbar.update(1)
+            if pbar is not None:
+                pbar.close()
 
             ref_features = []
-            for i in tqdm.tqdm(
-                range(0, len(ref_images), batch_size),
-                desc="Extracting training features...",
-                unit="batches",
-            ):
+            if jax.process_index() == 0:
+                pbar = tqdm.tqdm(
+                    total=len(range(0, len(ref_images), batch_size)),
+                    desc="Extracting training features...",
+                    unit="batches",
+                )
+            else:
+                pbar = None
+
+            for i in range(0, len(ref_images), batch_size):
                 batch_images = jnp.array(ref_images[i : i + batch_size])
                 feats = self._compute_feat(
                     batch_images,
@@ -162,6 +176,11 @@ class FrechetInceptionDistance:
                     batch_stats=self._variables["batch_stats"],
                 )
                 ref_features.append(feats)
+                if pbar is not None:
+                    pbar.update(1)
+            if pbar is not None:
+                pbar.close()
+
         self._ref_mu = jnp.mean(
             jnp.concatenate(ref_features, axis=0),
             axis=0,
@@ -172,33 +191,45 @@ class FrechetInceptionDistance:
 
     def __call__(
         self,
-        images: typing.Iterable[npt.NDArray[np.float_]],
+        images: typing.Sequence[npt.NDArray[np.float_]],
     ) -> npt.NDArray[np.float_]:
         r"""Computes the FID score between the given images and the reference.
 
         Args:
-            images (Iterable[npt.NDArray[np.float]]): An iterable of images to
+            images (Sequence[npt.NDArray[np.float]]): A sequence of images to
                 compute the FID score against the reference statistics.
 
         Returns:
             The FID score as a scalar array.
         """
-        processed_images = []
-        with tqdm_logging.logging_redirect_tqdm():
-            for image in tqdm.tqdm(
-                images,
+        if jax.process_index() == 0:
+            pbar = tqdm.tqdm(
+                total=len(images),
                 desc="Processing sampled images...",
                 unit="images",
-            ):
+            )
+        else:
+            pbar = None
+        processed_images = []
+        with tqdm_logging.logging_redirect_tqdm():
+            for image in images:
                 image = _process_image(image)
                 processed_images.append(image)
+                if pbar is not None:
+                    pbar.update(1)
+            if pbar is not None:
+                pbar.close()
 
+        if jax.process_index() == 0:
+            pbar = tqdm.tqdm(
+                total=len(range(0, len(processed_images), self._batch_size)),
+                desc="Extracting sampled features...",
+                unit="batches",
+            )
+        else:
+            pbar = None
         sampled_features = []
-        for i in tqdm.tqdm(
-            range(0, len(processed_images), self._batch_size),
-            desc="Extracting sampled features...",
-            unit="batches",
-        ):
+        for i in range(0, len(processed_images), self._batch_size):
             batch_images = jnp.array(
                 processed_images[i : i + self._batch_size]
             )
@@ -208,6 +239,10 @@ class FrechetInceptionDistance:
                 batch_stats=self._variables["batch_stats"],
             )
             sampled_features.append(feats)
+            if pbar is not None:
+                pbar.update(1)
+        if pbar is not None:
+            pbar.close()
 
         samp_mu = jnp.mean(
             jnp.concatenate(sampled_features, axis=0),

@@ -113,22 +113,27 @@ def evaluate(
     generate_fn = jax.pmap(_generate, axis_name="batch")
     with tqdm_logging.logging_redirect_tqdm():
         images, count = [], 0
-        with tqdm.tqdm(total=50_000, unit="sample") as pbar:
-            while count < 50_000:
-                out = generate_fn(params=params)
-                out = jnp.reshape(out, (-1,) + out.shape[-3:])
-                images.append(out)
-                count += out.shape[0]
-                pbar.update(out.shape[0])
+        if jax.process_index() == 0:
+            pbar = tqdm.tqdm(total=50_000, unit="sample")
+        else:
+            pbar = None
+
+        while count < 50_000:
+            out = generate_fn(params=params)
+            out = jnp.reshape(out, (-1,) + out.shape[-3:])
+            _slice_int = min(50_000 - count, out.shape[0])
+            images.append(out[:_slice_int])
+            count += _slice_int
+            if pbar is not None:
+                pbar.update(_slice_int)
 
     outputs = _model.StepOutputs()
-    images = jnp.concatenate(images, axis=0)
 
     fid_score = fid_metric(images=images[0:50_000])
     outputs.scalars = {"fid": fid_score}
 
     img_grid = visualization.make_grid(
-        images[0:32],
+        jnp.concatenate(images[0:32], axis=0),
         n_rows=4,
         n_cols=8,
         padding=2,

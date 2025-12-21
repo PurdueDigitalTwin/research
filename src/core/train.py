@@ -93,16 +93,20 @@ def run(
     else:
         p_evaluation_step = None
 
-    step = int(jax.device_get(state.step)[0])
-    pbar = tqdm.tqdm(
-        initial=step,
-        total=num_train_steps,
-        desc="Training",
-        leave=False,
-        position=0,
-        unit="step",
-    )
     state = jax_utils.replicate(state)
+    step = int(jax.device_get(state.step)[0])
+    if jax.process_index() == 0:
+        pbar = tqdm.tqdm(
+            initial=step,
+            total=num_train_steps,
+            desc="Training",
+            leave=False,
+            position=0,
+            unit="step",
+        )
+    else:
+        pbar = None
+
     logging.rank_zero_info("Training...")
     try:
         while step < num_train_steps:
@@ -162,7 +166,8 @@ def run(
                                     for k, v in eval_metrics.items()
                                 ]
                             )
-                            pbar.write(f"[eval end]: {scalar_str:s}")
+                            if pbar is not None:
+                                pbar.write(f"[eval end]: {scalar_str:s}")
 
                         if outputs.images is not None:
                             wandb.log(
@@ -227,7 +232,8 @@ def run(
 
                 # update step and progress bar
                 step += 1
-                pbar.update(1)
+                if pbar is not None:
+                    pbar.update(1)
 
                 # checkpointing
                 if (
@@ -277,7 +283,8 @@ def run(
                     for k, v in train_metrics.items()
                 ]
             )
-            pbar.write(f"[epoch end at step={step:d}]: {scalar_str:s}")
+            if pbar is not None:
+                pbar.write(f"[epoch end at step={step:d}]: {scalar_str:s}")
 
     except Exception as e:
         logging.rank_zero_error("Exception occurred during training: %s", e)
