@@ -209,11 +209,14 @@ class DownsampleBlock(nn.Module):
     Args:
         with_conv (bool, optional): If true, uses a strided convolution for
             downsampling. If `False`, uses average pooling. Default is `True`.
+        resample_filter (jax.Array, optional): One-dimensional FIR filter for
+            resampling. If `None`, no filtering is applied. Default is `None`.
         dtype (Any, optional): The dtype of the computation.
         param_dtype (Any, optional): The dtype of the parameters.
     """
 
     with_conv: bool = True
+    resample_filter: typing.Optional[jax.Array] = None
     dtype: typing.Any = None
     param_dtype: typing.Any = None
 
@@ -236,24 +239,32 @@ class DownsampleBlock(nn.Module):
             C=inputs.shape[-1],
         )
 
-        if self.with_conv:
-            out = nn.Conv(
-                features=inputs.shape[-1],
-                kernel_size=(3, 3),
-                strides=(2, 2),
-                padding=((0, 1), (0, 1)),
-                kernel_init=jax.nn.initializers.variance_scaling(
-                    scale=1.0,
-                    mode="fan_avg",
-                    distribution="uniform",
-                ),
-                bias_init=jax.nn.initializers.zeros,
-                dtype=self.dtype,
-                param_dtype=self.param_dtype,
-                name="conv0",
-            )(inputs)
+        if self.resample_filter is None:
+            if self.with_conv:
+                out = nn.Conv(
+                    features=inputs.shape[-1],
+                    kernel_size=(3, 3),
+                    strides=(2, 2),
+                    padding=((0, 1), (0, 1)),
+                    kernel_init=jax.nn.initializers.variance_scaling(
+                        scale=1.0,
+                        mode="fan_avg",
+                        distribution="uniform",
+                    ),
+                    bias_init=jax.nn.initializers.zeros,
+                    dtype=self.dtype,
+                    param_dtype=self.param_dtype,
+                    name="conv0",
+                )(inputs)
+            else:
+                out = nn.avg_pool(inputs, window_shape=(2, 2), strides=(2, 2))
         else:
-            out = nn.avg_pool(inputs, window_shape=(2, 2), strides=(2, 2))
+            out = upfirdn2d(
+                inputs,
+                kernel=self.resample_filter,
+                scale=2,
+                up=False,
+            )
         chex.assert_shape(out, (*batch_dims, *dims["hwC"]))
 
         return out
@@ -265,12 +276,15 @@ class UpsampleBlock(nn.Module):
     Args:
         with_conv (bool, optional): If true, applies a convolution after
             upsampling. Default is `True`.
+        resample_filter (jax.Array, optional): One-dimensional FIR filter for
+            resampling. If `None`, no filtering is applied. Default is `None`.
         dtype (Any, optional): The dtype of the computation.
         param_dtype (Any, optional): The dtype of the parameters.
         precision (Any, optional): Numerical precision of the computation.
     """
 
     with_conv: bool = True
+    resample_filter: typing.Optional[jax.Array] = None
     dtype: typing.Any = None
     param_dtype: typing.Any = None
     precision: typing.Any = None
@@ -294,29 +308,37 @@ class UpsampleBlock(nn.Module):
             C=inputs.shape[-1],
         )
 
-        out = jax.image.resize(
-            inputs,
-            shape=(*batch_dims, *dims["hwC"]),
-            method="nearest",
-            antialias=True,
-            precision=self.precision,
-        )
-        if self.with_conv:
-            out = nn.Conv(
-                features=inputs.shape[-1],
-                kernel_size=(3, 3),
-                strides=(1, 1),
-                padding=(1, 1),
-                kernel_init=jax.nn.initializers.variance_scaling(
-                    scale=1.0,
-                    mode="fan_avg",
-                    distribution="uniform",
-                ),
-                bias_init=jax.nn.initializers.zeros,
-                dtype=self.dtype,
-                param_dtype=self.param_dtype,
-                name="conv0",
-            )(out)
+        if self.resample_filter is None:
+            out = jax.image.resize(
+                inputs,
+                shape=(*batch_dims, *dims["hwC"]),
+                method="nearest",
+                antialias=True,
+                precision=self.precision,
+            )
+            if self.with_conv:
+                out = nn.Conv(
+                    features=inputs.shape[-1],
+                    kernel_size=(3, 3),
+                    strides=(1, 1),
+                    padding=(1, 1),
+                    kernel_init=jax.nn.initializers.variance_scaling(
+                        scale=1.0,
+                        mode="fan_avg",
+                        distribution="uniform",
+                    ),
+                    bias_init=jax.nn.initializers.zeros,
+                    dtype=self.dtype,
+                    param_dtype=self.param_dtype,
+                    name="conv0",
+                )(out)
+        else:
+            out = upfirdn2d(
+                inputs,
+                kernel=self.resample_filter,
+                scale=2,
+                up=True,
+            )
 
         chex.assert_shape(out, (*batch_dims, *dims["hwC"]))
         return out
@@ -516,6 +538,8 @@ class ScoreNet(nn.Module):
         dropout_rate (float, optional): Dropout rate. Default is :math:`0.0`.
         epsilon (float, optional): Small float added to variance to avoid
             dividing by zero in `GroupNorm`. Default is :math:`1e-5`.
+        resample_filter (jax.Array, optional): One-dimensional FIR filter for
+            resampling. Default is :math:`[1, 1]`.
         skip_scale (float, optional): Scaling factor for the residual
             connection outputs. Default is :math:`1.0`.
         deterministic (bool, optional): If true, the model is run in
@@ -532,6 +556,7 @@ class ScoreNet(nn.Module):
     attn_resolutions: typing.Sequence[int] = (16,)
     dropout_rate: float = 0.0
     epsilon: float = 1e-5
+    resample_filter: typing.Optional[jax.Array] = None
     skip_scale: float = 1.0
     deterministic: typing.Optional[bool] = None
     dtype: typing.Any = None
@@ -624,6 +649,7 @@ class ScoreNet(nn.Module):
             if level != len(self.ch_mults) - 1:
                 downsample = DownsampleBlock(
                     with_conv=True,
+                    resample_filter=self.resample_filter,
                     dtype=self.dtype,
                     param_dtype=self.param_dtype,
                     name=f"downsample_{level + 1:d}",
@@ -703,6 +729,7 @@ class ScoreNet(nn.Module):
             if level != 0:
                 upsample = UpsampleBlock(
                     with_conv=True,
+                    resample_filter=self.resample_filter,
                     dtype=self.dtype,
                     param_dtype=self.param_dtype,
                     precision=self.precision,

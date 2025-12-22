@@ -401,6 +401,8 @@ class MeanFlowUNetModule(nn.Module):
         dropout_rate (float): Dropout rate for the attention blocks.
         epsilon (float): Small constant for numerical stability in `GroupNorm`.
         skip_scale (float): Scaling factor for skip connections.
+        resample_filter (Optional[Sequence[int]]): One-dimensional FIR filter
+            for resampling. Default is :math:`[1, 1]`.
         deterministic (Optional[bool]): Whether to run deterministically.
         dtype (dtype): The dtype of the computation (default: float32).
         param_dtype (dtype): The dtype of the parameters (default: float32).
@@ -411,6 +413,7 @@ class MeanFlowUNetModule(nn.Module):
     dropout_rate: float = 0.0
     epsilon: float = 1e-5
     skip_scale: float = 1.0
+    resample_filter: typing.Optional[typing.Sequence[int]] = (1, 1)
     deterministic: typing.Optional[bool] = None
     dtype: typing.Any = None
     param_dtype: typing.Any = None
@@ -496,6 +499,11 @@ class MeanFlowUNetModule(nn.Module):
             epsilon=self.epsilon,
             dropout_rate=self.dropout_rate,
             skip_scale=self.skip_scale,
+            resample_filter=(
+                jnp.array(self.resample_filter)
+                if self.resample_filter is not None
+                else None
+            ),
             dtype=self.dtype,
             param_dtype=self.param_dtype,
             precision=self.precision,
@@ -520,6 +528,8 @@ class MeanFlowUNetModel(_model.Model):
         dropout_rate (float): Dropout rate for the classifier-free guidance.
         epsilon (float): Small constant for numerical stability in `GroupNorm`.
         skip_scale (float): Scaling factor for skip connections.
+        resample_filter (Optional[Sequence[int]]): One-dimensional FIR filter
+            for resampling. Default is :math:`[1, 1]`.
         dtype (dtype): The dtype of the computation (default: float32).
         param_dtype (dtype): The dtype of the parameters (default: float32).
         timestamp_cond (Literal): The type of timestamp conditioning.
@@ -542,6 +552,7 @@ class MeanFlowUNetModel(_model.Model):
         dropout_rate: float,
         epsilon: float,
         skip_scale: float,
+        resample_filter: typing.Optional[typing.Sequence[int]] = None,
         dtype: typing.Any = None,
         param_dtype: typing.Any = None,
         precision: typing.Any = None,
@@ -583,6 +594,7 @@ class MeanFlowUNetModel(_model.Model):
             skip_scale=skip_scale,
             dropout_rate=dropout_rate,
             epsilon=epsilon,
+            resample_filter=resample_filter,
             name="unet",
             dtype=dtype,
             param_dtype=param_dtype,
@@ -639,7 +651,10 @@ class MeanFlowUNetModel(_model.Model):
             deterministic=True,
         )
         _tabulate_fn = nn.summary.tabulate(self.network, rngs=rngs)
-        print(_tabulate_fn(**dummy_inputs, deterministic=True))
+
+        # log the model summary only on process 0
+        if jax.process_index() == 0:
+            print(_tabulate_fn(**dummy_inputs, deterministic=True))
 
         return variables["params"]
 
@@ -677,6 +692,7 @@ class MeanFlowUNetModel(_model.Model):
         tr_rng, dropout_rng, a_rng, m_rng, e_rng = jax.random.split(rngs, 5)
 
         # pre-process the inputs
+        image = jnp.clip(image * 2.0 - 1.0, -1.0, 1.0)
         if not deterministic:
             image, cond = self._augment.apply(
                 variables={},
@@ -687,7 +703,6 @@ class MeanFlowUNetModel(_model.Model):
             assert isinstance(cond, jax.Array)
         else:
             cond = None
-        image = jnp.clip(image, 0.0, 1.0) * 2.0 - 1.0
 
         # sample begin and end timestamps
         t, r = sample_t_r(
