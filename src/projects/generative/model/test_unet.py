@@ -9,6 +9,34 @@ from src.projects.generative.model import unet
 
 
 @pytest.mark.parametrize("dtype", [jnp.float32, jnp.bfloat16])
+def test_upfirdn2d(dtype: typing.Any) -> None:
+    r"""Tests the ported upfirdn2d function."""
+    rng = jax.random.PRNGKey(42)
+
+    test_input = jax.random.normal(rng, (2, 2, 16, 16, 3), dtype=dtype)
+    test_kernel = jnp.array([1, 3, 3, 1], dtype=dtype)
+    test_output = unet.upfirdn2d(
+        inputs=test_input,
+        kernel=test_kernel,
+        scale=2,
+        up=False,
+    )
+    assert isinstance(test_output, jax.Array)
+    assert test_output.shape == (2, 2, 8, 8, 3)
+    assert test_output.dtype == dtype
+
+    test_output = unet.upfirdn2d(
+        inputs=test_input,
+        kernel=test_kernel,
+        scale=2,
+        up=True,
+    )
+    assert isinstance(test_output, jax.Array)
+    assert test_output.shape == (2, 2, 32, 32, 3)
+    assert test_output.dtype == dtype
+
+
+@pytest.mark.parametrize("dtype", [jnp.float32, jnp.bfloat16])
 def test_resnet_block(dtype: typing.Any) -> None:
     r"""Tests the residual downsampling block in U-Net models."""
     rng = jax.random.PRNGKey(42)
@@ -103,7 +131,12 @@ def test_attn_block(num_heads: int, dtype: typing.Any) -> None:
     r"""Tests the attention block in U-Net models."""
     rng = jax.random.PRNGKey(42)
 
-    block = unet.AttnBlock(num_heads=num_heads, dtype=dtype, param_dtype=dtype)
+    block = unet.AttnBlock(
+        num_heads=num_heads,
+        num_groups=1,
+        dtype=dtype,
+        param_dtype=dtype,
+    )
     test_input = jnp.ones((2, 16, 16, 32), dtype=dtype)
     variables = block.init(
         rngs={"params": rng},

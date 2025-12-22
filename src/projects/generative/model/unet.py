@@ -6,6 +6,54 @@ import jax
 from jax import numpy as jnp
 
 
+# ==============================================================================
+# Helper Functions
+def upfirdn2d(
+    inputs: jax.Array,
+    kernel: jax.Array,
+    scale: int = 2,
+    up: bool = False,
+) -> jax.Array:
+    r"""Ported from PyTorch implementation of `upfirdn2d`."""
+    batch_dims = inputs.shape[:-3]
+    height, width, channels = inputs.shape[-3:]
+    inputs = jnp.reshape(inputs, (-1, height, width, channels))
+
+    k = jnp.array(kernel, dtype=inputs.dtype)
+    k = jnp.outer(k, k) / jnp.square(jnp.sum(k))
+    k_pad = (k.shape[-1] - 1) // 2
+
+    if up:
+        k = jnp.multiply(k, scale**2)
+        pad_beg = (k.shape[0] + scale - 2) // 2
+        pad_end = (k.shape[0] + scale - 2) - pad_beg
+        out = jax.lax.conv_general_dilated(
+            lhs=inputs,
+            lhs_dilation=(scale, scale),
+            rhs=jnp.tile(k[:, :, None, None], (1, 1, 1, channels)),
+            dimension_numbers=("NHWC", "HWIO", "NHWC"),
+            feature_group_count=channels,
+            window_strides=(1, 1),
+            padding=[(pad_beg, pad_end), (pad_beg, pad_end)],
+        )
+    else:
+        out = jax.lax.conv_general_dilated(
+            lhs=inputs,
+            rhs=jnp.tile(k[:, :, None, None], (1, 1, 1, channels)),
+            dimension_numbers=("NHWC", "HWIO", "NHWC"),
+            feature_group_count=channels,
+            window_strides=(scale, scale),
+            padding=[(k_pad, k_pad), (k_pad, k_pad)],
+        )
+    new_height, new_width = out.shape[-3], out.shape[-2]
+
+    out = jnp.reshape(out, (*batch_dims, new_height, new_width, channels))
+
+    return out
+
+
+# ==============================================================================
+# Modules
 class ResNetBlock(nn.Module):
     r"""A residual downsampling block with two convolutional layers.
 
@@ -433,6 +481,7 @@ class AttnBlock(nn.Module):
             )
             out_proj = nn.DenseGeneral(
                 features=inputs.shape[-1],
+                axis=(-2, -1),
                 kernel_init=jax.nn.initializers.zeros,
                 bias_init=jax.nn.initializers.zeros,
                 dtype=self.dtype,
