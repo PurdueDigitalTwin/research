@@ -692,7 +692,7 @@ class MeanFlowUNetModel(_model.Model):
         tr_rng, dropout_rng, a_rng, m_rng, e_rng = jax.random.split(rngs, 5)
 
         # pre-process the inputs
-        image = jnp.clip(image * 2.0 - 1.0, -1.0, 1.0)
+        image = image * 2.0 - 1.0
         if not deterministic:
             image, cond = self._augment.apply(
                 variables={},
@@ -703,6 +703,7 @@ class MeanFlowUNetModel(_model.Model):
             assert isinstance(cond, jax.Array)
         else:
             cond = None
+        image = jnp.clip(image, -1.0, 1.0)
 
         # sample begin and end timestamps
         t, r = sample_t_r(
