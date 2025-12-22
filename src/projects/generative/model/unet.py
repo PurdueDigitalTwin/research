@@ -85,16 +85,13 @@ class ResNetBlock(nn.Module):
             kernel_size=(3, 3),
             strides=(1, 1),
             padding=(1, 1),
-            kernel_init=jax.nn.initializers.variance_scaling(
-                scale=1.0,
-                mode="fan_avg",
-                distribution="uniform",
-            ),
+            kernel_init=jax.nn.initializers.zeros,
             bias_init=jax.nn.initializers.zeros,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
             name="conv1",
         )
+
         self.conv_shortcut = nn.Dense(
             features=self.features,
             kernel_init=jax.nn.initializers.variance_scaling(
@@ -142,7 +139,7 @@ class ResNetBlock(nn.Module):
         out = self.conv_1(jax.nn.silu(self.norm_1(inputs)))
 
         if cond is not None:
-            out = out + self.cond_linear(jax.nn.silu(cond))[..., None, None, :]
+            out = out + self.cond_linear(cond)[..., None, None, :]
         out = jax.nn.silu(self.norm_2(out))
         out = self.dropout(out, deterministic=m_deterministic)
         out = self.conv_2(out)
