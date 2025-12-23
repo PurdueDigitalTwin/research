@@ -684,7 +684,8 @@ class MeanFlowUNetModel(_model.Model):
         """
         del kwargs  # unused
 
-        image = batch["image"]
+        # NOTE: enforce float32 for training stability using `jax.jvp`
+        image = batch["image"].astype(jnp.float32)
         assert isinstance(image, jax.Array)
         batch_dims = image.shape[:-3]
         tr_rng, dropout_rng, a_rng, m_rng, e_rng = jax.random.split(rngs, 5)
