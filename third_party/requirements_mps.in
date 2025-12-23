@@ -13,7 +13,7 @@ optax==0.2.5
 orbax-checkpoint==0.11.23
 scipy<=1.12.0,>=1.6.0
 setuptools==67.6.0
-tensorflow-cpu==2.19.1
+tensorflow==2.19.1
 tensorflow-datasets==4.9.9
 typing_extensions==4.15.0
 pillow==12.0.0
