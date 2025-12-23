@@ -48,7 +48,7 @@ def meanflow_unet_cifar_10() -> _config.ExperimentConfig:
             image_size=32,
             features=128,
             dropout_rate=0.2,
-            epsilon=1e-6,
+            epsilon=1e-5,
             skip_scale=math.sqrt(0.5),
             resample_filter=(1, 3, 3, 1),
             timestamp_cond="t_and_t_minus_r",
