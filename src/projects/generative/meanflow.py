@@ -684,8 +684,6 @@ class MeanFlowUNetModel(_model.Model):
         """
         del kwargs  # unused
 
-        # NOTE: following the notation in Algorithm 1 of the source paper
-        # sample t and r
         image = batch["image"]
         assert isinstance(image, jax.Array)
         batch_dims = image.shape[:-3]
@@ -705,7 +703,8 @@ class MeanFlowUNetModel(_model.Model):
             cond = None
         image = jnp.clip(image, -1.0, 1.0)
 
-        # sample begin and end timestamps
+        # NOTE: following the notation in Algorithm 1 of the source paper
+        # sample begin timestep r and end timestep t.
         t, r = sample_t_r(
             key=tr_rng,
             shape=batch_dims,
@@ -739,9 +738,9 @@ class MeanFlowUNetModel(_model.Model):
             t_in: jax.Array,
         ) -> jax.Array:
             if self.timestamp_cond == "t_and_r":
-                timestamps = (r_in, t_in)
+                timestamps = (t_in, r_in)
             elif self.timestamp_cond == "t_and_t_minus_r":
-                timestamps = (t_in - r_in, t_in)
+                timestamps = (t_in, t_in - r_in)
             elif self.timestamp_cond == "t_and_r_and_t_minus_r":
                 timestamps = (t_in, r_in, t_in - r_in)
             elif self.timestamp_cond == "t_minus_r":
