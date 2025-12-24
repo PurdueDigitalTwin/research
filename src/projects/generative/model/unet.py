@@ -722,7 +722,7 @@ class ScoreNet(nn.Module):
     """
 
     features: int
-    ch_mults: typing.Sequence[int] = (1, 2, 2, 2)
+    ch_mults: typing.Sequence[int] = (2, 2, 2)
     num_groups: int = 32
     num_res_blocks: int = 4
     attn_resolutions: typing.Sequence[int] = (16,)
