@@ -133,7 +133,11 @@ class ResNetBlock(nn.Module):
             kernel_size=(3, 3),
             strides=(1, 1),
             padding=(1, 1),
-            kernel_init=jax.nn.initializers.zeros,
+            kernel_init=jax.nn.initializers.variance_scaling(
+                scale=1e-5,
+                mode="fan_avg",
+                distribution="uniform",
+            ),
             bias_init=jax.nn.initializers.zeros,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
@@ -392,7 +396,7 @@ class AttnBlock(nn.Module):
             q_proj = nn.Dense(
                 features=inputs.shape[-1],
                 kernel_init=jax.nn.initializers.variance_scaling(
-                    scale=1.0,
+                    scale=0.2,
                     mode="fan_avg",
                     distribution="uniform",
                 ),
@@ -405,7 +409,7 @@ class AttnBlock(nn.Module):
             k_proj = nn.Dense(
                 features=inputs.shape[-1],
                 kernel_init=jax.nn.initializers.variance_scaling(
-                    scale=1.0,
+                    scale=0.2,
                     mode="fan_avg",
                     distribution="uniform",
                 ),
@@ -418,7 +422,7 @@ class AttnBlock(nn.Module):
             v_proj = nn.Dense(
                 features=inputs.shape[-1],
                 kernel_init=jax.nn.initializers.variance_scaling(
-                    scale=1.0,
+                    scale=0.2,
                     mode="fan_avg",
                     distribution="uniform",
                 ),
