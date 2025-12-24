@@ -397,6 +397,11 @@ class AttnBlock(nn.Module):
         Returns:
             Output array of shape `(*, H, W, C)`.
         """
+        batch_dims = inputs.shape[:-3]
+        height, width, channels = inputs.shape[-3:]
+        inputs = inputs.reshape(-1, height, width, channels)
+        chex.assert_rank(inputs, 4)
+        inputs = inputs.reshape(inputs.shape[0], height * width, channels)
 
         norm_in = nn.GroupNorm(
             num_groups=self.num_groups,
@@ -535,6 +540,7 @@ class AttnBlock(nn.Module):
         chex.assert_equal_shape([out, inputs])
         out = out + inputs
         out = out * self.skip_scale
+        out = out.reshape((*batch_dims, height, width, channels))
 
         return out
 
