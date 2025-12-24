@@ -1,3 +1,4 @@
+from turtle import shape
 import typing
 
 import chex
@@ -766,30 +767,28 @@ class ScoreNet(nn.Module):
         )
         skips = []
 
-        # forward pass the input convolution
-        conv_in = nn.Conv(
-            features=self.features,
-            kernel_size=(3, 3),
-            strides=(1, 1),
-            padding=(1, 1),
-            kernel_init=jax.nn.initializers.variance_scaling(
-                scale=1.0,
-                mode="fan_avg",
-                distribution="uniform",
-            ),
-            bias_init=jax.nn.initializers.zeros,
-            dtype=self.dtype,
-            name="conv_in",
-        )
-        out = conv_in(inputs)
-        skips.append(out)
-
         # forward pass the downsampling path
+        out = inputs.astype(self.dtype)
         for level, mult in enumerate(self.ch_mults):
-            out_ch = self.features * mult
-            for i in range(self.num_res_blocks):
+            if level == 0:
+                res_block = nn.Conv(
+                    features=self.features,
+                    kernel_size=(3, 3),
+                    strides=(1, 1),
+                    padding=(1, 1),
+                    kernel_init=jax.nn.initializers.variance_scaling(
+                        scale=1.0,
+                        mode="fan_avg",
+                        distribution="uniform",
+                    ),
+                    bias_init=jax.nn.initializers.zeros,
+                    dtype=self.dtype,
+                    name=f"enc_{out.shape[-3]}x{out.shape[-2]}_conv",
+                )
+                out = res_block(out)
+            else:
                 res_block = SongNetBlock(
-                    features=out_ch,
+                    features=self.features * mult,
                     num_groups=self.num_groups,
                     dropout_rate=self.dropout_rate,
                     epsilon=self.epsilon,
@@ -799,7 +798,22 @@ class ScoreNet(nn.Module):
                     dtype=self.dtype,
                     param_dtype=self.param_dtype,
                     precision=self.precision,
-                    name=f"down_resnet_{level + 1:d}_{i + 1:d}",
+                    name=f"enc_{out.shape[-3]}x{out.shape[-2]}_down",
+                )
+                out = res_block(out, cond=cond, deterministic=m_deterministic)
+            skips.append(out)
+
+            for i in range(self.num_res_blocks):
+                res_block = ResNetBlock(
+                    features=self.features * mult,
+                    num_groups=self.num_groups,
+                    dropout_rate=self.dropout_rate,
+                    epsilon=self.epsilon,
+                    skip_scale=self.skip_scale,
+                    dtype=self.dtype,
+                    param_dtype=self.param_dtype,
+                    precision=self.precision,
+                    name=f"enc_{out.shape[-3]}x{out.shape[-2]}_blk_{i + 1:d}",
                 )
                 out = res_block(
                     inputs=out,
@@ -815,52 +829,50 @@ class ScoreNet(nn.Module):
                         dtype=self.dtype,
                         param_dtype=self.param_dtype,
                         precision=self.precision,
-                        name=f"down_attn_{level + 1:d}_{i + 1:d}",
+                        name=f"attn_{out.shape[-3]}x{out.shape[-2]}_{i + 1:d}",
                     )
                     out = block(out)
                 skips.append(out)
 
-        # forward pass the middle blocks
-        block = ResNetBlock(
-            features=out.shape[-1],
-            num_groups=self.num_groups,
-            epsilon=self.epsilon,
-            skip_scale=self.skip_scale,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            precision=self.precision,
-            name="mid_resnet_1",
-        )
-        out = block(out, cond=cond, deterministic=m_deterministic)
-        block = AttnBlock(
-            num_heads=1,
-            num_groups=self.num_groups,
-            epsilon=self.epsilon,
-            skip_scale=self.skip_scale,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            precision=self.precision,
-            name="mid_attn",
-        )
-        out = block(out)
-        block = ResNetBlock(
-            features=out.shape[-1],
-            num_groups=self.num_groups,
-            epsilon=self.epsilon,
-            skip_scale=self.skip_scale,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            precision=self.precision,
-            name="mid_resnet_2",
-        )
-        out = block(out, cond=cond, deterministic=m_deterministic)
-
         # forward pass the upsampling path
         for level, mult in reversed(list(enumerate(self.ch_mults))):
             out_ch = self.features * mult
-            for i in range(self.num_res_blocks + 1):
-                skip = skips.pop()
-                out = jnp.concatenate([out, skip], axis=-1)
+            if level == len(self.ch_mults) - 1:
+                # forward pass middle blocks
+                block = ResNetBlock(
+                    features=out.shape[-1],
+                    num_groups=self.num_groups,
+                    epsilon=self.epsilon,
+                    skip_scale=self.skip_scale,
+                    dtype=self.dtype,
+                    param_dtype=self.param_dtype,
+                    precision=self.precision,
+                    name=f"dec_{out.shape[-3]}x{out.shape[-2]}_conv_in",
+                )
+                out = block(out, cond=cond, deterministic=m_deterministic)
+                block = AttnBlock(
+                    num_heads=1,
+                    num_groups=self.num_groups,
+                    epsilon=self.epsilon,
+                    skip_scale=self.skip_scale,
+                    dtype=self.dtype,
+                    param_dtype=self.param_dtype,
+                    precision=self.precision,
+                    name=f"dec_{out.shape[-3]}x{out.shape[-2]}_attn",
+                )
+                out = block(out)
+                block = ResNetBlock(
+                    features=out.shape[-1],
+                    num_groups=self.num_groups,
+                    epsilon=self.epsilon,
+                    skip_scale=self.skip_scale,
+                    dtype=self.dtype,
+                    param_dtype=self.param_dtype,
+                    precision=self.precision,
+                    name=f"dec_{out.shape[-3]}x{out.shape[-2]}_conv_out",
+                )
+                out = block(out, cond=cond, deterministic=m_deterministic)
+            else:
                 res_block = SongNetBlock(
                     features=out_ch,
                     dropout_rate=self.dropout_rate,
@@ -872,14 +884,33 @@ class ScoreNet(nn.Module):
                     dtype=self.dtype,
                     param_dtype=self.param_dtype,
                     precision=self.precision,
-                    name=f"up_resnet_{level + 1:d}_{i + 1:d}",
+                    name=f"dec_{out.shape[-3]}x{out.shape[-2]}_up",
+                )
+                out = res_block(out, cond=cond, deterministic=m_deterministic)
+
+            for i in range(self.num_res_blocks + 1):
+                skip = skips.pop()
+                out = jnp.concatenate([out, skip], axis=-1)
+                res_block = ResNetBlock(
+                    features=out_ch,
+                    num_groups=self.num_groups,
+                    dropout_rate=self.dropout_rate,
+                    epsilon=self.epsilon,
+                    skip_scale=self.skip_scale,
+                    dtype=self.dtype,
+                    param_dtype=self.param_dtype,
+                    precision=self.precision,
+                    name=f"dec_{out.shape[-3]}x{out.shape[-2]}_blk_{i + 1:d}",
                 )
                 out = res_block(
                     inputs=out,
                     cond=cond,
                     deterministic=m_deterministic,
                 )
-                if out.shape[-3] in self.attn_resolutions:
+                if (
+                    out.shape[-3] in self.attn_resolutions
+                    and i == self.num_res_blocks
+                ):
                     block = AttnBlock(
                         num_heads=1,
                         num_groups=self.num_groups,
@@ -888,7 +919,7 @@ class ScoreNet(nn.Module):
                         dtype=self.dtype,
                         param_dtype=self.param_dtype,
                         precision=self.precision,
-                        name=f"up_attn_{level + 1:d}_{i + 1:d}",
+                        name=f"attn_{out.shape[-3]}x{out.shape[-2]}_{i + 1:d}",
                     )
                     out = block(out)
 
