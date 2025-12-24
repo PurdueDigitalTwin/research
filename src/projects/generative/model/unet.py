@@ -248,7 +248,28 @@ class DownsampleBlock(nn.Module):
         )
 
         if self.resample_filter is None:
-            out = nn.avg_pool(inputs, window_shape=(2, 2), strides=(2, 2))
+            if self.with_conv:
+                out = nn.Conv(
+                    features=(
+                        self.features
+                        if self.features is not None
+                        else inputs.shape[-1]
+                    ),
+                    kernel_size=(3, 3),
+                    strides=(2, 2),
+                    padding=[(0, 1), (0, 1)],
+                    kernel_init=jax.nn.initializers.variance_scaling(
+                        scale=1.0,
+                        mode="fan_avg",
+                        distribution="uniform",
+                    ),
+                    bias_init=jax.nn.initializers.zeros,
+                    dtype=self.dtype,
+                    param_dtype=self.param_dtype,
+                    name="conv0",
+                )(inputs)
+            else:
+                out = nn.avg_pool(inputs, window_shape=(2, 2), strides=(2, 2))
         else:
             out = upfirdn2d(
                 inputs,
@@ -256,8 +277,6 @@ class DownsampleBlock(nn.Module):
                 scale=2,
                 up=False,
             )
-
-        if self.with_conv:
             out = nn.Conv(
                 features=(
                     self.features
