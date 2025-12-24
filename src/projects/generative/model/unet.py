@@ -213,6 +213,8 @@ class DownsampleBlock(nn.Module):
     Args:
         with_conv (bool, optional): If true, uses a strided convolution for
             downsampling. If `False`, uses average pooling. Default is `True`.
+        features (int, optional): Number of output features. If `None`,
+            the number of input features is used. Default is `None`.
         resample_filter (jax.Array, optional): One-dimensional FIR filter for
             resampling. If `None`, no filtering is applied. Default is `None`.
         dtype (Any, optional): The dtype of the computation.
@@ -220,6 +222,7 @@ class DownsampleBlock(nn.Module):
     """
 
     with_conv: bool = True
+    features: typing.Optional[int] = None
     resample_filter: typing.Optional[jax.Array] = None
     dtype: typing.Any = None
     param_dtype: typing.Any = None
@@ -244,24 +247,7 @@ class DownsampleBlock(nn.Module):
         )
 
         if self.resample_filter is None:
-            if self.with_conv:
-                out = nn.Conv(
-                    features=inputs.shape[-1],
-                    kernel_size=(3, 3),
-                    strides=(2, 2),
-                    padding=((0, 1), (0, 1)),
-                    kernel_init=jax.nn.initializers.variance_scaling(
-                        scale=1.0,
-                        mode="fan_avg",
-                        distribution="uniform",
-                    ),
-                    bias_init=jax.nn.initializers.zeros,
-                    dtype=self.dtype,
-                    param_dtype=self.param_dtype,
-                    name="conv0",
-                )(inputs)
-            else:
-                out = nn.avg_pool(inputs, window_shape=(2, 2), strides=(2, 2))
+            out = nn.avg_pool(inputs, window_shape=(2, 2), strides=(2, 2))
         else:
             out = upfirdn2d(
                 inputs,
@@ -269,7 +255,28 @@ class DownsampleBlock(nn.Module):
                 scale=2,
                 up=False,
             )
-        chex.assert_shape(out, (*batch_dims, *dims["hwC"]))
+
+        if self.with_conv:
+            out = nn.Conv(
+                features=(
+                    self.features
+                    if self.features is not None
+                    else inputs.shape[-1]
+                ),
+                kernel_size=(3, 3),
+                strides=(1, 1),
+                padding=(1, 1),
+                kernel_init=jax.nn.initializers.variance_scaling(
+                    scale=1.0,
+                    mode="fan_avg",
+                    distribution="uniform",
+                ),
+                bias_init=jax.nn.initializers.zeros,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                name="conv0",
+            )(out)
+        chex.assert_shape(out, (*batch_dims, *dims["hw"], out.shape[-1]))
 
         return out
 
@@ -280,6 +287,8 @@ class UpsampleBlock(nn.Module):
     Args:
         with_conv (bool, optional): If true, applies a convolution after
             upsampling. Default is `True`.
+        features (int, optional): Number of output features. If `None`,
+            the number of input features is used. Default is `None`.
         resample_filter (jax.Array, optional): One-dimensional FIR filter for
             resampling. If `None`, no filtering is applied. Default is `None`.
         dtype (Any, optional): The dtype of the computation.
@@ -288,6 +297,7 @@ class UpsampleBlock(nn.Module):
     """
 
     with_conv: bool = True
+    features: typing.Optional[int] = None
     resample_filter: typing.Optional[jax.Array] = None
     dtype: typing.Any = None
     param_dtype: typing.Any = None
@@ -320,22 +330,6 @@ class UpsampleBlock(nn.Module):
                 antialias=True,
                 precision=self.precision,
             )
-            if self.with_conv:
-                out = nn.Conv(
-                    features=inputs.shape[-1],
-                    kernel_size=(3, 3),
-                    strides=(1, 1),
-                    padding=(1, 1),
-                    kernel_init=jax.nn.initializers.variance_scaling(
-                        scale=1.0,
-                        mode="fan_avg",
-                        distribution="uniform",
-                    ),
-                    bias_init=jax.nn.initializers.zeros,
-                    dtype=self.dtype,
-                    param_dtype=self.param_dtype,
-                    name="conv0",
-                )(out)
         else:
             out = upfirdn2d(
                 inputs,
@@ -344,7 +338,28 @@ class UpsampleBlock(nn.Module):
                 up=True,
             )
 
-        chex.assert_shape(out, (*batch_dims, *dims["hwC"]))
+        if self.with_conv:
+            out = nn.Conv(
+                features=(
+                    self.features
+                    if self.features is not None
+                    else inputs.shape[-1]
+                ),
+                kernel_size=(3, 3),
+                strides=(1, 1),
+                padding=(1, 1),
+                kernel_init=jax.nn.initializers.variance_scaling(
+                    scale=1.0,
+                    mode="fan_avg",
+                    distribution="uniform",
+                ),
+                bias_init=jax.nn.initializers.zeros,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                name="conv0",
+            )(out)
+
+        chex.assert_shape(out, (*batch_dims, *dims["hw"], out.shape[-1]))
         return out
 
 
@@ -523,6 +538,158 @@ class AttnBlock(nn.Module):
         return out
 
 
+class SongNetBlock(nn.Module):
+    r"""A residual block with upsampling/downsampling used in ScoreNet.
+
+    Args:
+        features (int): Dimensionality of the latent features.
+        num_groups (int, optional): Number of groups for `GroupNorm`.
+            Default is :math:`32`.
+        epsilon (float, optional): Small float added to variance to avoid
+            dividing by zero in `GroupNorm`. Default is :math:`1e-5`.
+        deterministic (bool, optional): If true, the model is run in
+            deterministic mode (e.g., no dropout). Defaults to `None`.
+        dropout_rate (float, optional): Dropout rate. Default is :math:`0`.
+        skip_scale (float, optional): Scaling factor for the residual
+            connection output. Default is :math:`1.0`.
+        dtype (Any, optional): The dtype of the computation.
+        param_dtype (Any, optional): The dtype of the parameters.
+        precision (Any, optional): Numerical precision of the computation.
+    """
+
+    features: int
+    num_groups: int = 32
+    epsilon: float = 1e-5
+    deterministic: typing.Optional[bool] = None
+    dropout_rate: float = 0.0
+    skip_scale: float = 1.0
+    resample_filter: typing.Optional[jax.Array] = None
+    upsampling: bool = False
+    dtype: typing.Any = None
+    param_dtype: typing.Any = None
+    precision: typing.Any = None
+
+    @nn.compact
+    def __call__(
+        self,
+        inputs: jax.Array,
+        cond: typing.Optional[jax.Array] = None,
+        deterministic: typing.Optional[bool] = None,
+    ) -> jax.Array:
+        r"""Forward pass of the `ResNetBlock`.
+
+        Args:
+            inputs (jax.Array): Input array of shape `(*, H, W, C_in)`.
+            cond (Optional[jax.Array], optional): Optional conditioning array
+                of shape `(*, C_cond)`.
+            deterministic (bool, optional): If true, the model is run in
+                deterministic mode (e.g., no dropout). Defaults to `None`.
+
+        Returns:
+            Output array of shape `(*, H, W, C_out)`, where `C_out` is the
+                `features` specified during instantiation.
+        """
+        m_deterministic = nn.merge_param(
+            "deterministic",
+            self.deterministic,
+            deterministic,
+        )
+
+        norm_1 = nn.GroupNorm(
+            num_groups=self.num_groups,
+            epsilon=self.epsilon,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="norm0",
+        )
+        if self.upsampling:
+            conv_1 = UpsampleBlock(
+                with_conv=True,
+                features=self.features,
+                resample_filter=self.resample_filter,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                name="upsample",
+            )
+
+        else:
+            conv_1 = DownsampleBlock(
+                with_conv=True,
+                features=self.features,
+                resample_filter=self.resample_filter,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                name="downsample",
+            )
+        out = conv_1(jax.nn.silu(norm_1(inputs)))
+
+        if cond is not None:
+            cond_linear = nn.Dense(
+                features=self.features,
+                kernel_init=jax.nn.initializers.variance_scaling(
+                    scale=1.0,
+                    mode="fan_avg",
+                    distribution="uniform",
+                ),
+                bias_init=jax.nn.initializers.zeros,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                name="cond_in",
+            )
+            out = out + cond_linear(cond)[..., None, None, :]
+        dropout = nn.Dropout(rate=self.dropout_rate, name="dropout")
+        norm_2 = nn.GroupNorm(
+            num_groups=self.num_groups,
+            epsilon=self.epsilon,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="norm1",
+        )
+        conv_2 = nn.Conv(
+            features=self.features,
+            kernel_size=(3, 3),
+            strides=(1, 1),
+            padding=(1, 1),
+            kernel_init=jax.nn.initializers.variance_scaling(
+                scale=1e-5,
+                mode="fan_avg",
+                distribution="uniform",
+            ),
+            bias_init=jax.nn.initializers.zeros,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="conv1",
+        )
+        out = jax.nn.silu(norm_2(out))
+        out = dropout(out, deterministic=m_deterministic)
+        out = conv_2(out)
+
+        if self.upsampling:
+            conv_shortcut = UpsampleBlock(
+                with_conv=inputs.shape[-1] != self.features,
+                features=self.features,
+                resample_filter=self.resample_filter,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                name="upsample_shortcut",
+            )
+        else:
+            conv_shortcut = DownsampleBlock(
+                with_conv=inputs.shape[-1] != self.features,
+                features=self.features,
+                resample_filter=self.resample_filter,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                name="downsample_shortcut",
+            )
+        out = out + conv_shortcut(inputs)
+        out = out * self.skip_scale
+
+        return out
+
+
+# ==============================================================================
+# Network Wrapper
 class ScoreNet(nn.Module):
     r"""U-Net architecture for score-function estimation.
 
@@ -621,12 +788,14 @@ class ScoreNet(nn.Module):
         for level, mult in enumerate(self.ch_mults):
             out_ch = self.features * mult
             for i in range(self.num_res_blocks):
-                res_block = ResNetBlock(
+                res_block = SongNetBlock(
                     features=out_ch,
                     num_groups=self.num_groups,
                     dropout_rate=self.dropout_rate,
                     epsilon=self.epsilon,
                     skip_scale=self.skip_scale,
+                    resample_filter=self.resample_filter,
+                    upsampling=False,
                     dtype=self.dtype,
                     param_dtype=self.param_dtype,
                     precision=self.precision,
@@ -649,16 +818,6 @@ class ScoreNet(nn.Module):
                         name=f"down_attn_{level + 1:d}_{i + 1:d}",
                     )
                     out = block(out)
-                skips.append(out)
-            if level != len(self.ch_mults) - 1:
-                downsample = DownsampleBlock(
-                    with_conv=True,
-                    resample_filter=self.resample_filter,
-                    dtype=self.dtype,
-                    param_dtype=self.param_dtype,
-                    name=f"downsample_{level + 1:d}",
-                )
-                out = downsample(out)
                 skips.append(out)
 
         # forward pass the middle blocks
@@ -702,12 +861,14 @@ class ScoreNet(nn.Module):
             for i in range(self.num_res_blocks + 1):
                 skip = skips.pop()
                 out = jnp.concatenate([out, skip], axis=-1)
-                res_block = ResNetBlock(
+                res_block = SongNetBlock(
                     features=out_ch,
                     dropout_rate=self.dropout_rate,
                     num_groups=self.num_groups,
                     epsilon=self.epsilon,
                     skip_scale=self.skip_scale,
+                    resample_filter=self.resample_filter,
+                    upsampling=True,
                     dtype=self.dtype,
                     param_dtype=self.param_dtype,
                     precision=self.precision,
@@ -730,16 +891,6 @@ class ScoreNet(nn.Module):
                         name=f"up_attn_{level + 1:d}_{i + 1:d}",
                     )
                     out = block(out)
-            if level != 0:
-                upsample = UpsampleBlock(
-                    with_conv=True,
-                    resample_filter=self.resample_filter,
-                    dtype=self.dtype,
-                    param_dtype=self.param_dtype,
-                    precision=self.precision,
-                    name=f"upsample_{level + 1:d}",
-                )
-                out = upsample(out)
 
         # forward pass the output convolution
         norm_out = nn.GroupNorm(
