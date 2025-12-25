@@ -1,4 +1,3 @@
-from turtle import shape
 import typing
 
 import chex
@@ -847,7 +846,7 @@ class ScoreNet(nn.Module):
                 )
                 if out.shape[-3] in self.attn_resolutions:
                     block = AttnBlock(
-                        num_heads=1,
+                        num_heads=out.shape[-1] // 64,
                         num_groups=self.num_groups,
                         epsilon=self.epsilon,
                         skip_scale=self.skip_scale,
@@ -876,7 +875,7 @@ class ScoreNet(nn.Module):
                 )
                 out = block(out, cond=cond, deterministic=m_deterministic)
                 block = AttnBlock(
-                    num_heads=1,
+                    num_heads=out.shape[-1] // 64,
                     num_groups=self.num_groups,
                     epsilon=self.epsilon,
                     skip_scale=self.skip_scale,
@@ -937,7 +936,7 @@ class ScoreNet(nn.Module):
                     and i == self.num_res_blocks
                 ):
                     block = AttnBlock(
-                        num_heads=1,
+                        num_heads=out.shape[-1] // 64,
                         num_groups=self.num_groups,
                         epsilon=self.epsilon,
                         skip_scale=self.skip_scale,
