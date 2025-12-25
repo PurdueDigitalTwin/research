@@ -80,11 +80,11 @@ def test_downsample_block(with_conv: bool, dtype: typing.Any) -> None:
         inputs=test_input,
     )
     if with_conv:
-        assert "conv0" in variables["params"]
-        kernel = variables["params"]["conv0"]["kernel"]
+        assert "conv" in variables["params"]
+        kernel = variables["params"]["conv"]["kernel"]
         assert isinstance(kernel, jax.Array)
         assert kernel.shape == (3, 3, 32, 32)
-        bias = variables["params"]["conv0"]["bias"]
+        bias = variables["params"]["conv"]["bias"]
         assert isinstance(bias, jax.Array)
         assert bias.shape == (32,)
 
@@ -111,11 +111,11 @@ def test_upsample_block(with_conv: bool, dtype: typing.Any) -> None:
         inputs=test_input,
     )
     if with_conv:
-        assert "conv0" in variables["params"]
-        kernel = variables["params"]["conv0"]["kernel"]
+        assert "conv" in variables["params"]
+        kernel = variables["params"]["conv"]["kernel"]
         assert isinstance(kernel, jax.Array)
         assert kernel.shape == (3, 3, 32, 32)
-        bias = variables["params"]["conv0"]["bias"]
+        bias = variables["params"]["conv"]["bias"]
         assert isinstance(bias, jax.Array)
         assert bias.shape == (32,)
 

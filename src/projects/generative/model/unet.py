@@ -215,6 +215,8 @@ class DownsampleBlock(nn.Module):
             downsampling. If `False`, uses average pooling. Default is `True`.
         features (int, optional): Number of output features. If `None`,
             the number of input features is used. Default is `None`.
+        kernel_size (int, optional): Size of the convolutional kernel.
+            Default is `3`.
         resample_filter (jax.Array, optional): One-dimensional FIR filter for
             resampling. If `None`, no filtering is applied. Default is `None`.
         dtype (Any, optional): The dtype of the computation.
@@ -223,9 +225,11 @@ class DownsampleBlock(nn.Module):
 
     with_conv: bool = True
     features: typing.Optional[int] = None
+    kernel_size: int = 3
     resample_filter: typing.Optional[jax.Array] = None
     dtype: typing.Any = None
     param_dtype: typing.Any = None
+    precision: typing.Any = None
 
     @nn.compact
     def __call__(self, inputs: jax.Array) -> jax.Array:
@@ -245,6 +249,7 @@ class DownsampleBlock(nn.Module):
             w=inputs.shape[-2] // 2,
             C=inputs.shape[-1],
         )
+        padding = self.kernel_size // 2
 
         if self.resample_filter is None:
             if self.with_conv:
@@ -254,9 +259,9 @@ class DownsampleBlock(nn.Module):
                         if self.features is not None
                         else inputs.shape[-1]
                     ),
-                    kernel_size=(3, 3),
+                    kernel_size=(self.kernel_size, self.kernel_size),
                     strides=(2, 2),
-                    padding=[(0, 1), (0, 1)],
+                    padding=(padding, padding),
                     kernel_init=jax.nn.initializers.variance_scaling(
                         scale=1.0,
                         mode="fan_avg",
@@ -265,7 +270,7 @@ class DownsampleBlock(nn.Module):
                     bias_init=jax.nn.initializers.zeros,
                     dtype=self.dtype,
                     param_dtype=self.param_dtype,
-                    name="conv0",
+                    name="conv",
                 )(inputs)
             else:
                 out = nn.avg_pool(inputs, window_shape=(2, 2), strides=(2, 2))
@@ -282,9 +287,9 @@ class DownsampleBlock(nn.Module):
                     if self.features is not None
                     else inputs.shape[-1]
                 ),
-                kernel_size=(3, 3),
+                kernel_size=(self.kernel_size, self.kernel_size),
                 strides=(1, 1),
-                padding=(1, 1),
+                padding=(padding, padding),
                 kernel_init=jax.nn.initializers.variance_scaling(
                     scale=1.0,
                     mode="fan_avg",
@@ -293,7 +298,7 @@ class DownsampleBlock(nn.Module):
                 bias_init=jax.nn.initializers.zeros,
                 dtype=self.dtype,
                 param_dtype=self.param_dtype,
-                name="conv0",
+                name="conv",
             )(out)
         chex.assert_shape(out, (*batch_dims, *dims["hw"], out.shape[-1]))
 
@@ -308,6 +313,8 @@ class UpsampleBlock(nn.Module):
             upsampling. Default is `True`.
         features (int, optional): Number of output features. If `None`,
             the number of input features is used. Default is `None`.
+        kernel_size (int, optional): Size of the convolutional kernel.
+            Default is `3`.
         resample_filter (jax.Array, optional): One-dimensional FIR filter for
             resampling. If `None`, no filtering is applied. Default is `None`.
         dtype (Any, optional): The dtype of the computation.
@@ -317,6 +324,7 @@ class UpsampleBlock(nn.Module):
 
     with_conv: bool = True
     features: typing.Optional[int] = None
+    kernel_size: int = 3
     resample_filter: typing.Optional[jax.Array] = None
     dtype: typing.Any = None
     param_dtype: typing.Any = None
@@ -358,15 +366,16 @@ class UpsampleBlock(nn.Module):
             )
 
         if self.with_conv:
+            padding = self.kernel_size // 2
             out = nn.Conv(
                 features=(
                     self.features
                     if self.features is not None
                     else inputs.shape[-1]
                 ),
-                kernel_size=(3, 3),
+                kernel_size=(self.kernel_size, self.kernel_size),
                 strides=(1, 1),
-                padding=(1, 1),
+                padding=(padding, padding),
                 kernel_init=jax.nn.initializers.variance_scaling(
                     scale=1.0,
                     mode="fan_avg",
@@ -375,7 +384,7 @@ class UpsampleBlock(nn.Module):
                 bias_init=jax.nn.initializers.zeros,
                 dtype=self.dtype,
                 param_dtype=self.param_dtype,
-                name="conv0",
+                name="conv",
             )(out)
 
         chex.assert_shape(out, (*batch_dims, *dims["hw"], out.shape[-1]))
@@ -693,19 +702,21 @@ class SongNetBlock(nn.Module):
             conv_shortcut = UpsampleBlock(
                 with_conv=inputs.shape[-1] != self.features,
                 features=self.features,
+                kernel_size=1,
                 resample_filter=self.resample_filter,
                 dtype=self.dtype,
                 param_dtype=self.param_dtype,
-                name="upsample_shortcut",
+                name="shortcut",
             )
         else:
             conv_shortcut = DownsampleBlock(
                 with_conv=inputs.shape[-1] != self.features,
                 features=self.features,
+                kernel_size=1,
                 resample_filter=self.resample_filter,
                 dtype=self.dtype,
                 param_dtype=self.param_dtype,
-                name="downsample_shortcut",
+                name="shortcut",
             )
         out = out + conv_shortcut(inputs)
         out = out * self.skip_scale
