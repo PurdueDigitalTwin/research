@@ -458,13 +458,13 @@ class AttnBlock(nn.Module):
             key = key * scale
 
             attn_weight = jnp.einsum(
-                "bqc,bkc->bqk",
+                "...qc,...kc->...qk",
                 query,
                 key,
                 precision=self.precision,
             )
             attn_weight = jax.nn.softmax(attn_weight, axis=-1)
-            out = jnp.einsum("bqk,bvc->bqc", attn_weight, value)
+            out = jnp.einsum("...qk,...vc->...qc", attn_weight, value)
 
             out_proj = nn.Dense(
                 features=channels,
@@ -482,52 +482,35 @@ class AttnBlock(nn.Module):
                     f"Number of heads {self.num_heads} not compatible with "
                     f"input channels {inputs.shape[-1]}."
                 )
-            q_proj = nn.DenseGeneral(
-                features=(self.num_heads, head_dim),
+            qkv_proj = nn.DenseGeneral(
+                features=(self.num_heads, head_dim * 3),
                 kernel_init=jax.nn.initializers.variance_scaling(
-                    scale=1.0,
+                    scale=0.2,
                     mode="fan_avg",
                     distribution="uniform",
                 ),
                 bias_init=jax.nn.initializers.zeros,
                 dtype=self.dtype,
                 param_dtype=self.param_dtype,
-                name="q_proj",
+                name="qkv_proj",
             )
-            query = q_proj(out)
-            k_proj = nn.DenseGeneral(
-                features=(self.num_heads, head_dim),
-                kernel_init=jax.nn.initializers.variance_scaling(
-                    scale=1.0,
-                    mode="fan_avg",
-                    distribution="uniform",
-                ),
-                bias_init=jax.nn.initializers.zeros,
-                dtype=self.dtype,
-                param_dtype=self.param_dtype,
-                name="k_proj",
-            )
-            key = k_proj(out)
-            v_proj = nn.DenseGeneral(
-                features=(self.num_heads, head_dim),
-                kernel_init=jax.nn.initializers.variance_scaling(
-                    scale=1.0,
-                    mode="fan_avg",
-                    distribution="uniform",
-                ),
-                bias_init=jax.nn.initializers.zeros,
-                dtype=self.dtype,
-                param_dtype=self.param_dtype,
-                name="v_proj",
-            )
-            value = v_proj(out)
-            out = nn.dot_product_attention(
+            qkv = qkv_proj(out)
+            query, key, value = jnp.split(qkv, 3, axis=-1)
+
+            scale = 1.0 / jnp.sqrt(jnp.sqrt(head_dim).astype(self.dtype))
+            query = query * scale
+            key = key * scale
+            attn_weight = jnp.einsum(
+                "...qhd,...khd->...hqk",
                 query,
                 key,
+                precision=self.precision,
+            )
+            attn_weight = jax.nn.softmax(attn_weight, axis=-1)
+            out = jnp.einsum(
+                "...hqk,...khd->...qhd",
+                attn_weight,
                 value,
-                broadcast_dropout=False,
-                dropout_rate=0.0,
-                dtype=self.dtype,
                 precision=self.precision,
             )
             out_proj = nn.DenseGeneral(
