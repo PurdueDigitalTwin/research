@@ -490,7 +490,7 @@ class MeanFlowUNetModule(nn.Module):
             param_dtype=self.param_dtype,
             name="cond_fc_2",
         )
-        cond = cond_out(jax.nn.silu(cond_in(cond)))
+        cond = jax.nn.silu(cond_out(jax.nn.silu(cond_in(cond))))
 
         # pass through the backbone U-Net
         backbone = unet.ScoreNet(

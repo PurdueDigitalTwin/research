@@ -658,27 +658,31 @@ class SongNetBlock(nn.Module):
         out = dropout(out, deterministic=m_deterministic)
         out = conv_2(out)
 
-        if self.upsampling:
-            conv_shortcut = UpsampleBlock(
-                with_conv=inputs.shape[-1] != self.features,
-                features=self.features,
-                kernel_size=1,
-                resample_filter=self.resample_filter,
-                dtype=self.dtype,
-                param_dtype=self.param_dtype,
-                name="shortcut",
-            )
+        if inputs.shape[-3:] != out.shape[-3:]:
+            if self.upsampling:
+                conv_shortcut = UpsampleBlock(
+                    with_conv=inputs.shape[-1] != self.features,
+                    features=self.features,
+                    kernel_size=1,
+                    resample_filter=self.resample_filter,
+                    dtype=self.dtype,
+                    param_dtype=self.param_dtype,
+                    name="shortcut",
+                )
+            else:
+                conv_shortcut = DownsampleBlock(
+                    with_conv=inputs.shape[-1] != self.features,
+                    features=self.features,
+                    kernel_size=1,
+                    resample_filter=self.resample_filter,
+                    dtype=self.dtype,
+                    param_dtype=self.param_dtype,
+                    name="shortcut",
+                )
+            shortcut = conv_shortcut(inputs)
         else:
-            conv_shortcut = DownsampleBlock(
-                with_conv=inputs.shape[-1] != self.features,
-                features=self.features,
-                kernel_size=1,
-                resample_filter=self.resample_filter,
-                dtype=self.dtype,
-                param_dtype=self.param_dtype,
-                name="shortcut",
-            )
-        out = out + conv_shortcut(inputs)
+            shortcut = inputs
+        out = out + shortcut
         out = out * self.skip_scale
 
         return out
