@@ -134,7 +134,7 @@ class ResNetBlock(nn.Module):
             strides=(1, 1),
             padding=(1, 1),
             kernel_init=jax.nn.initializers.variance_scaling(
-                scale=1e-5,
+                scale=1e-10,
                 mode="fan_avg",
                 distribution="uniform",
             ),
@@ -441,63 +441,40 @@ class AttnBlock(nn.Module):
 
         if self.num_heads == 1:
             # scaled dot-product attention
-            q_proj = nn.Dense(
-                features=inputs.shape[-1],
+            qkv_proj = nn.Dense(
+                features=3 * channels,
                 kernel_init=jax.nn.initializers.variance_scaling(
-                    scale=0.2,
-                    mode="fan_avg",
-                    distribution="uniform",
+                    scale=0.2, mode="fan_avg", distribution="uniform"
                 ),
                 bias_init=jax.nn.initializers.zeros,
                 dtype=self.dtype,
                 param_dtype=self.param_dtype,
-                name="q_proj",
+                name="qkv_proj",
             )
-            query = q_proj(out)
-            k_proj = nn.Dense(
-                features=inputs.shape[-1],
-                kernel_init=jax.nn.initializers.variance_scaling(
-                    scale=0.2,
-                    mode="fan_avg",
-                    distribution="uniform",
-                ),
-                bias_init=jax.nn.initializers.zeros,
-                dtype=self.dtype,
-                param_dtype=self.param_dtype,
-                name="k_proj",
-            )
-            key = k_proj(out)
-            v_proj = nn.Dense(
-                features=inputs.shape[-1],
-                kernel_init=jax.nn.initializers.variance_scaling(
-                    scale=0.2,
-                    mode="fan_avg",
-                    distribution="uniform",
-                ),
-                bias_init=jax.nn.initializers.zeros,
-                dtype=self.dtype,
-                param_dtype=self.param_dtype,
-                name="v_proj",
-            )
-            value = v_proj(out)
-            out = nn.dot_product_attention(
-                query[..., None, :],
-                key[..., None, :],
-                value[..., None, :],
-                broadcast_dropout=False,
-                dropout_rate=0.0,
-                dtype=self.dtype,
+            qkv = qkv_proj(out)
+            query, key, value = jnp.split(qkv, 3, axis=-1)
+            scale = 1.0 / jnp.sqrt(jnp.sqrt(channels).astype(self.dtype))
+            query = query * scale
+            key = key * scale
+
+            attn_weight = jnp.einsum(
+                "bqc,bkc->bqk",
+                query,
+                key,
                 precision=self.precision,
             )
+            attn_weight = jax.nn.softmax(attn_weight, axis=-1)
+            out = jnp.einsum("bqk,bvc->bqc", attn_weight, value)
+
             out_proj = nn.Dense(
-                features=inputs.shape[-1],
+                features=channels,
                 kernel_init=jax.nn.initializers.zeros,
                 bias_init=jax.nn.initializers.zeros,
                 dtype=self.dtype,
                 param_dtype=self.param_dtype,
                 name="out_proj",
             )
-            out = out_proj(out[..., 0, :])
+            out = out_proj(out)
         else:
             head_dim = inputs.shape[-1] // self.num_heads
             if head_dim * self.num_heads != inputs.shape[-1]:
@@ -685,7 +662,7 @@ class SongNetBlock(nn.Module):
             strides=(1, 1),
             padding=(1, 1),
             kernel_init=jax.nn.initializers.variance_scaling(
-                scale=1e-5,
+                scale=1e-10,
                 mode="fan_avg",
                 distribution="uniform",
             ),
@@ -972,7 +949,11 @@ class ScoreNet(nn.Module):
             kernel_size=(3, 3),
             strides=(1, 1),
             padding=(1, 1),
-            kernel_init=jax.nn.initializers.constant(1e-5),
+            kernel_init=jax.nn.initializers.variance_scaling(
+                scale=1e-10,
+                mode="fan_avg",
+                distribution="uniform",
+            ),
             bias_init=jax.nn.initializers.zeros,
             dtype=self.dtype,
             name="conv_out",
