@@ -451,12 +451,12 @@ class MeanFlowUNetModule(nn.Module):
         cond = jnp.concatenate(emb, axis=-1)
         aug_embed = nn.Dense(
             features=cond.shape[-1],
+            use_bias=False,
             kernel_init=jax.nn.initializers.variance_scaling(
                 scale=1.0,
                 mode="fan_avg",
                 distribution="uniform",
             ),
-            bias_init=jax.nn.initializers.zeros,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
             name="aug_fc",
