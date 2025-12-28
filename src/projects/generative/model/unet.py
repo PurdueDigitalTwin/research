@@ -24,18 +24,25 @@ def upfirdn2d(
     k_pad = (k.shape[-1] - 1) // 2
 
     if up:
-        k = jnp.multiply(k, scale**2)
-        pad_beg = (k.shape[0] + scale - 2) // 2
-        pad_end = (k.shape[0] + scale - 2) - pad_beg
-        out = jax.lax.conv_general_dilated(
-            lhs=inputs,
-            lhs_dilation=(scale, scale),
-            rhs=jnp.tile(k[:, :, None, None], (1, 1, 1, channels)),
-            dimension_numbers=("NHWC", "HWIO", "NHWC"),
-            feature_group_count=channels,
-            window_strides=(1, 1),
-            padding=[(pad_beg, pad_end), (pad_beg, pad_end)],
+        k = k * (scale**2)
+
+        # NOTE: properly handle group-wise transposed convolution
+        # see https://github.com/jax-ml/jax/discussions/9887
+        def fwd(x: jax.Array) -> jax.Array:
+            return jax.lax.conv_general_dilated(
+                lhs=x,
+                rhs=jnp.tile(k[:, :, None, None], (1, 1, 1, channels)),
+                dimension_numbers=("NHWC", "HWIO", "NHWC"),
+                feature_group_count=channels,
+                window_strides=(scale, scale),
+                padding=[(k_pad, k_pad), (k_pad, k_pad)],
+            )
+
+        _placeholder = jnp.zeros(
+            (inputs.shape[0], scale * height, scale * width, channels),
+            dtype=inputs.dtype,
         )
+        out = jax.linear_transpose(fwd, _placeholder)(inputs)[0]
     else:
         out = jax.lax.conv_general_dilated(
             lhs=inputs,
