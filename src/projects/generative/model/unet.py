@@ -357,6 +357,27 @@ class UpsampleBlock(nn.Module):
                 antialias=True,
                 precision=self.precision,
             )
+            if self.with_conv:
+                padding = self.kernel_size // 2
+                out = nn.Conv(
+                    features=(
+                        self.features
+                        if self.features is not None
+                        else inputs.shape[-1]
+                    ),
+                    kernel_size=(self.kernel_size, self.kernel_size),
+                    strides=(1, 1),
+                    padding=(padding, padding),
+                    kernel_init=jax.nn.initializers.variance_scaling(
+                        scale=1.0,
+                        mode="fan_avg",
+                        distribution="uniform",
+                    ),
+                    bias_init=jax.nn.initializers.zeros,
+                    dtype=self.dtype,
+                    param_dtype=self.param_dtype,
+                    name="conv",
+                )(out)
         else:
             out = upfirdn2d(
                 inputs,
@@ -364,8 +385,6 @@ class UpsampleBlock(nn.Module):
                 scale=2,
                 up=True,
             )
-
-        if self.with_conv:
             padding = self.kernel_size // 2
             out = nn.Conv(
                 features=(
