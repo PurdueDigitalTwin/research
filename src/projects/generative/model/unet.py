@@ -61,6 +61,127 @@ def upfirdn2d(
 
 # ==============================================================================
 # Modules
+class Conv2D(nn.Module):
+    r"""Two-dimensional convolutional layer with optional up/downsampling.
+
+    Args:
+        features (int): Number of output features.
+        kernel_size (Optional[int], optional): Size of the convolutional kernel.
+            If `None`, will not apply convolution. Default is `None`.
+        use_bias (bool, optional): If `True`, uses bias in the convolution.
+            Default is `True`.
+        resample_filter (typing.Sequence[typing.Union[float, int]], optional):
+            One-dimensional FIR filter for resampling. Default is `[1, 1]`.
+        downsampling (bool, optional): If `True`, applies a `scale=2`
+            downsampling before convolution. Default is `False`.
+        upsampling (bool, optional): If `True`, applies a `scale=2`
+            upsampling before downsampling. Default is `False`.
+        init_weight (float, optional): Element-wise scaling factor for the
+            convolutional kernel initialization. Default is :math:`1.0`.
+        init_bias (float, optional): Element-wise scaling factor for the
+            convolutional bias initialization. Default is :math:`0.0`.
+        dtype (Any, optional): The dtype of the computation.
+        param_dtype (Any, optional): The dtype of the parameters.
+        precision (Any, optional): Numerical precision of the computation.
+    """
+
+    features: int
+    kernel_size: typing.Optional[int] = None
+    use_bias: bool = True
+    kernel_init: typing.Callable = jax.nn.initializers.lecun_normal()
+    bias_init: typing.Callable = jax.nn.initializers.zeros
+    resample_filter: typing.Sequence[typing.Union[float, int]] = (1, 1)
+    downsampling: bool = False
+    upsampling: bool = False
+    dtype: typing.Any = None
+    param_dtype: typing.Any = None
+    precision: typing.Any = None
+
+    @nn.compact
+    def __call__(self, inputs: jax.Array) -> jax.Array:
+        r"""Forward pass of the `Conv2D` layer.
+
+        Args:
+            inputs (jax.Array): Input array of shape `(*, H, W, C_in)`.
+
+        Returns:
+            Output array of shape `(*, H, W, C_out)` if not up/downsampling;
+                otherwise shape is `(2 * H, 2 * W)` after upsampling or
+                `(H / 2, W / 2)` after downsampling.
+        """
+        batch_dims = inputs.shape[:-3]
+        height, width, channels = inputs.shape[-3:]
+        out = inputs.reshape(-1, height, width, channels)
+
+        # preprocess the resample filter
+        f = jnp.array(self.resample_filter, dtype=out.dtype)
+        chex.assert_rank(f, 1)
+        f = jnp.outer(f, f) / jnp.sum(jnp.square(f))  # shape: [k, k]
+
+        # applies upsampling if specified
+        if self.upsampling:
+            f_pad_left = f.shape[-1] // 2
+            f_pad_right = f.shape[-1] - f_pad_left
+            out = jax.lax.conv_general_dilated(
+                lhs=out,
+                lhs_dilation=(2, 2),
+                # NOTE: for upsampling, multiply filter by 4 to preserve signal
+                rhs=jnp.tile(f[:, :, None, None] * 4, (1, 1, 1, channels)),
+                dimension_numbers=("NHWC", "HWIO", "NHWC"),
+                feature_group_count=channels,
+                window_strides=(1, 1),
+                padding=[(f_pad_left, f_pad_right), (f_pad_left, f_pad_right)],
+                precision=self.precision,
+            )
+
+        # applies downsampling if specified
+        if self.downsampling:
+            f_pad = (f.shape[-1] - 1) // 2
+            out = jax.lax.conv_general_dilated(
+                lhs=out,
+                rhs=jnp.tile(f[:, :, None, None], (1, 1, 1, channels)),
+                dimension_numbers=("NHWC", "HWIO", "NHWC"),
+                feature_group_count=channels,
+                window_strides=(2, 2),
+                padding=[(f_pad, f_pad), (f_pad, f_pad)],
+                precision=self.precision,
+            )
+
+        # applies convolution
+        if isinstance(self.kernel_size, int):
+            shp = [self.kernel_size, self.kernel_size, channels, self.features]
+            kernel = self.param(
+                "kernel",
+                self.kernel_init,
+                shp,
+                self.param_dtype,
+            )
+            padding = self.kernel_size // 2
+            out = jax.lax.conv_general_dilated(
+                lhs=out,
+                rhs=kernel,
+                window_strides=(1, 1),
+                dimension_numbers=("NHWC", "HWIO", "NHWC"),
+                padding=[(padding, padding), (padding, padding)],
+                precision=self.precision,
+            )
+            if self.use_bias:
+                shp = [self.features]
+                bias = self.param(
+                    "bias",
+                    self.bias_init,
+                    shp,
+                    self.param_dtype,
+                )
+                out = out + bias.reshape(1, 1, 1, -1)
+
+        # reshape to original batch dimensions
+        new_height, new_width = out.shape[-3], out.shape[-2]
+        out = out.reshape((*batch_dims, new_height, new_width, out.shape[-1]))
+
+        return out
+
+
 class ResNetBlock(nn.Module):
     r"""A residual downsampling block with two convolutional layers.
 
