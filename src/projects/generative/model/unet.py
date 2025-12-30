@@ -1,9 +1,88 @@
+import functools
+import math
 import typing
 
 import chex
 from flax import linen as nn
 import jax
 from jax import numpy as jnp
+
+
+# ==============================================================================
+# Initializers
+@typing.runtime_checkable
+class DefaultInitializer(typing.Protocol):
+    def __call__(
+        self,
+        key: jax.Array,
+        shape: typing.Sequence[typing.Union[int, typing.Any]],
+        dtype: typing.Any,
+        fan_in: int,
+        fan_out: int,
+    ) -> jax.Array:
+        raise NotImplementedError
+
+
+def default_init(
+    scale: float = 1.0,
+    mode: str = "xavier_uniform",
+) -> DefaultInitializer:
+    r"""Returns a parameter initializer with given scaling."""
+
+    def xavier_uniform_init(
+        key: jax.Array,
+        shape: typing.Sequence[typing.Union[int, typing.Any]],
+        dtype: typing.Any,
+        fan_in: int,
+        fan_out: int,
+    ) -> jax.Array:
+        limit = scale * jnp.sqrt(6.0 / (fan_in + fan_out))
+        sample = jax.random.uniform(key=key, shape=shape, dtype=dtype)
+        return limit * (sample * 2 - 1)
+
+    def xavier_normal_init(
+        key: jax.Array,
+        shape: typing.Sequence[typing.Union[int, typing.Any]],
+        dtype: typing.Any,
+        fan_in: int,
+        fan_out: int,
+    ) -> jax.Array:
+        std = scale * jnp.sqrt(2.0 / (fan_in + fan_out))
+        return std * jax.random.normal(key=key, shape=shape, dtype=dtype)
+
+    def kaiming_uniform_init(
+        key: jax.Array,
+        shape: typing.Sequence[typing.Union[int, typing.Any]],
+        dtype: typing.Any,
+        fan_in: int,
+        fan_out: int,
+    ) -> jax.Array:
+        del fan_out
+        limit = scale * jnp.sqrt(3.0 / fan_in)
+        sample = jax.random.uniform(key=key, shape=shape, dtype=dtype)
+        return limit * (sample * 2 - 1)
+
+    def kaiming_normal_init(
+        key: jax.Array,
+        shape: typing.Sequence[typing.Union[int, typing.Any]],
+        dtype: typing.Any,
+        fan_in: int,
+        fan_out: int,
+    ) -> jax.Array:
+        del fan_out
+        std = scale * jnp.sqrt(1.0 / fan_in)
+        return std * jax.random.normal(key=key, shape=shape, dtype=dtype)
+
+    if mode == "xavier_uniform":
+        return xavier_uniform_init
+    elif mode == "xavier_normal":
+        return xavier_normal_init
+    elif mode == "kaiming_uniform":
+        return kaiming_uniform_init
+    elif mode == "kaiming_normal":
+        return kaiming_normal_init
+    else:
+        raise ValueError(f"Unsupported initialization mode: {mode}.")
 
 
 # ==============================================================================
@@ -17,6 +96,10 @@ class Conv2D(nn.Module):
             If `None`, will not apply convolution. Default is `None`.
         use_bias (bool, optional): If `True`, uses bias in the convolution.
             Default is `True`.
+        kernel_init (Callable, optional): Kernel initializer for the
+            convolutional layer. Default is `_default_init(scale=1.0)`.
+        bias_init (Callable, optional): Bias initializer for the convolutional
+            layer. Default is `_default_init(scale=1e-10)`.
         resample_filter (typing.Sequence[typing.Union[float, int]], optional):
             One-dimensional FIR filter for resampling. Default is `[1, 1]`.
         downsampling (bool, optional): If `True`, applies a `scale=2`
@@ -35,8 +118,8 @@ class Conv2D(nn.Module):
     features: int
     kernel_size: typing.Optional[int] = None
     use_bias: bool = True
-    kernel_init: typing.Callable = jax.nn.initializers.lecun_normal()
-    bias_init: typing.Callable = jax.nn.initializers.zeros
+    kernel_init: DefaultInitializer = default_init(scale=1.0)
+    bias_init: DefaultInitializer = default_init(scale=1e-10)
     resample_filter: typing.Sequence[typing.Union[float, int]] = (1, 1)
     downsampling: bool = False
     upsampling: bool = False
@@ -102,6 +185,8 @@ class Conv2D(nn.Module):
                 self.kernel_init,
                 shp,
                 self.param_dtype,
+                channels * self.kernel_size * self.kernel_size,
+                self.features * self.kernel_size * self.kernel_size,
             )
             padding = self.kernel_size // 2
             out = jax.lax.conv_general_dilated(
@@ -119,6 +204,8 @@ class Conv2D(nn.Module):
                     self.bias_init,
                     shp,
                     self.param_dtype,
+                    channels * self.kernel_size * self.kernel_size,
+                    self.features * self.kernel_size * self.kernel_size,
                 )
                 out = out + bias.reshape(1, 1, 1, -1)
 
@@ -139,10 +226,10 @@ class AttnBlock(nn.Module):
             dividing by zero in `GroupNorm`. Default is :math:`1e-5`.
         skip_scale (float, optional): Scaling factor for the residual
             connection output. Default is :math:`1.0`.
-        kernel_init (Callable, optional): Kernel initializer for the dense
-            layers. Default is `jax.nn.initializers.lecun_normal()`.
-        bias_init (Callable, optional): Bias initializer for the dense layers.
-            Default is `jax.nn.initializers.zeros`.
+        kernel_init (DefaultInitializer, optional): Kernel initializer for the
+            dense layers. Default is `default_init(scale=1.0)`.
+        bias_init (DefaultInitializer, optional): Bias initializer for the
+            dense layers. Default is `default_init(scale=1e-10)`.
         dtype (Any, optional): The dtype of the computation.
         param_dtype (Any, optional): The dtype of the parameters.
         precision (Any, optional): Numerical precision of the computation.
@@ -152,8 +239,8 @@ class AttnBlock(nn.Module):
     num_groups: int
     epsilon: float = 1e-5
     skip_scale: float = 1.0
-    kernel_init: typing.Callable = jax.nn.initializers.lecun_normal()
-    bias_init: typing.Callable = jax.nn.initializers.zeros
+    kernel_init: DefaultInitializer = default_init(scale=1.0)
+    bias_init: DefaultInitializer = default_init(scale=1e-10)
     dtype: typing.Any = None
     param_dtype: typing.Any = None
     precision: typing.Any = None
@@ -187,8 +274,16 @@ class AttnBlock(nn.Module):
             # scaled dot-product attention
             qkv_proj = nn.Dense(
                 features=3 * channels,
-                kernel_init=self.kernel_init,
-                bias_init=self.bias_init,
+                kernel_init=functools.partial(
+                    self.kernel_init,
+                    fan_in=channels,
+                    fan_out=3 * channels,
+                ),
+                bias_init=functools.partial(
+                    self.bias_init,
+                    fan_in=channels,
+                    fan_out=3 * channels,
+                ),
                 dtype=self.dtype,
                 param_dtype=self.param_dtype,
                 name="qkv_proj",
@@ -210,8 +305,16 @@ class AttnBlock(nn.Module):
 
             out_proj = nn.Dense(
                 features=channels,
-                kernel_init=jax.nn.initializers.zeros,
-                bias_init=jax.nn.initializers.zeros,
+                kernel_init=functools.partial(
+                    self.kernel_init,
+                    fan_in=channels,
+                    fan_out=channels,
+                ),
+                bias_init=functools.partial(
+                    self.bias_init,
+                    fan_in=channels,
+                    fan_out=channels,
+                ),
                 dtype=self.dtype,
                 param_dtype=self.param_dtype,
                 name="out_proj",
@@ -226,12 +329,16 @@ class AttnBlock(nn.Module):
                 )
             qkv_proj = nn.DenseGeneral(
                 features=(self.num_heads, head_dim * 3),
-                kernel_init=jax.nn.initializers.variance_scaling(
-                    scale=0.2,
-                    mode="fan_avg",
-                    distribution="uniform",
+                kernel_init=functools.partial(
+                    self.kernel_init,
+                    fan_in=channels,
+                    fan_out=3 * channels,
                 ),
-                bias_init=jax.nn.initializers.zeros,
+                bias_init=functools.partial(
+                    self.bias_init,
+                    fan_in=channels,
+                    fan_out=3 * channels,
+                ),
                 dtype=self.dtype,
                 param_dtype=self.param_dtype,
                 name="qkv_proj",
@@ -258,8 +365,16 @@ class AttnBlock(nn.Module):
             out_proj = nn.DenseGeneral(
                 features=inputs.shape[-1],
                 axis=(-2, -1),
-                kernel_init=jax.nn.initializers.zeros,
-                bias_init=jax.nn.initializers.zeros,
+                kernel_init=functools.partial(
+                    default_init(scale=1e-5),
+                    fan_in=channels,
+                    fan_out=channels,
+                ),
+                bias_init=functools.partial(
+                    default_init(scale=1e-5),
+                    fan_in=channels,
+                    fan_out=channels,
+                ),
                 dtype=self.dtype,
                 param_dtype=self.param_dtype,
                 name="out_proj",
@@ -304,15 +419,14 @@ class EDMUNetBlock(nn.Module):
         num_heads (Optional[int], optional): Number of attention heads.
             If specified, includes an attention block at the end of the U-Net
             block. Default is `None`.
-        kernel_init_conv (Callable, optional): Kernel initializer for the
-            convolutional layers. Default is `jax.nn.initializers.lecun_normal()`.
-        bias_init_conv (Callable, optional): Bias initializer for the
-            convolutional layers. Default is `jax.nn.initializers.zeros`.
-        kernel_init_attn (Callable, optional): Kernel initializer for the
-            attention dense layers. Default is
-            `jax.nn.initializers.lecun_normal()`.
-        bias_init_attn (Callable, optional): Bias initializer for the
-            attention dense layers. Default is `jax.nn.initializers.zeros`.
+        kernel_init_conv (DefaultInitializer, optional): Kernel initializer for
+            the convolutional layers. Default is `default_init()`.
+        bias_init_conv (DefaultInitializer, optional): Bias initializer for the
+            convolutional layers. Default is `default_init()`.
+        kernel_init_attn (DefaultInitializer, optional): Kernel initializer for
+            the attention dense layers. Default is `default_init()`.
+        bias_init_attn (DefaultInitializer, optional): Bias initializer for the
+            attention dense layers. Default is `default_init()`.
         deterministic (Optional[bool], optional): If `True`, disables dropout.
             Default is `None`.
         dropout_rate (float, optional): Dropout rate applied after the
@@ -331,10 +445,10 @@ class EDMUNetBlock(nn.Module):
     skip_proj: bool = False
     skip_scale: float = 1.0
     num_heads: typing.Optional[int] = None
-    kernel_init_conv: typing.Callable = jax.nn.initializers.lecun_normal()
-    bias_init_conv: typing.Callable = jax.nn.initializers.zeros
-    kernel_init_attn: typing.Callable = jax.nn.initializers.lecun_normal()
-    bias_init_attn: typing.Callable = jax.nn.initializers.zeros
+    kernel_init_conv: DefaultInitializer = default_init()
+    bias_init_conv: DefaultInitializer = default_init()
+    kernel_init_attn: DefaultInitializer = default_init()
+    bias_init_attn: DefaultInitializer = default_init()
     deterministic: typing.Optional[bool] = None
     dropout_rate: float = 0.0
     dtype: typing.Any = None
@@ -353,7 +467,9 @@ class EDMUNetBlock(nn.Module):
         Args:
             inputs (jax.Array): Input feature map of shape `(*, Hin, Win, Cin)`.
             cond (jax.Array): Conditioning tensor of shape `(*, D)`.
-            deterministic (Optional[bool], optional): Whether to
+            deterministic (Optional[bool], optional): Whether to apply dropout.
+                It merges with the module-level `deterministic` attribute.
+                Default is `None`.
 
         Returns:
             Output feature map of shape `(*, Ho, Wo, C_out)`.
@@ -380,12 +496,19 @@ class EDMUNetBlock(nn.Module):
         out = conv_1(jax.nn.silu(norm_in(inputs.astype(self.dtype))))
 
         # integrate conditioning
+        feat = self.features * 2 if self.adaptive_scale else self.features
         affine = nn.Dense(
-            features=(
-                self.features * 2 if self.adaptive_scale else self.features
+            features=feat,
+            kernel_init=functools.partial(
+                self.kernel_init_conv,
+                fan_in=cond.shape[-1],
+                fan_out=feat,
             ),
-            kernel_init=self.kernel_init_conv,
-            bias_init=self.bias_init_conv,
+            bias_init=functools.partial(
+                self.bias_init_conv,
+                fan_in=cond.shape[-1],
+                fan_out=feat,
+            ),
             dtype=self.dtype,
             param_dtype=self.param_dtype,
             name="cond_emb",
@@ -461,5 +584,184 @@ class EDMUNetBlock(nn.Module):
                 name="attn",
             )
             out = attn_block(out)
+
+        return out
+
+
+# ==============================================================================
+# Networks
+class SongNetwork(nn.Module):
+    r"""Reimplementation of the DDPM++ and NCSN++ score network.
+
+    .. note::
+
+        This implementation is adapted from the reimplementation in the official
+        EDM PyTorch codebase:
+        `https://github.com/NVlabs/edm/blob/main/training/networks.py`.
+
+    Args:
+    """
+
+    features: int
+    channel_mult: typing.Sequence[int] = (1, 2, 2, 2)
+    resample_filter: typing.Sequence[typing.Union[float, int]] = (1, 1)
+    deterministic: typing.Optional[bool] = None
+    dropout_rate: float = 0.10
+    num_blocks: int = 4
+    attn_resolutions: typing.Sequence[int] = (16,)
+    dtype: typing.Any = None
+    param_dtype: typing.Any = None
+    precision: typing.Any = None
+
+    @nn.compact
+    def __call__(
+        self,
+        inputs: jax.Array,
+        cond: jax.Array,
+        deterministic: bool = False,
+    ) -> jax.Array:
+        r"""Forward pass of the `SongNetwork` with image and conditioning.
+
+        Args:
+            inputs (jax.Array): Input array.
+            cond (jax.Array): Conditioning array.
+            deterministic (bool, optional): Whether to apply dropout.
+                It merges with the module-level `deterministic` attribute.
+                Default is `False`.
+
+        Returns:
+            Output array.
+        """
+        height, width = inputs.shape[-3], inputs.shape[-2]
+        m_deterministic = nn.merge_param(
+            "deterministic",
+            self.deterministic,
+            deterministic,
+        )
+        _block_kwargs: typing.Dict[str, typing.Any] = dict(
+            dropout_rate=self.dropout_rate,
+            skip_scale=math.sqrt(0.5),
+            resample_filter=self.resample_filter,
+            epsilon=1e-6,
+            skip_proj=True,
+            adaptive_scale=False,
+            kernel_init_conv=default_init(),
+            bias_init_conv=default_init(),
+            kernel_init_attn=default_init(scale=math.sqrt(0.2)),
+            bias_init_attn=default_init(scale=math.sqrt(0.2)),
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            precision=self.precision,
+        )
+
+        # forward pass the downsampling encoder blocks
+        skips = []
+        out = inputs.astype(self.dtype)
+        for level, mult in enumerate(self.channel_mult):
+            h, w = height >> level, width >> level
+            if level == 0:
+                conv = Conv2D(
+                    features=self.features,
+                    kernel_size=3,
+                    kernel_init=default_init(),
+                    bias_init=default_init(),
+                    dtype=self.dtype,
+                    param_dtype=self.param_dtype,
+                    precision=self.precision,
+                    name=f"enc_{h}x{w}_conv",
+                )
+                out = conv(out)
+            else:
+                conv = EDMUNetBlock(
+                    features=out.shape[-1],
+                    downsampling=True,
+                    name=f"enc_{h}x{w}_block_down",
+                    **_block_kwargs,
+                )
+                out = conv(out, cond, deterministic=m_deterministic)
+            skips.append(out)
+
+            for idx in range(self.num_blocks):
+                block = EDMUNetBlock(
+                    features=self.features * mult,
+                    num_heads=(
+                        1
+                        if (
+                            h in self.attn_resolutions
+                            and w in self.attn_resolutions
+                        )
+                        else None
+                    ),
+                    name=f"enc_{h}x{w}_block_{idx}",
+                    **_block_kwargs,
+                )
+                out = block(out, cond, deterministic=m_deterministic)
+                skips.append(out)
+
+        # forward pass the decoder upsampling blocks
+        for level, mult in reversed(list(enumerate(self.channel_mult))):
+            h, w = height >> level, width >> level
+            if level == len(self.channel_mult) - 1:
+                # NOTE: forward pass the middle bottleneck blocks
+                conv_in = EDMUNetBlock(
+                    features=out.shape[-1],
+                    num_heads=1,
+                    name=f"dec_{h}x{w}_in_0",
+                    **_block_kwargs,
+                )
+                out = conv_in(out, cond, deterministic=m_deterministic)
+                conv_out = EDMUNetBlock(
+                    features=out.shape[-1],
+                    name=f"dec_{h}x{w}_in_1",
+                    **_block_kwargs,
+                )
+                out = conv_out(out, cond, deterministic=m_deterministic)
+            else:
+                conv = EDMUNetBlock(
+                    features=out.shape[-1],
+                    upsampling=True,
+                    name=f"dec_{h}x{w}_block_up",
+                    **_block_kwargs,
+                )
+                out = conv(out, cond, deterministic=m_deterministic)
+
+            for idx in range(self.num_blocks + 1):
+                skip = skips.pop()
+                out = jnp.concatenate([out, skip], axis=-1)
+                block = EDMUNetBlock(
+                    features=self.features * mult,
+                    num_heads=(
+                        1
+                        if (
+                            h in self.attn_resolutions
+                            and w in self.attn_resolutions
+                            and idx == self.num_blocks
+                        )
+                        else None
+                    ),
+                    name=f"dec_{h}x{w}_block_{idx}",
+                    **_block_kwargs,
+                )
+                out = block(out, cond, deterministic=m_deterministic)
+
+            if level == 0:
+                norm_out = nn.GroupNorm(
+                    num_groups=self.channel_mult[0],
+                    epsilon=1e-6,
+                    name=f"dec_{h}x{w}_norm",
+                    dtype=self.dtype,
+                    param_dtype=self.param_dtype,
+                )
+                conv_out = Conv2D(
+                    features=inputs.shape[-1],
+                    kernel_size=3,
+                    kernel_init=default_init(scale=1e-5),
+                    bias_init=default_init(scale=1e-5),
+                    dtype=self.dtype,
+                    param_dtype=self.param_dtype,
+                    precision=self.precision,
+                    name=f"dec_{h}x{w}_conv_out",
+                )
+                out = conv_out(jax.nn.silu(norm_out(out.astype(self.dtype))))
 
         return out

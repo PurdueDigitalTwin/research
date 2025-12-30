@@ -155,36 +155,36 @@ def test_edm_unet_block(dtype: typing.Any) -> None:
     assert outputs.dtype == dtype
 
 
-# @pytest.mark.parametrize("dtype", [jnp.float32, jnp.bfloat16])
-# def test_score_net(dtype: typing.Any) -> None:
-#     r"""Tests the full U-Net model for score-based generative modeling."""
-#     rng = jax.random.PRNGKey(42)
+@pytest.mark.parametrize("dtype", [jnp.float32, jnp.bfloat16])
+def test_song_network(dtype: typing.Any) -> None:
+    r"""Tests the full U-Net model for score-based generative modeling."""
+    rng = jax.random.PRNGKey(42)
 
-#     model = unet.ScoreNet(
-#         features=128,
-#         dropout_rate=0.2,
-#         dtype=dtype,
-#         param_dtype=dtype,
-#     )
-#     test_input = jnp.ones((2, 32, 32, 3), dtype=dtype)
-#     test_cond = jnp.ones((2, 16), dtype=dtype)
-#     params_rng, dropout_rng = jax.random.split(rng, num=2)
-#     variables = model.init(
-#         rngs={"params": params_rng},
-#         inputs=test_input,
-#         cond=test_cond,
-#         deterministic=True,
-#     )
-#     outputs = model.apply(
-#         variables=variables,
-#         inputs=test_input,
-#         cond=test_cond,
-#         deterministic=True,
-#         rngs={"dropout": dropout_rng},
-#     )
-#     assert isinstance(outputs, jax.Array)
-#     assert outputs.shape == (2, 32, 32, 3)
-#     assert outputs.dtype == dtype
+    model = unet.SongNetwork(
+        features=128,
+        dropout_rate=0.2,
+        dtype=dtype,
+        param_dtype=dtype,
+    )
+    test_input = jnp.ones((2, 32, 32, 3), dtype=dtype)
+    test_cond = jnp.ones((2, 16), dtype=dtype)
+    params_rng, dropout_rng = jax.random.split(rng, num=2)
+    variables = model.init(
+        rngs={"params": params_rng},
+        inputs=test_input,
+        cond=test_cond,
+        deterministic=True,
+    )
+    outputs = model.apply(
+        variables=variables,
+        inputs=test_input,
+        cond=test_cond,
+        deterministic=True,
+        rngs={"dropout": dropout_rng},
+    )
+    assert isinstance(outputs, jax.Array)
+    assert outputs.shape == (2, 32, 32, 3)
+    assert outputs.dtype == dtype
 
 
 if __name__ == "__main__":
