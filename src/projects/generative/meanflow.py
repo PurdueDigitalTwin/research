@@ -409,11 +409,8 @@ class MeanFlowUNetModule(nn.Module):
     """
 
     features: int
-    num_groups: int = 32
     dropout_rate: float = 0.0
-    epsilon: float = 1e-5
-    skip_scale: float = 1.0
-    resample_filter: typing.Optional[typing.Sequence[int]] = (1, 1)
+    resample_filter: typing.Sequence[int] = (1, 1)
     deterministic: typing.Optional[bool] = None
     dtype: typing.Any = None
     param_dtype: typing.Any = None
@@ -493,17 +490,10 @@ class MeanFlowUNetModule(nn.Module):
         cond = jax.nn.silu(cond_out(jax.nn.silu(cond_in(cond))))
 
         # pass through the backbone U-Net
-        backbone = unet.ScoreNet(
+        backbone = unet.SongNetwork(
             features=self.features,
-            num_groups=self.num_groups,
-            epsilon=self.epsilon,
             dropout_rate=self.dropout_rate,
-            skip_scale=self.skip_scale,
-            resample_filter=(
-                jnp.array(self.resample_filter)
-                if self.resample_filter is not None
-                else None
-            ),
+            resample_filter=self.resample_filter,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
             precision=self.precision,
@@ -526,9 +516,7 @@ class MeanFlowUNetModel(_model.Model):
         image_size (int): Height and width of the input images.
         features (int): Dimensionality of the latent feature map.
         dropout_rate (float): Dropout rate for the classifier-free guidance.
-        epsilon (float): Small constant for numerical stability in `GroupNorm`.
-        skip_scale (float): Scaling factor for skip connections.
-        resample_filter (Optional[Sequence[int]]): One-dimensional FIR filter
+        resample_filter (typing.Sequence[int]): One-dimensional FIR filter
             for resampling. Default is :math:`[1, 1]`.
         dtype (dtype): The dtype of the computation (default: float32).
         param_dtype (dtype): The dtype of the parameters (default: float32).
@@ -550,9 +538,7 @@ class MeanFlowUNetModel(_model.Model):
         image_size: int,
         features: int,
         dropout_rate: float,
-        epsilon: float,
-        skip_scale: float,
-        resample_filter: typing.Optional[typing.Sequence[int]] = None,
+        resample_filter: typing.Sequence[int] = [1, 1],
         dtype: typing.Any = None,
         param_dtype: typing.Any = None,
         precision: typing.Any = None,
@@ -591,9 +577,7 @@ class MeanFlowUNetModel(_model.Model):
         )
         self._network = MeanFlowUNetModule(
             features=features,
-            skip_scale=skip_scale,
             dropout_rate=dropout_rate,
-            epsilon=epsilon,
             resample_filter=resample_filter,
             name="unet",
             dtype=dtype,
