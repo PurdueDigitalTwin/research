@@ -129,159 +129,6 @@ class Conv2D(nn.Module):
         return out
 
 
-class ResNetBlock(nn.Module):
-    r"""A residual downsampling block with two convolutional layers.
-
-    Args:
-        features (int): Dimensionality of the latent features.
-        num_groups (int, optional): Number of groups for `GroupNorm`.
-            Default is :math:`32`.
-        epsilon (float, optional): Small float added to variance to avoid
-            dividing by zero in `GroupNorm`. Default is :math:`1e-5`.
-        deterministic (bool, optional): If true, the model is run in
-            deterministic mode (e.g., no dropout). Defaults to `None`.
-        dropout_rate (float, optional): Dropout rate. Default is :math:`0`.
-        skip_scale (float, optional): Scaling factor for the residual
-            connection output. Default is :math:`1.0`.
-        dtype (Any, optional): The dtype of the computation.
-        param_dtype (Any, optional): The dtype of the parameters.
-        precision (Any, optional): Numerical precision of the computation.
-    """
-
-    features: int
-    num_groups: int = 32
-    epsilon: float = 1e-5
-    deterministic: typing.Optional[bool] = None
-    dropout_rate: float = 0.0
-    skip_scale: float = 1.0
-    dtype: typing.Any = None
-    param_dtype: typing.Any = None
-    precision: typing.Any = None
-
-    def setup(self) -> None:
-        r"""Instantiates a `ResNetBlock` instance."""
-        self.norm_1 = nn.GroupNorm(
-            num_groups=self.num_groups,
-            epsilon=self.epsilon,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="norm0",
-        )
-        self.conv_1 = nn.Conv(
-            features=self.features,
-            kernel_size=(3, 3),
-            strides=(1, 1),
-            padding=(1, 1),
-            kernel_init=jax.nn.initializers.variance_scaling(
-                scale=1.0,
-                mode="fan_avg",
-                distribution="uniform",
-            ),
-            bias_init=jax.nn.initializers.zeros,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="conv0",
-        )
-        self.cond_linear = nn.Dense(
-            features=self.features,
-            kernel_init=jax.nn.initializers.variance_scaling(
-                scale=1.0,
-                mode="fan_avg",
-                distribution="uniform",
-            ),
-            bias_init=jax.nn.initializers.zeros,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="cond_in",
-        )
-        self.dropout = nn.Dropout(rate=self.dropout_rate, name="dropout")
-
-        self.norm_2 = nn.GroupNorm(
-            num_groups=self.num_groups,
-            epsilon=self.epsilon,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="norm1",
-        )
-        self.conv_2 = nn.Conv(
-            features=self.features,
-            kernel_size=(3, 3),
-            strides=(1, 1),
-            padding=(1, 1),
-            kernel_init=jax.nn.initializers.variance_scaling(
-                scale=1e-10,
-                mode="fan_avg",
-                distribution="uniform",
-            ),
-            bias_init=jax.nn.initializers.zeros,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="conv1",
-        )
-
-        self.conv_shortcut = nn.Dense(
-            features=self.features,
-            kernel_init=jax.nn.initializers.variance_scaling(
-                scale=1.0,
-                mode="fan_avg",
-                distribution="uniform",
-            ),
-            bias_init=jax.nn.initializers.zeros,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="conv_shortcut",
-        )
-
-    def __call__(
-        self,
-        inputs: jax.Array,
-        cond: typing.Optional[jax.Array] = None,
-        deterministic: typing.Optional[bool] = None,
-    ) -> jax.Array:
-        r"""Forward pass of the `ResNetBlock`.
-
-        Args:
-            inputs (jax.Array): Input array of shape `(*, H, W, C_in)`.
-            cond (Optional[jax.Array], optional): Optional conditioning array
-                of shape `(*, C_cond)`.
-            deterministic (bool, optional): If true, the model is run in
-                deterministic mode (e.g., no dropout). Defaults to `None`.
-
-        Returns:
-            Output array of shape `(*, H, W, C_out)`, where `C_out` is the
-                `features` specified during instantiation.
-        """
-        m_deterministic = nn.merge_param(
-            "deterministic",
-            self.deterministic,
-            deterministic,
-        )
-        batch_dims = inputs.shape[:-3]
-        dims = chex.Dimensions(
-            H=inputs.shape[-3],
-            W=inputs.shape[-2],
-            C=inputs.shape[-1],
-        )
-
-        out = self.conv_1(jax.nn.silu(self.norm_1(inputs)))
-
-        if cond is not None:
-            out = out + self.cond_linear(cond)[..., None, None, :]
-        out = jax.nn.silu(self.norm_2(out))
-        out = self.dropout(out, deterministic=m_deterministic)
-        out = self.conv_2(out)
-
-        if inputs.shape[-1] != self.features:
-            shortcut = self.conv_shortcut(inputs)
-        else:
-            shortcut = inputs
-        out = out + shortcut
-        out = out * self.skip_scale
-        chex.assert_shape(out, (*batch_dims, *dims["HW"], self.features))
-
-        return out
-
-
 class AttnBlock(nn.Module):
     r"""Self-attention block with group normalization in U-Net models.
 
@@ -292,6 +139,10 @@ class AttnBlock(nn.Module):
             dividing by zero in `GroupNorm`. Default is :math:`1e-5`.
         skip_scale (float, optional): Scaling factor for the residual
             connection output. Default is :math:`1.0`.
+        kernel_init (Callable, optional): Kernel initializer for the dense
+            layers. Default is `jax.nn.initializers.lecun_normal()`.
+        bias_init (Callable, optional): Bias initializer for the dense layers.
+            Default is `jax.nn.initializers.zeros`.
         dtype (Any, optional): The dtype of the computation.
         param_dtype (Any, optional): The dtype of the parameters.
         precision (Any, optional): Numerical precision of the computation.
@@ -301,6 +152,8 @@ class AttnBlock(nn.Module):
     num_groups: int
     epsilon: float = 1e-5
     skip_scale: float = 1.0
+    kernel_init: typing.Callable = jax.nn.initializers.lecun_normal()
+    bias_init: typing.Callable = jax.nn.initializers.zeros
     dtype: typing.Any = None
     param_dtype: typing.Any = None
     precision: typing.Any = None
@@ -334,10 +187,8 @@ class AttnBlock(nn.Module):
             # scaled dot-product attention
             qkv_proj = nn.Dense(
                 features=3 * channels,
-                kernel_init=jax.nn.initializers.variance_scaling(
-                    scale=0.2, mode="fan_avg", distribution="uniform"
-                ),
-                bias_init=jax.nn.initializers.zeros,
+                kernel_init=self.kernel_init,
+                bias_init=self.bias_init,
                 dtype=self.dtype,
                 param_dtype=self.param_dtype,
                 name="qkv_proj",
@@ -419,5 +270,160 @@ class AttnBlock(nn.Module):
         out = out + inputs
         out = out * self.skip_scale
         out = out.reshape((*batch_dims, height, width, channels))
+
+        return out
+
+
+class EDMUNetBlock(nn.Module):
+    r"""U-Net block used in the EDM model.
+
+    .. note::
+
+        This module is adapted from the official PyTorch implementation of EDM:
+        `https://github.com/NVlabs/edm/blob/main/training/networks.py`.
+
+    Args:
+    """
+
+    features: int
+    resample_filter: typing.Sequence[typing.Union[float, int]] = (1, 1)
+    downsampling: bool = False
+    upsampling: bool = False
+    adaptive_scale: bool = False
+    num_groups: int = 32
+    epsilon: float = 1e-5
+    skip_proj: bool = False
+    skip_scale: float = 1.0
+    num_heads: typing.Optional[int] = None
+    kernel_init_conv: typing.Callable = jax.nn.initializers.lecun_normal()
+    bias_init_conv: typing.Callable = jax.nn.initializers.zeros
+    kernel_init_attn: typing.Callable = jax.nn.initializers.lecun_normal()
+    bias_init_attn: typing.Callable = jax.nn.initializers.zeros
+    deterministic: typing.Optional[bool] = None
+    dropout_rate: float = 0.0
+    dtype: typing.Any = None
+    param_dtype: typing.Any = None
+    precision: typing.Any = None
+
+    @nn.compact
+    def __call__(
+        self,
+        inputs: jax.Array,
+        cond: jax.Array,
+        deterministic: typing.Optional[bool] = None,
+    ) -> jax.Array:
+        r"""Forward pass of the `EDMUNetBlock`.
+
+        Args:
+            inputs (jax.Array): Input feature map of shape `(*, Hin, Win, Cin)`.
+            cond (jax.Array): Conditioning tensor of shape `(*, D)`.
+            deterministic (Optional[bool], optional): Whether to
+
+        Returns:
+            Output feature map of shape `(*, Ho, Wo, C_out)`.
+        """
+        norm_in = nn.GroupNorm(
+            num_groups=self.num_groups,
+            epsilon=self.epsilon,
+            name="norm0",
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+        )
+        conv_1 = Conv2D(
+            features=self.features,
+            kernel_size=3,
+            downsampling=self.downsampling,
+            upsampling=self.upsampling,
+            resample_filter=self.resample_filter,
+            kernel_init=self.kernel_init_conv,
+            bias_init=self.bias_init_conv,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            precision=self.precision,
+        )
+        out = conv_1(jax.nn.silu(norm_in(inputs.astype(self.dtype))))
+
+        # integrate conditioning
+        affine = nn.Dense(
+            features=(
+                self.features * 2 if self.adaptive_scale else self.features
+            ),
+            kernel_init=self.kernel_init_conv,
+            bias_init=self.bias_init_conv,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="cond_emb",
+        )
+        norm_cond = nn.GroupNorm(
+            num_groups=self.num_groups,
+            epsilon=self.epsilon,
+            name="norm1",
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+        )
+        emb = affine(cond)[..., None, None, :].astype(self.dtype)
+        if self.adaptive_scale:
+            scale, shift = jnp.split(emb, 2, axis=-1)
+            out = jax.nn.silu(shift + norm_cond(out) * (1 + scale))
+        else:
+            out = jax.nn.silu(norm_cond(out + emb))
+
+        # residual convolution operation
+        m_deterministic = nn.merge_param(
+            "deterministic",
+            self.deterministic,
+            deterministic,
+        )
+        dropout = nn.Dropout(rate=self.dropout_rate, name="dropout")
+        conv_out = Conv2D(
+            features=self.features,
+            kernel_size=3,
+            kernel_init=self.kernel_init_conv,
+            bias_init=self.bias_init_conv,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            precision=self.precision,
+            name="conv1",
+        )
+        out = conv_out(dropout(out, deterministic=m_deterministic))
+        if (
+            inputs.shape[-1] != self.features
+            or self.downsampling
+            or self.upsampling
+        ):
+            conv_skip = Conv2D(
+                features=self.features,
+                kernel_size=(
+                    1
+                    if self.skip_proj or inputs.shape[-1] != self.features
+                    else None
+                ),
+                downsampling=self.downsampling,
+                upsampling=self.upsampling,
+                resample_filter=self.resample_filter,
+                kernel_init=self.kernel_init_conv,
+                bias_init=self.bias_init_conv,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                precision=self.precision,
+                name="skip_conv",
+            )
+            out = out + conv_skip(inputs.astype(self.dtype))
+        else:
+            out = out + inputs.astype(self.dtype)
+        out = out * self.skip_scale
+
+        if self.num_heads is not None:
+            attn_block = AttnBlock(
+                num_heads=self.num_heads,
+                num_groups=self.num_groups,
+                epsilon=self.epsilon,
+                skip_scale=self.skip_scale,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                precision=self.precision,
+                name="attn",
+            )
+            out = attn_block(out)
 
         return out

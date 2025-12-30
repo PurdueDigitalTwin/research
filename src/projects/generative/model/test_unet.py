@@ -95,6 +95,66 @@ def test_attn_block(num_heads: int, dtype: typing.Any) -> None:
     assert outputs.dtype == dtype
 
 
+@pytest.mark.parametrize("dtype", [jnp.float32, jnp.bfloat16])
+def test_edm_unet_block(dtype: typing.Any) -> None:
+    r"""Tests the U-Net block for score-based generative modeling."""
+    rng = jax.random.PRNGKey(42)
+
+    # test downsampling block with attention
+    block = unet.EDMUNetBlock(
+        features=64,
+        downsampling=True,
+        dropout_rate=0.2,
+        num_heads=1,
+        dtype=dtype,
+        param_dtype=dtype,
+    )
+    test_input = jnp.ones((2, 2, 32, 32, 32), dtype=dtype)
+    test_cond = jnp.ones((2, 2, 16), dtype=dtype)
+    variables = block.init(
+        rngs={"params": rng},
+        inputs=test_input,
+        cond=test_cond,
+        deterministic=True,
+    )
+    outputs = block.apply(
+        variables=variables,
+        inputs=test_input,
+        cond=test_cond,
+        deterministic=True,
+    )
+    assert isinstance(outputs, jax.Array)
+    assert outputs.shape == (2, 2, 16, 16, 64)
+    assert outputs.dtype == dtype
+
+    # test upsampling block without attention
+    block = unet.EDMUNetBlock(
+        features=64,
+        upsampling=True,
+        dropout_rate=0.2,
+        num_heads=None,
+        dtype=dtype,
+        param_dtype=dtype,
+    )
+    test_input = jnp.ones((2, 2, 16, 16, 64), dtype=dtype)
+    test_cond = jnp.ones((2, 2, 16), dtype=dtype)
+    variables = block.init(
+        rngs={"params": rng},
+        inputs=test_input,
+        cond=test_cond,
+        deterministic=True,
+    )
+    outputs = block.apply(
+        variables=variables,
+        inputs=test_input,
+        cond=test_cond,
+        deterministic=True,
+    )
+    assert isinstance(outputs, jax.Array)
+    assert outputs.shape == (2, 2, 32, 32, 64)
+    assert outputs.dtype == dtype
+
+
 # @pytest.mark.parametrize("dtype", [jnp.float32, jnp.bfloat16])
 # def test_score_net(dtype: typing.Any) -> None:
 #     r"""Tests the full U-Net model for score-based generative modeling."""
