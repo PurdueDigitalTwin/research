@@ -283,6 +283,42 @@ class EDMUNetBlock(nn.Module):
         `https://github.com/NVlabs/edm/blob/main/training/networks.py`.
 
     Args:
+        features (int): Number of output features.
+        resample_filter (typing.Sequence[typing.Union[float, int]], optional):
+            One-dimensional FIR filter for resampling. Default is `[1, 1]`.
+        downsampling (bool, optional): If `True`, applies a `scale=2`
+            downsampling at the beginning of the block. Default is `False`.
+        upsampling (bool, optional): If `True`, applies a `scale=2`
+            upsampling at the beginning of the block. Default is `False`.
+        adaptive_scale (bool, optional): If `True`, uses adaptive scaling
+            using the conditioning vector. Default is `False`.
+        num_groups (int, optional): Number of groups for `GroupNorm`.
+            Default is `32`.
+        epsilon (float, optional): Small float added to variance to avoid
+            dividing by zero in `GroupNorm`. Default is :math:`1e-5`.
+        skip_proj (bool, optional): If `True`, uses a `1x1` convolution for
+            the skip connection when the number of input and output channels
+            differ. Default is `False`.
+        skip_scale (float, optional): Scaling factor for the residual
+            connection output. Default is :math:`1.0`.
+        num_heads (Optional[int], optional): Number of attention heads.
+            If specified, includes an attention block at the end of the U-Net
+            block. Default is `None`.
+        kernel_init_conv (Callable, optional): Kernel initializer for the
+            convolutional layers. Default is `jax.nn.initializers.lecun_normal()`.
+        bias_init_conv (Callable, optional): Bias initializer for the
+            convolutional layers. Default is `jax.nn.initializers.zeros`.
+        kernel_init_attn (Callable, optional): Kernel initializer for the
+            attention dense layers. Default is
+            `jax.nn.initializers.lecun_normal()`.
+        bias_init_attn (Callable, optional): Bias initializer for the
+            attention dense layers. Default is `jax.nn.initializers.zeros`.
+        deterministic (Optional[bool], optional): If `True`, disables dropout.
+            Default is `None`.
+        dropout_rate (float, optional): Dropout rate applied after the
+            conditioning integration. Default is :math:`0.0`.
+        dtype (Any, optional): The dtype of the computation.
+        param_dtype (Any, optional): The dtype of the parameters.
     """
 
     features: int
