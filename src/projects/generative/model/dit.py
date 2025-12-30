@@ -56,8 +56,8 @@ def approx_gelu_tanh(x: jax.Array) -> jax.Array:
 
 # ==============================================================================
 # Modules
-class SelfAttention(nn.Module):
-    r"""Multi-head self-attention operator module.
+class Attention(nn.Module):
+    r"""Multi-head attention operator module.
 
     Args:
         features (int): Dimensionality of the feature space.
@@ -94,19 +94,23 @@ class SelfAttention(nn.Module):
     @nn.compact
     def __call__(
         self,
-        inputs: jax.Array,
+        query: jax.Array,
+        key_value: typing.Optional[jax.Array] = None,
         deterministic: typing.Optional[bool] = None,
         mask: typing.Optional[jax.Array] = None,
     ) -> jax.Array:
-        r"""Forward pass multi-head scaled dot-product self-attention.
+        r"""Forward pass multi-head scaled dot-product attention.
 
         Args:
-            inputs (jax.Array): Input tensor of shape `(*, L, C)`.
+            query (jax.Array): Query tensor of shape `(*, L, C)`.
+            key_value (Optional[jax.Array], optional): Key and value tensor of
+                shape `(*, S, C)`. If `None`, self-attention is performed.
+                Default is `None`.
             deterministic (bool, optional): Whether to apply dropout.
                 It merges with the module-level attribute `deterministic`.
                 Default is `None`.
             mask (Optional[jax.Array], optional): Optional attention mask of
-                shape `(*, H, L, L)`, where `H` is number of heads.
+                shape `(*, H, L, S)`, where `H` is number of heads.
                 Default is `None`.
 
         Returns:
@@ -117,18 +121,47 @@ class SelfAttention(nn.Module):
             self.deterministic,
             deterministic,
         )
-        qkv_proj = nn.Dense(
-            features=3 * self.features,
-            use_bias=self.qkv_bias,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            precision=self.precision,
-            name="attn_proj",
-        )
-        q, k, v = jnp.split(qkv_proj(inputs.astype(self.dtype)), 3, axis=-1)
-        q = self._split_heads(q)
-        k = self._split_heads(k)
-        v = self._split_heads(v)
+        if key_value is None:
+            qkv_proj = nn.Dense(
+                features=3 * self.features,
+                use_bias=self.qkv_bias,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                precision=self.precision,
+                name="attn_proj",
+            )
+            q, k, v = jnp.split(qkv_proj(query.astype(self.dtype)), 3, axis=-1)
+            q = self._split_heads(q)
+            k = self._split_heads(k)
+            v = self._split_heads(v)
+        else:
+            q_proj = nn.Dense(
+                features=self.features,
+                use_bias=self.qkv_bias,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                precision=self.precision,
+                name="query_proj",
+            )
+            k_proj = nn.Dense(
+                features=self.features,
+                use_bias=self.qkv_bias,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                precision=self.precision,
+                name="key_proj",
+            )
+            v_proj = nn.Dense(
+                features=self.features,
+                use_bias=self.qkv_bias,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                precision=self.precision,
+                name="value_proj",
+            )
+            q = self._split_heads(q_proj(query.astype(self.dtype)))
+            k = self._split_heads(k_proj(key_value.astype(self.dtype)))
+            v = self._split_heads(v_proj(key_value.astype(self.dtype)))
 
         if self.qk_norm:
             q = nn.LayerNorm(
@@ -300,7 +333,7 @@ class _DiTBlock(nn.Module):
             param_dtype=self.param_dtype,
             name="attn_norm",
         )
-        self.attn = SelfAttention(
+        self.attn = Attention(
             features=self.features,
             num_heads=self.num_heads,
             dtype=self.dtype,
@@ -323,6 +356,22 @@ class _DiTBlock(nn.Module):
             param_dtype=self.param_dtype,
             name="ffn",
         )
+        if self.block_type == "cross-attention":
+            self.norm_ca = nn.LayerNorm(
+                epsilon=1e-6,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                name="cross_attn_norm",
+            )
+            self.cross_attn = Attention(
+                features=self.features,
+                num_heads=self.num_heads,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                precision=self.precision,
+                name="cross_attn",
+            )
+
         if self.block_type == "adaLN":
             self.adaln_modulation = nn.Dense(
                 features=6 * self.features,
@@ -368,7 +417,28 @@ class _DiTBlock(nn.Module):
             out = self.mlp(out)
             out = out + skip
         elif self.block_type == "cross-attention":
-            raise NotImplementedError
+            skip = out
+            out = self.norm_1(out)
+            out = self.attn(
+                query=out,
+                key_value=cond,
+                deterministic=m_deterministic,
+            )
+            out = out + skip
+
+            skip = out
+            out = self.norm_ca(out)
+            out = self.cross_attn(
+                query=out,
+                key_value=cond[..., None, :],
+                deterministic=m_deterministic,
+            )
+            out = out + skip
+
+            skip = out
+            out = self.norm_2(out)
+            out = self.mlp(out)
+            out = out + skip
         elif self.block_type == "adaLN":
             (
                 shift_msa,
@@ -383,11 +453,12 @@ class _DiTBlock(nn.Module):
                 axis=-1,
             )
             out = out + gate_msa[..., None, :] * self.attn(
-                inputs=modulate(
+                query=modulate(
                     self.norm_1(out),
                     shift=shift_msa,
                     scale=scale_msa,
                 ),
+                key_value=None,
                 deterministic=m_deterministic,
             )
             out = out + gate_msa[..., None, :] * self.mlp(
