@@ -530,3 +530,105 @@ class DiTAdaLNBlock(_DiTBlock):
     @property
     def block_type(self) -> str:
         return "adaLN"
+
+
+class _Decoder(nn.Module):
+    r"""Final linear decoder module.
+
+    Args:
+        features (int): Dimensionality of output feature map.
+        patch_size (int): Patch size of the output feature map.
+        dtype (Any, optional): The data type of the computation.
+        param_dtype (Any, optional): The data type of the parameters.
+        precision (Any, optional): Numerical precision of the computation.
+    """
+
+    features: int
+    patch_size: int
+    dtype: typing.Any = None
+    param_dtype: typing.Any = None
+    precision: typing.Any = None
+
+    @property
+    def block_type(self) -> str:
+        r"""str: Decoder block. Either "standard" or "adaLN"."""
+        ...
+
+    @nn.compact
+    def __call__(self, inputs: jax.Array, cond: jax.Array) -> jax.Array:
+        r"""Forward pass of the decoder block.
+
+        Args:
+            inputs (jax.Array): Input tensor of shape `(*, L, C)`.
+            cond (jax.Array): Conditioning tensor of shape `(*, C)`.
+
+        Returns:
+            Output tensor of shape `(*, L, patch_size * patch_size * features)`.
+        """
+        out = inputs.astype(self.dtype)
+        norm = nn.LayerNorm(
+            epsilon=1e-6,
+            use_bias=not (self.block_type == "adaLN"),
+            use_scale=not (self.block_type == "adaLN"),
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="norm_final",
+        )
+        if self.block_type == "adaLN":
+            adaln_modulation = nn.Dense(
+                features=2 * out.shape[-1],
+                use_bias=True,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                name="adaln_modulation",
+            )
+            shift, scale = jnp.split(
+                adaln_modulation(jax.nn.silu(cond)),
+                indices_or_sections=2,
+                axis=-1,
+            )
+            out = modulate(norm(out), shift=shift, scale=scale)
+        else:
+            out = norm(out)
+        proj = nn.Dense(
+            features=self.patch_size * self.patch_size * self.features,
+            use_bias=True,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            precision=self.precision,
+            name="linear",
+        )
+        out = proj(out)
+        return out
+
+
+class StandardDecoder(_Decoder):
+    r"""Final linear decoder module with standard layer normalization.
+
+    Args:
+        features (int): Dimensionality of output feature map.
+        patch_size (int): Patch size of the output feature map.
+        dtype (Any, optional): The data type of the computation.
+        param_dtype (Any, optional): The data type of the parameters.
+        precision (Any, optional): Numerical precision of the computation.
+    """
+
+    @property
+    def block_type(self) -> str:
+        return "standard"
+
+
+class AdaLNDecoder(_Decoder):
+    r"""Final linear decoder module with adaptive layer normalization.
+
+    Args:
+        features (int): Dimensionality of output feature map.
+        patch_size (int): Patch size of the output feature map.
+        dtype (Any, optional): The data type of the computation.
+        param_dtype (Any, optional): The data type of the parameters.
+        precision (Any, optional): Numerical precision of the computation.
+    """
+
+    @property
+    def block_type(self) -> str:
+        return "adaLN"

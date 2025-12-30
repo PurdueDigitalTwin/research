@@ -146,5 +146,51 @@ def test_adaln_dit_block(dtype: typing.Any) -> None:
     assert test_output.dtype == dtype
 
 
+@pytest.mark.parametrize("dtype", [jnp.bfloat16, jnp.float32])
+def test_standard_decoder(dtype: typing.Any) -> None:
+    r"""Test the standard DiT decoder."""
+    layer = dit.StandardDecoder(
+        features=3,
+        patch_size=2,
+        dtype=dtype,
+        param_dtype=dtype,
+    )
+    test_input = jnp.ones((2, 8, 16), dtype=dtype)
+    test_cond = jnp.ones((2, 16), dtype=dtype)
+    variables = layer.init(jax.random.PRNGKey(0), test_input, cond=test_cond)
+    test_output = layer.apply(
+        variables,
+        test_input,
+        cond=test_cond,
+        rngs={"dropout": jax.random.PRNGKey(1)},
+    )
+    assert isinstance(test_output, jax.Array)
+    assert test_output.shape == (2, 8, 12)
+    assert test_output.dtype == dtype
+
+
+@pytest.mark.parametrize("dtype", [jnp.bfloat16, jnp.float32])
+def test_adaln_decoder(dtype: typing.Any) -> None:
+    r"""Test the adaptive layer norm DiT decoder."""
+    layer = dit.AdaLNDecoder(
+        features=3,
+        patch_size=2,
+        dtype=dtype,
+        param_dtype=dtype,
+    )
+    test_input = jnp.ones((2, 8, 16), dtype=dtype)
+    test_cond = jnp.ones((2, 16), dtype=dtype)
+    variables = layer.init(jax.random.PRNGKey(0), test_input, cond=test_cond)
+    test_output = layer.apply(
+        variables,
+        test_input,
+        cond=test_cond,
+        rngs={"dropout": jax.random.PRNGKey(1)},
+    )
+    assert isinstance(test_output, jax.Array)
+    assert test_output.shape == (2, 8, 12)
+    assert test_output.dtype == dtype
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main(["-xv", __file__]))
