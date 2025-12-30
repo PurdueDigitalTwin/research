@@ -578,6 +578,8 @@ class _Decoder(nn.Module):
             adaln_modulation = nn.Dense(
                 features=2 * out.shape[-1],
                 use_bias=True,
+                kernel_init=jax.nn.initializers.zeros,
+                bias_init=jax.nn.initializers.zeros,
                 dtype=self.dtype,
                 param_dtype=self.param_dtype,
                 name="adaln_modulation",
@@ -593,6 +595,8 @@ class _Decoder(nn.Module):
         proj = nn.Dense(
             features=self.patch_size * self.patch_size * self.features,
             use_bias=True,
+            kernel_init=jax.nn.initializers.zeros,
+            bias_init=jax.nn.initializers.zeros,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
             precision=self.precision,
@@ -632,3 +636,94 @@ class AdaLNDecoder(_Decoder):
     @property
     def block_type(self) -> str:
         return "adaLN"
+
+
+class PatchEmbed(nn.Module):
+    r"""Embedding module that encode 2D images into patch tokens."""
+
+    features: int
+    patch_size: int
+    flatten: bool = True
+    padding: bool = False
+    use_bias: bool = True
+    dtype: typing.Any = None
+    param_dtype: typing.Any = None
+    precision: typing.Any = None
+
+    @nn.compact
+    def __call__(self, inputs: jax.Array) -> jax.Array:
+        r"""Forward pass of the patch embedding.
+
+        Args:
+            inputs (jax.Array): Input tensor of shape `(*, H, W, C)`.
+
+        Returns:
+            Output tensor of shape `(*, N, D)`, where `N` is number of patches
+                and `D` is embedding dimension.
+        """
+        *batch_dims, height, width, channels = inputs.shape
+        out = inputs.reshape(-1, height, width, channels).astype(self.dtype)
+
+        # dynamic padding
+        if self.padding:
+            pad_h = jnp.remainder(
+                self.patch_size - height % self.patch_size,
+                self.patch_size,
+            )
+            pad_w = jnp.remainder(
+                self.patch_size - width % self.patch_size,
+                self.patch_size,
+            )
+            out = jnp.pad(
+                out,
+                ((0, 0), (0, pad_h), (0, pad_w), (0, 0)),
+            )
+        else:
+            assert height % self.patch_size == 0, (
+                f"Input height {height} is not divisible by patch size "
+                f"{self.patch_size}."
+            )
+            assert width % self.patch_size == 0, (
+                f"Input width {width} is not divisible by patch size "
+                f"{self.patch_size}."
+            )
+        proj = nn.Conv(
+            features=self.features,
+            kernel_size=(self.patch_size, self.patch_size),
+            strides=(self.patch_size, self.patch_size),
+            padding=0,
+            use_bias=self.use_bias,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            precision=self.precision,
+            name="proj",
+        )
+        out = proj(out)
+        if self.flatten:
+            out = out.reshape(*batch_dims, -1, self.features)
+        return out
+
+
+# ==============================================================================
+# Network
+class DiffusionTransformer(nn.Module):
+    r"""Diffusion Transformer (DiT) network."""
+
+    patch_size: int
+    hidden_size: int
+    depth: int
+    num_heads: int
+    ffn_ratio: int = 4
+    num_classes: int = 1_000
+    class_dropout_rate: float = 0.1
+    learn_sigma: bool = True
+
+    @nn.compact
+    def __call__(
+        self,
+        inputs: jax.Array,
+        timestamp: jax.Array,
+        label: jax.Array,
+    ) -> jax.Array:
+        r"""Forward pass of the Diffusion Transformer model."""
+        raise NotImplementedError
