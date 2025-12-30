@@ -482,7 +482,12 @@ class MeanFlowUNetModel(_model.Model):
             edm_cond=dummy_inputs["edm_cond"],
             deterministic=True,
         )
-        _tabulate_fn = nn.summary.tabulate(self.network, rngs=rngs)
+        _tabulate_fn = nn.summary.tabulate(
+            self.network,
+            depth=3,
+            rngs=rngs,
+            console_kwargs={"width": 120},
+        )
 
         # log the model summary only on process 0
         if jax.process_index() == 0:

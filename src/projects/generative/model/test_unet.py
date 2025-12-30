@@ -58,11 +58,11 @@ def test_conv2d(dtype: typing.Any) -> None:
         param_dtype=dtype,
     )
     variables = layer.init(rngs={"params": rng}, inputs=test_input)
-    assert "kernel" in variables["params"]
-    kernel = variables["params"]["kernel"]
+    assert "kernel" in variables["params"]["conv_out"]
+    kernel = variables["params"]["conv_out"]["kernel"]
     assert isinstance(kernel, jax.Array)
     assert kernel.shape == (1, 1, 3, 16)
-    bias = variables["params"]["bias"]
+    bias = variables["params"]["conv_out"]["bias"]
     assert isinstance(bias, jax.Array)
     assert bias.shape == (16,)
     outputs = layer.apply(variables=variables, inputs=test_input)

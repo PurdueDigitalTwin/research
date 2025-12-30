@@ -179,35 +179,33 @@ class Conv2D(nn.Module):
 
         # applies convolution
         if isinstance(self.kernel_size, int):
-            shp = [self.kernel_size, self.kernel_size, channels, self.features]
-            kernel = self.param(
-                "kernel",
-                self.kernel_init,
-                shp,
-                self.param_dtype,
-                channels * self.kernel_size * self.kernel_size,
-                self.features * self.kernel_size * self.kernel_size,
-            )
-            padding = self.kernel_size // 2
-            out = jax.lax.conv_general_dilated(
-                lhs=out,
-                rhs=kernel,
-                window_strides=(1, 1),
-                dimension_numbers=("NHWC", "HWIO", "NHWC"),
-                padding=[(padding, padding), (padding, padding)],
-                precision=self.precision,
-            )
-            if self.use_bias:
-                shp = [self.features]
-                bias = self.param(
-                    "bias",
+            w_pad = self.kernel_size // 2
+            conv_out = nn.Conv(
+                features=self.features,
+                kernel_size=(self.kernel_size, self.kernel_size),
+                strides=(1, 1),
+                use_bias=self.use_bias,
+                padding=[(w_pad, w_pad), (w_pad, w_pad)],
+                kernel_init=functools.partial(
+                    self.kernel_init,
+                    fan_in=channels * self.kernel_size * self.kernel_size,
+                    fan_out=self.features
+                    * self.kernel_size
+                    * self.kernel_size,
+                ),
+                bias_init=functools.partial(
                     self.bias_init,
-                    shp,
-                    self.param_dtype,
-                    channels * self.kernel_size * self.kernel_size,
-                    self.features * self.kernel_size * self.kernel_size,
-                )
-                out = out + bias.reshape(1, 1, 1, -1)
+                    fan_in=channels * self.kernel_size * self.kernel_size,
+                    fan_out=self.features
+                    * self.kernel_size
+                    * self.kernel_size,
+                ),
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                precision=self.precision,
+                name="conv_out",
+            )
+            out = conv_out(out)
 
         # reshape to original batch dimensions
         new_height, new_width = out.shape[-3], out.shape[-2]
