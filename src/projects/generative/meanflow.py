@@ -1,6 +1,6 @@
+import functools
 import typing
 
-import chex
 from flax import linen as nn
 from flax.core import frozen_dict
 import jax
@@ -226,169 +226,6 @@ class TimestampEmbed(nn.Module):
         return embedding
 
 
-class ConditionEmbed(nn.Module):
-    """Encode integer class labels to vectors.
-
-    Attributes:
-        features (int): Dimensionality of the output embeddings.
-        num_classes (int): Number of classes.
-        use_cfg_embedding (bool): Whether to use classifier-free guidance (CFG).
-        deterministic (Optional[bool]): Whether to run deterministically.
-        dropout_rate (float): Dropout rate for the classifier-free guidance.
-        dtype (dtype): The dtype of the computation (default: float32).
-        param_dtype (dtype): The dtype of the parameters (default: float32).
-    """
-
-    features: int
-    """int: Dimensionality of the output embeddings."""
-    num_classes: int
-    """int: Number of unique classes."""
-    use_cfg_embedding: bool = False
-    """bool: Whether to use classifier-free guidance (CFG) embedding."""
-    deterministic: typing.Optional[bool] = False
-    """Optional[bool]: Whether to run deterministically."""
-    dropout_rate: float = 0.0
-    """float: Dropout rate for the classifier-free guidance."""
-    dtype: typing.Any = jnp.float32
-    """typing.Any: The dtype of the computation."""
-    param_dtype: typing.Any = jnp.float32
-    """typing.Any: The dtype of the parameters."""
-
-    def setup(self) -> None:
-        """Instantiate a `ConditionEmbed` module."""
-        self.class_emb = nn.Embed(
-            num_embeddings=self.num_classes + int(self.use_cfg_embedding),
-            features=self.features,
-            name="embedding_table",
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            embedding_init=jax.nn.initializers.normal(stddev=0.02),
-        )
-
-    def __call__(
-        self,
-        cond: jax.Array,
-        deterministic: typing.Optional[bool] = None,
-    ) -> jax.Array:
-        """Forward pass the condition encoder.
-
-        Args:
-            cond (jax.Array): Integer class labels of shape `(*, )`.
-            deterministic (bool, optional): Whether to run deterministically.
-
-        Returns:
-            jax.Array: Condition embeddings of shape `(..., features)`.
-        """
-        m_deterministic = nn.merge_param(
-            "deterministic",
-            self.deterministic,
-            deterministic,
-        )
-
-        if self.use_cfg_embedding and not m_deterministic:
-            raise NotImplementedError(
-                "Classifier-free guidance is not implemented yet."
-            )
-
-        embedding = self.class_emb(cond)
-        return embedding
-
-    @staticmethod
-    def _drop_token(
-        cond: jax.Array,
-        dropout_rate: float,
-        rng: jax.Array,
-    ) -> jax.Array:
-        """Drops class tokens for classifier-free guidance."""
-        raise NotImplementedError("This method is not yet implemented.")
-
-
-class ConditionalInstanceNorm(nn.Module):
-    """Instance normalization with conditional inputs."""
-
-    features: int
-    """int: Dimensionality of the feature map."""
-    use_bias: bool = True
-    """bool: Whether to use bias in the normalization."""
-    dtype: typing.Any = jnp.float32
-    """typing.Any: The dtype of the computation."""
-    param_dtype: typing.Any = jnp.float32
-    """typing.Any: The dtype of the parameters."""
-
-    def setup(self) -> None:
-        """Instantiate a `ConditionalInstanceNorm` module."""
-        self.instance_norm = nn.LayerNorm(
-            reduction_axes=(-3, -2),
-            feature_axes=-1,
-            use_bias=False,
-            use_scale=False,
-            epsilon=1e-5,
-            name="instance_norm",
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-        )
-        if self.use_bias:
-            self.embed = nn.Dense(
-                features=3 * self.features,
-                use_bias=False,
-                kernel_init=jax.nn.initializers.variance_scaling(
-                    scale=0.02,
-                    mode="fan_in",
-                    distribution="uniform",
-                ),
-                name="embed",
-                dtype=self.dtype,
-                param_dtype=self.param_dtype,
-            )
-        else:
-            self.embed = nn.Dense(
-                features=2 * self.features,
-                use_bias=False,
-                kernel_init=jax.nn.initializers.variance_scaling(
-                    scale=0.02,
-                    mode="fan_in",
-                    distribution="uniform",
-                ),
-                name="embed",
-                dtype=self.dtype,
-                param_dtype=self.param_dtype,
-            )
-
-    def __call__(self, inputs: jax.Array, cond: jax.Array) -> jax.Array:
-        """Forward pass the conditional instance normalization.
-
-        Args:
-            inputs (jax.Array): Input feature map of shape `(*, H, W, C)`.
-            cond (jax.Array): Conditioning embeddings of shape `(*, C)`.
-
-        Returns:
-            jax.Array: The normalized feature map of shape `(*, H, W, C)`.
-        """
-        means = jnp.mean(inputs, axis=(-3, -2), keepdims=False)
-        m = jnp.mean(means, axis=-1, keepdims=True)
-        v = jnp.var(means, axis=-1, keepdims=True)
-        means = jnp.true_divide(means - m, jnp.sqrt(v + 1e-5))
-        means = means[..., None, None, :]
-        h = self.instance_norm(inputs)
-
-        if self.use_bias:
-            gamma, alpha, beta = jnp.split(self.embed(cond), 3, axis=-1)
-            gamma = gamma[..., None, None, :]
-            alpha = alpha[..., None, None, :]
-            beta = beta[..., None, None, :]
-            chex.assert_equal_rank((h, gamma, alpha, beta))
-            h = h + means * alpha
-            output = h * gamma + beta
-        else:
-            gamma, alpha = jnp.split(self.embed(cond), 2, axis=-1)
-            gamma = gamma[..., None, None, :]
-            alpha = alpha[..., None, None, :]
-            chex.assert_equal_rank((h, gamma, alpha))
-            output = gamma * h + means * alpha
-
-        return output
-
-
 # ==============================================================================
 # Main modules
 # ==============================================================================
@@ -446,52 +283,63 @@ class MeanFlowUNetModule(nn.Module):
         time_embed = SinusoidalEmbed(self.features * 2, endpoint=True)
         emb = [time_embed(time) for time in timestamps]
         cond = jnp.concatenate(emb, axis=-1)
-        aug_embed = nn.Dense(
-            features=cond.shape[-1],
-            use_bias=False,
-            kernel_init=jax.nn.initializers.variance_scaling(
-                scale=1.0,
-                mode="fan_avg",
-                distribution="uniform",
-            ),
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="aug_fc",
-        )
+
         if edm_cond is not None:
+            aug_embed = nn.Dense(
+                features=cond.shape[-1],
+                use_bias=False,
+                kernel_init=functools.partial(
+                    unet.default_init(),
+                    fan_in=edm_cond.shape[-1],
+                    fan_out=cond.shape[-1],
+                ),
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                name="aug_fc",
+            )
             aug_cond = aug_embed(edm_cond)
             cond = cond + aug_cond
 
         # projects the conditioning embeddings
         cond_in = nn.Dense(
             features=self.features * 4,
-            kernel_init=jax.nn.initializers.variance_scaling(
-                scale=1.0,
-                mode="fan_avg",
-                distribution="uniform",
+            kernel_init=functools.partial(
+                unet.default_init(),
+                fan_in=cond.shape[-1],
+                fan_out=self.features * 4,
             ),
-            bias_init=jax.nn.initializers.zeros,
+            bias_init=functools.partial(
+                unet.default_init(),
+                fan_in=cond.shape[-1],
+                fan_out=self.features * 4,
+            ),
             dtype=self.dtype,
             param_dtype=self.param_dtype,
             name="cond_fc_1",
         )
+        cond = jax.nn.silu(cond_in(cond))
         cond_out = nn.Dense(
             features=self.features * 4,
-            kernel_init=jax.nn.initializers.variance_scaling(
-                scale=1.0,
-                mode="fan_avg",
-                distribution="uniform",
+            kernel_init=functools.partial(
+                unet.default_init(),
+                fan_in=cond.shape[-1],
+                fan_out=self.features * 4,
             ),
-            bias_init=jax.nn.initializers.zeros,
+            bias_init=functools.partial(
+                unet.default_init(),
+                fan_in=cond.shape[-1],
+                fan_out=self.features * 4,
+            ),
             dtype=self.dtype,
             param_dtype=self.param_dtype,
             name="cond_fc_2",
         )
-        cond = jax.nn.silu(cond_out(jax.nn.silu(cond_in(cond))))
+        cond = jax.nn.silu(cond_out(cond))
 
         # pass through the backbone U-Net
         backbone = unet.SongNetwork(
             features=self.features,
+            channel_mult=[2, 2, 2],
             dropout_rate=self.dropout_rate,
             resample_filter=self.resample_filter,
             dtype=self.dtype,
