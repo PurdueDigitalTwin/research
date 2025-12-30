@@ -213,5 +213,40 @@ def test_patch_embed(dtype: typing.Any) -> None:
     assert test_output.dtype == dtype
 
 
+@pytest.mark.parametrize("dtype", [jnp.bfloat16, jnp.float32])
+def test_dit(dtype: typing.Any) -> None:
+    r"""Test the DiT generative model."""
+    layer = dit.DiffusionTransformer(
+        features=16,
+        depth=2,
+        num_heads=4,
+        ffn_ratio=4,
+        patch_size=4,
+        dtype=dtype,
+        param_dtype=dtype,
+    )
+    test_input = jnp.ones((2, 32, 32, 4), dtype=dtype)
+    test_timestamp = jnp.ones((2,), dtype=dtype)
+    test_label = jnp.ones((2,), dtype=jnp.int32)
+    variables = layer.init(
+        jax.random.PRNGKey(0),
+        test_input,
+        timestamp=test_timestamp,
+        label=test_label,
+        deterministic=True,
+    )
+    test_output = layer.apply(
+        variables,
+        test_input,
+        timestamp=test_timestamp,
+        label=test_label,
+        deterministic=False,
+        rngs={"dropout": jax.random.PRNGKey(1)},
+    )
+    assert isinstance(test_output, jax.Array)
+    assert test_output.shape == (2, 64, 16)
+    assert test_output.dtype == dtype
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main(["-xv", __file__]))

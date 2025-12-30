@@ -639,7 +639,21 @@ class AdaLNDecoder(_Decoder):
 
 
 class PatchEmbed(nn.Module):
-    r"""Embedding module that encode 2D images into patch tokens."""
+    r"""Embedding module that encode 2D images into patch tokens.
+
+    Args:
+        features (int): Dimensionality of the embedding.
+        patch_size (int): Patch size for encoding 2D images.
+        flatten (bool, optional): Whether to flatten the output patches.
+            Default is `True`.
+        padding (bool, optional): Whether to apply dynamic padding to input
+            images. Default is `False`.
+        use_bias (bool, optional): Whether to use bias in the convolutional
+            projection. Default is `True`.
+        dtype (Any, optional): The data type of the computation.
+        param_dtype (Any, optional): The data type of the parameters.
+        precision (Any, optional): Numerical precision of the computation.
+    """
 
     features: int
     patch_size: int
@@ -687,36 +701,68 @@ class PatchEmbed(nn.Module):
                 f"Input width {width} is not divisible by patch size "
                 f"{self.patch_size}."
             )
+
+        # encoding and reshaping
         proj = nn.Conv(
             features=self.features,
             kernel_size=(self.patch_size, self.patch_size),
             strides=(self.patch_size, self.patch_size),
             padding=0,
             use_bias=self.use_bias,
+            kernel_init=jax.nn.initializers.xavier_uniform(),
+            bias_init=jax.nn.initializers.zeros,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
             precision=self.precision,
             name="proj",
         )
         out = proj(out)
+
         if self.flatten:
             out = out.reshape(*batch_dims, -1, self.features)
+        else:
+            out = jnp.reshape(
+                out,
+                (*batch_dims, out.shape[-3], out.shape[-2], self.features),
+            )
+
         return out
 
 
 # ==============================================================================
 # Network
 class DiffusionTransformer(nn.Module):
-    r"""Diffusion Transformer (DiT) network."""
+    r"""Diffusion Transformer (DiT) network.
 
+    Args:
+        features (int): Dimensionality of the latent feature map.
+        patch_size (int): Patch size for encoding 2D images.
+        depth (int): Number of Transformer blocks.
+        num_heads (int): Number of attention heads.
+        ffn_ratio (int, optional): Expansion ratio of the hidden layer.
+            Default is `4`.
+        num_classes (int, optional): Number of classes for class-conditional
+            diffusion. Default is `1_000`.
+        class_dropout_rate (float, optional): Dropout rate for class
+            conditioning. Default is `0.1`.
+        learn_sigma (bool, optional): Whether to learn predicting noise scale.
+            Default is `True`.
+        dtype (Any, optional): The data type of the computation.
+        param_dtype (Any, optional): The data type of the parameters.
+        precision (Any, optional): Numerical precision of the computation.
+    """
+
+    features: int
     patch_size: int
-    hidden_size: int
     depth: int
     num_heads: int
     ffn_ratio: int = 4
     num_classes: int = 1_000
     class_dropout_rate: float = 0.1
     learn_sigma: bool = True
+    dtype: typing.Any = None
+    param_dtype: typing.Any = None
+    precision: typing.Any = None
 
     @nn.compact
     def __call__(
@@ -724,6 +770,22 @@ class DiffusionTransformer(nn.Module):
         inputs: jax.Array,
         timestamp: jax.Array,
         label: jax.Array,
+        deterministic: typing.Optional[bool] = None,
     ) -> jax.Array:
         r"""Forward pass of the Diffusion Transformer model."""
-        raise NotImplementedError
+
+        # patch embedding
+        patch_embed = PatchEmbed(
+            features=self.features,
+            patch_size=self.patch_size,
+            flatten=True,
+            padding=False,
+            use_bias=True,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            precision=self.precision,
+            name="patch_embed",
+        )
+        out = patch_embed(inputs.astype(self.dtype))
+
+        return out
