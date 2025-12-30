@@ -144,38 +144,42 @@ class Conv2D(nn.Module):
         out = inputs.reshape(-1, height, width, channels)
 
         # preprocess the resample filter
-        f = jnp.array(self.resample_filter, dtype=out.dtype)
-        chex.assert_rank(f, 1)
-        f = jnp.outer(f, f) / jnp.sum(jnp.square(f))  # shape: [k, k]
+        if self.upsampling or self.downsampling:
+            f = jnp.array(self.resample_filter, dtype=out.dtype)
+            chex.assert_rank(f, 1)
+            f = jnp.outer(f, f) / jnp.sum(jnp.square(f))  # shape: [k, k]
 
-        # applies upsampling if specified
-        if self.upsampling:
-            f_pad_left = f.shape[-1] // 2
-            f_pad_right = f.shape[-1] - f_pad_left
-            out = jax.lax.conv_general_dilated(
-                lhs=out,
-                lhs_dilation=(2, 2),
-                # NOTE: for upsampling, multiply filter by 4 to preserve signal
-                rhs=jnp.tile(f[:, :, None, None] * 4, (1, 1, 1, channels)),
-                dimension_numbers=("NHWC", "HWIO", "NHWC"),
-                feature_group_count=channels,
-                window_strides=(1, 1),
-                padding=[(f_pad_left, f_pad_right), (f_pad_left, f_pad_right)],
-                precision=self.precision,
-            )
+            # applies upsampling if specified
+            if self.upsampling:
+                f_pad_left = f.shape[-1] // 2
+                f_pad_right = f.shape[-1] - f_pad_left
+                out = jax.lax.conv_general_dilated(
+                    lhs=out,
+                    lhs_dilation=(2, 2),
+                    # NOTE: for upsampling, multiply filter by 4
+                    rhs=jnp.tile(f[:, :, None, None] * 4, (1, 1, 1, channels)),
+                    dimension_numbers=("NHWC", "HWIO", "NHWC"),
+                    feature_group_count=channels,
+                    window_strides=(1, 1),
+                    padding=[
+                        (f_pad_left, f_pad_right),
+                        (f_pad_left, f_pad_right),
+                    ],
+                    precision=self.precision,
+                )
 
-        # applies downsampling if specified
-        if self.downsampling:
-            f_pad = (f.shape[-1] - 1) // 2
-            out = jax.lax.conv_general_dilated(
-                lhs=out,
-                rhs=jnp.tile(f[:, :, None, None], (1, 1, 1, channels)),
-                dimension_numbers=("NHWC", "HWIO", "NHWC"),
-                feature_group_count=channels,
-                window_strides=(2, 2),
-                padding=[(f_pad, f_pad), (f_pad, f_pad)],
-                precision=self.precision,
-            )
+            # applies downsampling if specified
+            if self.downsampling:
+                f_pad = (f.shape[-1] - 1) // 2
+                out = jax.lax.conv_general_dilated(
+                    lhs=out,
+                    rhs=jnp.tile(f[:, :, None, None], (1, 1, 1, channels)),
+                    dimension_numbers=("NHWC", "HWIO", "NHWC"),
+                    feature_group_count=channels,
+                    window_strides=(2, 2),
+                    padding=[(f_pad, f_pad), (f_pad, f_pad)],
+                    precision=self.precision,
+                )
 
         # applies convolution
         if isinstance(self.kernel_size, int):
