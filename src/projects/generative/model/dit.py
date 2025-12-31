@@ -667,6 +667,11 @@ class _Decoder(nn.Module):
             name="linear",
         )
         out = proj(out)
+        chex.assert_shape(
+            out,
+            (*inputs.shape[:-1], self.patch_size**2 * self.features),
+        )
+
         return out
 
 
@@ -993,6 +998,8 @@ class DiffusionTransformer(nn.Module):
             conditioning. Default is `0.1`.
         learn_sigma (bool, optional): Whether to learn predicting noise scale.
             Default is `True`.
+        block_type (str, optional): Type of DiT block. One of
+            `['in-context', 'cross-attention', 'adaLN']`. Default is `'adaLN'`.
         dtype (Any, optional): The data type of the computation.
         param_dtype (Any, optional): The data type of the parameters.
         precision (Any, optional): Numerical precision of the computation.
@@ -1006,6 +1013,7 @@ class DiffusionTransformer(nn.Module):
     num_classes: int = 1_000
     class_dropout_rate: float = 0.1
     learn_sigma: bool = True
+    block_type: str = "adaLN"
     dtype: typing.Any = None
     param_dtype: typing.Any = None
     precision: typing.Any = None
@@ -1061,5 +1069,78 @@ class DiffusionTransformer(nn.Module):
             name="y_embed",
         )(labels=labels, deterministic=deterministic)
         chex.assert_equal_shape([y_embed, out[..., 0, :]])
+
+        # forward pass a cascade of DiT blocks
+        cond = t_embed + y_embed
+        for i in range(self.depth):
+            if self.block_type == "in-context":
+                block = DiTConditioningBlock(
+                    features=self.features,
+                    num_heads=self.num_heads,
+                    ffn_ratio=self.ffn_ratio,
+                    dtype=self.dtype,
+                    param_dtype=self.param_dtype,
+                    precision=self.precision,
+                    name=f"dit_block_{i}",
+                )
+            elif self.block_type == "cross-attention":
+                block = DiTCrossAttentionBlock(
+                    features=self.features,
+                    num_heads=self.num_heads,
+                    ffn_ratio=self.ffn_ratio,
+                    dtype=self.dtype,
+                    param_dtype=self.param_dtype,
+                    precision=self.precision,
+                    name=f"dit_block_{i}",
+                )
+            elif self.block_type == "adaLN":
+                block = DiTAdaLNBlock(
+                    features=self.features,
+                    num_heads=self.num_heads,
+                    ffn_ratio=self.ffn_ratio,
+                    dtype=self.dtype,
+                    param_dtype=self.param_dtype,
+                    precision=self.precision,
+                    name=f"dit_block_{i}",
+                )
+            else:
+                raise ValueError(
+                    f"Invalid block_type '{self.block_type}'. Must be one of "
+                    "'in-context', 'cross-attention', or 'adaLN'."
+                )
+            out = block(
+                inputs=out,
+                cond=cond,
+                deterministic=deterministic,
+            )
+
+        # final decoder
+        if self.block_type == "adaLN":
+            decoder = AdaLNDecoder(
+                features=(
+                    inputs.shape[-1] * 2
+                    if self.learn_sigma
+                    else inputs.shape[-1]
+                ),
+                patch_size=self.patch_size,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                precision=self.precision,
+                name="decoder",
+            )
+        else:
+            decoder = StandardDecoder(
+                features=(
+                    inputs.shape[-1] * 2
+                    if self.learn_sigma
+                    else inputs.shape[-1]
+                ),
+                patch_size=self.patch_size,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                precision=self.precision,
+                name="decoder",
+            )
+        out = decoder(out, cond=cond)
 
         return out

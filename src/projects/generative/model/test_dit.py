@@ -245,6 +245,7 @@ def test_dit(dtype: typing.Any) -> None:
         num_heads=4,
         ffn_ratio=4,
         patch_size=4,
+        block_type="adaLN",
         dtype=dtype,
         param_dtype=dtype,
     )
@@ -267,7 +268,7 @@ def test_dit(dtype: typing.Any) -> None:
         rngs={"dropout": jax.random.PRNGKey(1)},
     )
     assert isinstance(test_output, jax.Array)
-    assert test_output.shape == (2, 64, 16)
+    assert test_output.shape == (2, 64, 128)
     assert test_output.dtype == dtype
 
 
