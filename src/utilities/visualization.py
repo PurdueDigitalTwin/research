@@ -38,7 +38,7 @@ def make_grid(
         left = col * (w + padding)
         out = out.at[top : top + h, left : left + w].set(img)
 
-        if idx + 1 >= n_rows * n_cols:
+        if idx + 1 > n_rows * n_cols:
             logging.rank_zero_warning(
                 "Number of images exceed grid capacity; "
                 + "only the first %d images are used.",
