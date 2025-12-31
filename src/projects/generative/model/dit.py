@@ -793,6 +793,101 @@ class PatchEmbed(nn.Module):
         return out
 
 
+class TimestampEmbed(nn.Module):
+    r"""Embedding module to encode scalar diffusion timesteps.
+
+    Args:
+        features (int): Dimensionality of the embedding.
+        frequency_embedding_size (int, optional): Dimensionality of the
+            sinusoidal frequency embedding. Default is `256`.
+        dtype (Any, optional): The data type of the computation.
+        param_dtype (Any, optional): The data type of the parameters.
+    """
+
+    features: int
+    frequency_embedding_size: int = 256
+    dtype: typing.Any = None
+    param_dtype: typing.Any = None
+
+    @nn.compact
+    def __call__(self, timesteps: jax.Array) -> jax.Array:
+        r"""Forward pass of the timestamp embedding.
+
+        Args:
+            timesteps (jax.Array): One-dimensional timestamps of shape `(B,)`.
+
+        Returns:
+            Positional embeddings of shape `(B, D)`, where `D` is the
+                dimensionality of the embedding.
+        """
+        # sinusoidal positional embedding
+        out = self.sinusoidal_embedding(
+            timesteps=timesteps,
+            features=self.frequency_embedding_size,
+        )
+        out = out.astype(self.dtype)
+
+        # feed-forward network
+        fc_proj = nn.Dense(
+            features=self.features,
+            use_bias=True,
+            kernel_init=jax.nn.initializers.normal(stddev=0.02),
+            bias_init=jax.nn.initializers.zeros,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="fc_proj",
+        )
+        out = jax.nn.silu(fc_proj(out))
+        fc_out = nn.Dense(
+            features=self.features,
+            use_bias=True,
+            kernel_init=jax.nn.initializers.normal(stddev=0.02),
+            bias_init=jax.nn.initializers.zeros,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="fc_out",
+        )
+        out = fc_out(out)
+
+        return out
+
+    @staticmethod
+    def sinusoidal_embedding(
+        timesteps: jax.Array,
+        features: int,
+        max_length: int = 10_000,
+    ) -> jax.Array:
+        r"""Generates sinusoidal embeddings for the given timesteps.
+
+        Args:
+            timesteps (jax.Array): One-dimensional timestamps of shape `(B,)`.
+            features (int): Dimensionality of the embedding.
+            max_length (int, optional): Maximum length for frequency scaling.
+                Default is `10_000`.
+
+        Returns:
+            Positional embeddings of shape `(B, features)`.
+        """
+        half_dim = features // 2
+        freqs = jnp.exp(
+            -jnp.log(max_length)
+            * jnp.arange(start=0, stop=half_dim, dtype=jnp.float32)
+            / half_dim
+        )
+        embed = timesteps[:, None] * freqs[None, :]
+        out = jnp.concatenate([jnp.cos(embed), jnp.sin(embed)], axis=-1)
+
+        if features % 2 == 1:
+            out = jnp.pad(
+                out,
+                ((0, 0), (0, 1)),
+                mode="constant",
+                constant_values=0.0,
+            )
+
+        return out
+
+
 # ==============================================================================
 # Network
 class DiffusionTransformer(nn.Module):
@@ -859,5 +954,14 @@ class DiffusionTransformer(nn.Module):
             num_extra_tokens=0,
         )
         out = out + pos_emb[None, :, :].astype(self.dtype)
+
+        # timestamp embedding
+        t_embed = TimestampEmbed(
+            features=self.features,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="t_embed",
+        )(timestamp)
+        chex.assert_equal_shape([t_embed, out[..., 0, :]])
 
         return out
