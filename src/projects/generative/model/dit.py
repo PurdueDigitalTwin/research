@@ -1115,13 +1115,10 @@ class DiffusionTransformer(nn.Module):
             )
 
         # final decoder
+        dim = (inputs.shape[-1] * 2) if self.learn_sigma else inputs.shape[-1]
         if self.block_type == "adaLN":
             decoder = AdaLNDecoder(
-                features=(
-                    inputs.shape[-1] * 2
-                    if self.learn_sigma
-                    else inputs.shape[-1]
-                ),
+                features=dim,
                 patch_size=self.patch_size,
                 dtype=self.dtype,
                 param_dtype=self.param_dtype,
@@ -1130,11 +1127,7 @@ class DiffusionTransformer(nn.Module):
             )
         else:
             decoder = StandardDecoder(
-                features=(
-                    inputs.shape[-1] * 2
-                    if self.learn_sigma
-                    else inputs.shape[-1]
-                ),
+                features=dim,
                 patch_size=self.patch_size,
                 dtype=self.dtype,
                 param_dtype=self.param_dtype,
@@ -1142,5 +1135,54 @@ class DiffusionTransformer(nn.Module):
                 name="decoder",
             )
         out = decoder(out, cond=cond)
+        out = self.unpatchify(
+            inputs=out,
+            channels=dim,
+            patch_size=self.patch_size,
+        )
+
+        return out
+
+    @staticmethod
+    def unpatchify(
+        inputs: jax.Array,
+        channels: int,
+        patch_size: int,
+    ) -> jax.Array:
+        r"""Unpatchify the patch tokens and reconstruct the (squared) 2D image.
+
+        Args:
+            inputs (jax.Array): Input tensor of shape `(*, N, D)`, where `N` is
+                number of patches and `D` is embedding dimension.
+            channels (int): Number of channels in the output image.
+            patch_size (int): Patch size used during patchification.
+
+        Returns:
+            Reconstructed images of shape `(*, H, W, channels)`.
+        """
+        batch_dims = inputs.shape[:-2]
+        h = w = int(jnp.sqrt(inputs.shape[-2]))
+        if h * w != inputs.shape[-2]:
+            raise ValueError(
+                "Number of patches must be a perfect square. "
+                f"Got number of patches={inputs.shape[-2]}."
+            )
+        out = inputs.reshape(-1, *inputs.shape[-2:])
+
+        out = inputs.reshape(
+            out.shape[0],
+            h,
+            w,
+            patch_size,
+            patch_size,
+            channels,
+        )
+        out = jnp.einsum("bhwpqc->bhpwqc", out)
+        out = out.reshape(
+            *batch_dims,
+            h * patch_size,
+            w * patch_size,
+            channels,
+        )
 
         return out
