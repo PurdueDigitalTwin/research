@@ -6,6 +6,7 @@ ml_py_library(
     name = "dit",
     srcs = ["dit.py"],
     deps = [
+        "chex",
         "flax",
         "jax",
         "jaxlib",

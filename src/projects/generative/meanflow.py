@@ -238,8 +238,8 @@ class MeanFlowUNetModule(nn.Module):
         dropout_rate (float): Dropout rate for the attention blocks.
         epsilon (float): Small constant for numerical stability in `GroupNorm`.
         skip_scale (float): Scaling factor for skip connections.
-        resample_filter (Optional[Sequence[int]]): One-dimensional FIR filter
-            for resampling. Default is :math:`[1, 1]`.
+        resample_filter (Optional[Sequence[float | int]]): One-dimensional FIR
+            filter for up/downsampling. Default is :math:`[1, 1]`.
         deterministic (Optional[bool]): Whether to run deterministically.
         dtype (dtype): The dtype of the computation (default: float32).
         param_dtype (dtype): The dtype of the parameters (default: float32).
@@ -247,7 +247,7 @@ class MeanFlowUNetModule(nn.Module):
 
     features: int
     dropout_rate: float = 0.0
-    resample_filter: typing.Sequence[int] = (1, 1)
+    resample_filter: typing.Sequence[typing.Union[float, int]] = (1, 1)
     deterministic: typing.Optional[bool] = None
     dtype: typing.Any = None
     param_dtype: typing.Any = None
@@ -364,8 +364,8 @@ class MeanFlowUNetModel(_model.Model):
         image_size (int): Height and width of the input images.
         features (int): Dimensionality of the latent feature map.
         dropout_rate (float): Dropout rate for the classifier-free guidance.
-        resample_filter (typing.Sequence[int]): One-dimensional FIR filter
-            for resampling. Default is :math:`[1, 1]`.
+        resample_filter (typing.Sequence[float | int]): One-dimensional FIR
+            filter for up/downsampling. Default is :math:`[1, 1]`.
         dtype (dtype): The dtype of the computation (default: float32).
         param_dtype (dtype): The dtype of the parameters (default: float32).
         timestamp_cond (Literal): The type of timestamp conditioning.
@@ -386,7 +386,7 @@ class MeanFlowUNetModel(_model.Model):
         image_size: int,
         features: int,
         dropout_rate: float,
-        resample_filter: typing.Sequence[int] = [1, 1],
+        resample_filter: typing.Sequence[typing.Union[float, int]] = [1, 1],
         dtype: typing.Any = None,
         param_dtype: typing.Any = None,
         precision: typing.Any = None,

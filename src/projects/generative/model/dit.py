@@ -485,7 +485,7 @@ class _DiTBlock(nn.Module):
             out = self.norm_1(out)
             out = self.attn(
                 query=out,
-                key_value=cond,
+                key_value=None,
                 deterministic=m_deterministic,
             )
             out = out + skip
@@ -510,7 +510,7 @@ class _DiTBlock(nn.Module):
                 gate_msa,
                 shift_ffn,
                 scale_ffn,
-                gate_msa,
+                gate_ffn,
             ) = jnp.split(
                 self.adaln_modulation(jax.nn.silu(cond)),
                 indices_or_sections=6,
@@ -525,7 +525,7 @@ class _DiTBlock(nn.Module):
                 key_value=None,
                 deterministic=m_deterministic,
             )
-            out = out + gate_msa[..., None, :] * self.mlp(
+            out = out + gate_ffn[..., None, :] * self.mlp(
                 modulate(
                     self.norm_2(out),
                     shift=shift_ffn,
@@ -1045,7 +1045,7 @@ class DiffusionTransformer(nn.Module):
         # positional encoding
         pos_emb = sinusoidal_patch_enc(
             features=self.features,
-            grid_size=out.shape[-2] ** 0.5,
+            grid_size=int(out.shape[-2] ** 0.5),
             num_extra_tokens=0,
         )
         out = out + pos_emb[None, :, :].astype(self.dtype)
@@ -1169,7 +1169,7 @@ class DiffusionTransformer(nn.Module):
             )
         out = inputs.reshape(-1, *inputs.shape[-2:])
 
-        out = inputs.reshape(
+        out = out.reshape(
             out.shape[0],
             h,
             w,

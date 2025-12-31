@@ -236,8 +236,12 @@ def test_patch_embed(dtype: typing.Any) -> None:
     assert test_output.dtype == dtype
 
 
+@pytest.mark.parametrize(
+    "block_type",
+    ["adaLN", "cross_attention", "in_context"],
+)
 @pytest.mark.parametrize("dtype", [jnp.bfloat16, jnp.float32])
-def test_dit(dtype: typing.Any) -> None:
+def test_dit(block_type: str, dtype: typing.Any) -> None:
     r"""Test the DiT generative model."""
     layer = dit.DiffusionTransformer(
         features=16,
