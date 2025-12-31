@@ -94,6 +94,7 @@ def evaluate(
     r"""Conduct a single evaluation step and compute metrics."""
 
     def _generate(params: PyTree) -> jax.Array:
+        r"""Generate samples from the model."""
         local_rng = jax.random.fold_in(rngs, jax.lax.axis_index("batch"))
         outputs = model.forward(
             rngs=local_rng,
@@ -104,10 +105,9 @@ def evaluate(
         )
         assert isinstance(outputs, _model.StepOutputs)
         assert outputs.output is not None
-        img = jnp.astype(
-            jnp.clip(outputs.output * 0.5 + 0.5, 0.0, 1.0) * 255.0,
-            jnp.uint8,
-        )
+        img = jnp.clip(outputs.output * 0.5 + 0.5, 0.0, 1.0)
+        img = jnp.floor(img * 255.0).astype(jnp.uint8)
+
         return img
 
     generate_fn = jax.pmap(_generate, axis_name="batch")
@@ -154,8 +154,8 @@ def training_step(
     **kwargs,
 ) -> typing.Tuple[_train_state.TrainState, _model.StepOutputs]:
     r"""Conduct a single training step and update train state."""
-    local_rng = jax.random.fold_in(rngs, state.step)
-    local_rng = jax.random.fold_in(local_rng, jax.lax.axis_index("batch"))
+    local_rng = jax.random.fold_in(rngs, jax.lax.axis_index("batch"))
+    local_rng = jax.random.fold_in(local_rng, state.step)
 
     def loss_fn(params: PyTree) -> typing.Tuple[jax.Array, _model.StepOutputs]:
         loss, outputs = model.compute_loss(

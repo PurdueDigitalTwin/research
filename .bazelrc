@@ -34,3 +34,6 @@ common --enable_bzlmod
 
 # startup options
 startup --output_user_root=/var/tmp/bazel-build
+
+# test options
+test --test_output=all

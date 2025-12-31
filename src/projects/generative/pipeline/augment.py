@@ -1033,7 +1033,6 @@ class EDMAugmentor(nn.Module):
                 "Image must be RGB (3 channels) or Grayscale (1 channel)"
             )
         images = images.reshape([num, height, width, channels])
-        images = jnp.clip(images, 0.0, 1.0)
 
         # Post-processing non-leaky conditioning vector
         labels = jnp.concatenate(

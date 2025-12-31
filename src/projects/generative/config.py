@@ -1,9 +1,9 @@
 import functools
-import math
 import os
 
 import datasets
 import fiddle as fdl
+import jax
 import optax
 
 from src.core import config as _config
@@ -47,8 +47,7 @@ def meanflow_unet_cifar_10() -> _config.ExperimentConfig:
             image_size=32,
             features=128,
             dropout_rate=0.2,
-            epsilon=1e-6,
-            skip_scale=math.sqrt(0.5),
+            resample_filter=[1, 3, 3, 1],
             timestamp_cond="t_and_t_minus_r",
             timestamp_sampler="logit-normal",
             timestamp_sampler_kwargs=dict(mean=-2.0, stddev=2.0),
@@ -85,4 +84,7 @@ def meanflow_unet_cifar_10() -> _config.ExperimentConfig:
             ema_rate=0.99995,
         ),
         seed=42,
+        dtype=jax.numpy.float32,
+        param_dtype=jax.numpy.float32,
+        precision=jax.lax.Precision.HIGHEST,
     )
