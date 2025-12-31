@@ -650,7 +650,7 @@ class MeanFlowUNetModel(_model.Model):
         *,
         rngs: jax.Array,
         params: frozen_dict.FrozenDict,
-        noise: jax.Array,
+        shape: typing.Sequence[typing.Union[int, typing.Any]],
         deterministic: bool = True,
         **kwargs,
     ) -> _model.StepOutputs:
@@ -659,17 +659,23 @@ class MeanFlowUNetModel(_model.Model):
         Args:
             rngs (jax.Array): Random key for sampling.
             params (frozen_dict.FrozenDict): The model parameters.
-            noise (jax.Array): Noise input of shape `(*, H, W, C)`.
+            shape (typing.Sequence[typing.Union[int, typing.Any]]): The shape
+                of the generated samples, including batch size.
             deterministic (bool): Whether to run the model deterministically.
             **kwargs: Additional keyword arguments.
 
         Returns:
             The output samples.
         """
-        del rngs, kwargs  # unused
+        del kwargs  # unused
 
-        r = jnp.zeros(noise.shape[:-3], dtype=noise.dtype)
-        t = jnp.ones(noise.shape[:-3], dtype=noise.dtype)
+        z_1 = jax.random.normal(
+            key=rngs,
+            shape=shape,
+            dtype=self.network.dtype,
+        )
+        r = jnp.zeros(z_1.shape[:-3], dtype=z_1.dtype)
+        t = jnp.ones(z_1.shape[:-3], dtype=z_1.dtype)
         if self.timestamp_cond == "t_and_r":
             timestamps = (t, r)
         elif self.timestamp_cond == "t_and_t_minus_r":
@@ -683,9 +689,9 @@ class MeanFlowUNetModel(_model.Model):
                 f"Unsupported timestamp conditioning: {self.timestamp_cond}."
             )
 
-        out = noise - self.network.apply(
+        out = z_1 - self.network.apply(
             variables={"params": params},
-            image=noise,
+            image=z_1,
             timestamps=timestamps,
             edm_cond=None,
             deterministic=deterministic,

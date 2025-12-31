@@ -104,12 +104,16 @@ def evaluate(
         The evaluation outputs including metrics and generated images.
     """
 
-    def _generate(noise: jax.Array, params: PyTree) -> jax.Array:
-        r"""Generate samples from the model."""
+    def _generate(
+        params: PyTree,
+        shape: typing.Sequence[typing.Union[int, typing.Any]],
+        step_rngs: jax.Array,
+    ) -> jax.Array:
+        local_rng = jax.random.fold_in(step_rngs, jax.lax.axis_index("batch"))
         outputs = model.forward(
-            rngs=rngs,
+            rngs=local_rng,
             params=params,
-            noise=noise,
+            shape=shape,
             deterministic=True,
             batch=batch,
             **kwargs,
@@ -121,7 +125,9 @@ def evaluate(
 
         return img
 
-    generate_fn = jax.pmap(_generate, axis_name="batch")
+    shape = batch["image"].shape
+    p_generate = functools.partial(_generate, shape=shape)
+    p_generate = jax.pmap(p_generate, axis_name="batch")
     with tqdm_logging.logging_redirect_tqdm():
         images, count = [], 0
         if jax.process_index() == 0:
@@ -131,17 +137,8 @@ def evaluate(
 
         while count < 50_000:
             step_rng = jax.random.fold_in(rngs, count)
-            noise = jax.random.normal(
-                key=step_rng,
-                shape=batch["image"].shape,
-                dtype=batch["image"].dtype,
-            )
-            noise = noise.reshape(
-                jax.local_device_count(),
-                -1,
-                *noise.shape[1:],
-            )
-            out = generate_fn(noise=noise, params=params)
+            step_rng = jax.random.split(step_rng, jax.local_device_count())
+            out = p_generate(params=params, step_rngs=step_rng)
             out = jnp.reshape(out, (-1,) + out.shape[-3:])
             _slice = min(50_000 - count, out.shape[0])
             images.append(out[:_slice])
@@ -154,8 +151,10 @@ def evaluate(
     outputs = _model.StepOutputs()
     images = jnp.concatenate(images, axis=0)
 
-    fid_score = fid_metric(images=jax.device_get(images[0:50_000]))
-    outputs.scalars = {"fid": fid_score}
+    if jax.process_index() == 0:
+        # NOTE: only compute FID metric on process 0
+        fid_score = fid_metric(images=jax.device_get(images[0:50_000]))
+        outputs.scalars = {"fid": fid_score}
 
     img_grid = visualization.make_grid(
         images[0:32],
