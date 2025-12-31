@@ -255,14 +255,14 @@ def test_dit(dtype: typing.Any) -> None:
         jax.random.PRNGKey(0),
         test_input,
         timestamp=test_timestamp,
-        label=test_label,
+        labels=test_label,
         deterministic=True,
     )
     test_output = layer.apply(
         variables,
         test_input,
         timestamp=test_timestamp,
-        label=test_label,
+        labels=test_label,
         deterministic=False,
         rngs={"dropout": jax.random.PRNGKey(1)},
     )

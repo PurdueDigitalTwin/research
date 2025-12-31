@@ -888,6 +888,93 @@ class TimestampEmbed(nn.Module):
         return out
 
 
+class LabelEmbed(nn.Module):
+    r"""Embedding module for discrete class labels with optional dropout.
+
+    Args:
+        features (int): Dimensionality of the embedding.
+        num_classes (int): Number of discrete classes.
+        dropout_rate (float, optional): Dropout rate for label embedding.
+            Default is `0.0`.
+        deterministic (bool, optional): Whether to apply dropout.
+            Default is `None`.
+        dtype (Any, optional): The data type of the computation.
+        param_dtype (Any, optional): The data type of the parameters.
+    """
+
+    features: int
+    num_classes: int
+    dropout_rate: float = 0.0
+    deterministic: typing.Optional[bool] = None
+    dtype: typing.Any = None
+    param_dtype: typing.Any = None
+
+    @nn.compact
+    def __call__(
+        self,
+        labels: jax.Array,
+        deterministic: typing.Optional[bool] = False,
+        force_drop_ids: typing.Optional[jax.Array] = None,
+    ) -> jax.Array:
+        r"""Forward pass of the label embedding module.
+
+        Args:
+            labels (jax.Array): Class labels of shape `(B,)`.
+            deterministic (bool, optional): Whether to apply dropout.
+                Default is `False`.
+            force_drop_ids (Optional[jax.Array], optional): Optional binary
+                mask of shape `(B,)` to force dropout on specific labels.
+                Default is `None`.
+
+        Returns:
+            Label embeddings of shape `(B, D)`, where `D` is the
+                dimensionality of the embedding.
+        """
+        use_cfg_embedding = self.dropout_rate > 0.0
+        m_deterministic = nn.merge_param(
+            "deterministic",
+            self.deterministic,
+            deterministic,
+        )
+
+        # apply random label dropout
+        if (
+            not m_deterministic and self.dropout_rate > 0.0
+        ) or force_drop_ids is not None:
+            if force_drop_ids is None:
+                rng = self.make_rng("dropout")
+                drop_mask = jnp.less(
+                    jax.random.uniform(
+                        rng,
+                        shape=labels.shape,
+                        minval=0.0,
+                        maxval=1.0,
+                    ),
+                    self.dropout_rate,
+                )
+            else:
+                chex.assert_shape(force_drop_ids, labels.shape)
+                drop_mask = force_drop_ids == 1
+            labels = jnp.where(
+                drop_mask,
+                self.num_classes,
+                labels,
+            )
+
+        # forward pass the embedding
+        embed = nn.Embed(
+            num_embeddings=self.num_classes + int(use_cfg_embedding),
+            features=self.features,
+            embedding_init=jax.nn.initializers.normal(stddev=0.02),
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="embed_table",
+        )
+        out = embed(labels.astype(jnp.int32))
+
+        return out
+
+
 # ==============================================================================
 # Network
 class DiffusionTransformer(nn.Module):
@@ -928,7 +1015,7 @@ class DiffusionTransformer(nn.Module):
         self,
         inputs: jax.Array,
         timestamp: jax.Array,
-        label: jax.Array,
+        labels: jax.Array,
         deterministic: typing.Optional[bool] = None,
     ) -> jax.Array:
         r"""Forward pass of the Diffusion Transformer model."""
@@ -963,5 +1050,16 @@ class DiffusionTransformer(nn.Module):
             name="t_embed",
         )(timestamp)
         chex.assert_equal_shape([t_embed, out[..., 0, :]])
+
+        # label embedding with dropout
+        y_embed = LabelEmbed(
+            features=self.features,
+            num_classes=self.num_classes,
+            dropout_rate=self.class_dropout_rate,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="y_embed",
+        )(labels=labels, deterministic=deterministic)
+        chex.assert_equal_shape([y_embed, out[..., 0, :]])
 
         return out
