@@ -93,10 +93,12 @@ def evaluate(
 ) -> _model.StepOutputs:
     r"""Conduct a single evaluation step and compute metrics."""
 
-    def _generate(params: PyTree, rng: jax.Array) -> jax.Array:
+    def _generate(params: PyTree, step: int) -> jax.Array:
         r"""Generate samples from the model."""
+        local_rng = jax.random.fold_in(rngs, jax.lax.axis_index("batch"))
+        step_rng = jax.random.fold_in(local_rng, step)
         outputs = model.forward(
-            rngs=jax.random.fold_in(rng, jax.lax.axis_index("batch")),
+            rngs=step_rng,
             params=params,
             deterministic=True,
             batch=batch,
@@ -118,8 +120,7 @@ def evaluate(
             pbar = None
 
         while count < 50_000:
-            step_rng = jax.random.fold_in(rngs, count)
-            out = generate_fn(params=params, rng=step_rng)
+            out = generate_fn(params=params, step=count)
             out = jnp.reshape(out, (-1,) + out.shape[-3:])
             _slice = min(50_000 - count, out.shape[0])
             images.append(out[:_slice])
