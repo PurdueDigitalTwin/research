@@ -91,15 +91,25 @@ def evaluate(
     fid_metric: fid.FrechetInceptionDistance,
     **kwargs,
 ) -> _model.StepOutputs:
-    r"""Conduct a single evaluation step and compute metrics."""
+    r"""Conduct a single evaluation step and compute metrics.
 
-    def _generate(params: PyTree, step: int) -> jax.Array:
+    Args:
+        rngs (jax.Array): Random key for sampling.
+        model (Model): The generative model to be evaluated.
+        params (PyTree): The model parameters.
+        batch (Dict[str, Any]): An example batch of evaluation data.
+        fid_metric (FrechetInceptionDistance): The FID metric instance.
+
+    Returns:
+        The evaluation outputs including metrics and generated images.
+    """
+
+    def _generate(noise: jax.Array, params: PyTree) -> jax.Array:
         r"""Generate samples from the model."""
-        local_rng = jax.random.fold_in(rngs, jax.lax.axis_index("batch"))
-        step_rng = jax.random.fold_in(local_rng, step)
         outputs = model.forward(
-            rngs=step_rng,
+            rngs=rngs,
             params=params,
+            noise=noise,
             deterministic=True,
             batch=batch,
             **kwargs,
@@ -120,7 +130,18 @@ def evaluate(
             pbar = None
 
         while count < 50_000:
-            out = generate_fn(params=params, step=count)
+            step_rng = jax.random.fold_in(rngs, count)
+            noise = jax.random.normal(
+                key=step_rng,
+                shape=batch["image"].shape,
+                dtype=batch["image"].dtype,
+            )
+            noise = noise.reshape(
+                jax.local_device_count(),
+                -1,
+                *noise.shape[1:],
+            )
+            out = generate_fn(noise=noise, params=params)
             out = jnp.reshape(out, (-1,) + out.shape[-3:])
             _slice = min(50_000 - count, out.shape[0])
             images.append(out[:_slice])

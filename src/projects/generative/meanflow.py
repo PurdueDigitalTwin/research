@@ -650,7 +650,7 @@ class MeanFlowUNetModel(_model.Model):
         *,
         rngs: jax.Array,
         params: frozen_dict.FrozenDict,
-        batch: typing.Dict[str, typing.Any],
+        noise: jax.Array,
         deterministic: bool = True,
         **kwargs,
     ) -> _model.StepOutputs:
@@ -659,25 +659,17 @@ class MeanFlowUNetModel(_model.Model):
         Args:
             rngs (jax.Array): Random key for sampling.
             params (frozen_dict.FrozenDict): The model parameters.
-            batch (Dict[str, Any]): A batch of data containing:
-                - image (jax.Array): Input images of shape `(*, H, W, C)`.
-            shape (jax.typing.Shape): The shape of the output samples.
-            dtype (Any): The dtype of the output samples.
+            noise (jax.Array): Noise input of shape `(*, H, W, C)`.
             deterministic (bool): Whether to run the model deterministically.
             **kwargs: Additional keyword arguments.
 
         Returns:
             The output samples.
         """
-        del kwargs  # unused
+        del rngs, kwargs  # unused
 
-        # TODO (juanwulu): unconditional generation
-        image = batch["image"]
-        shape, dtype = image.shape, image.dtype
-
-        e = jax.random.normal(key=rngs, shape=shape, dtype=dtype)
-        r = jnp.zeros(e.shape[:-3], dtype=dtype)
-        t = jnp.ones(e.shape[:-3], dtype=dtype)
+        r = jnp.zeros(noise.shape[:-3], dtype=noise.dtype)
+        t = jnp.ones(noise.shape[:-3], dtype=noise.dtype)
         if self.timestamp_cond == "t_and_r":
             timestamps = (t, r)
         elif self.timestamp_cond == "t_and_t_minus_r":
@@ -691,9 +683,9 @@ class MeanFlowUNetModel(_model.Model):
                 f"Unsupported timestamp conditioning: {self.timestamp_cond}."
             )
 
-        out = e - self.network.apply(
+        out = noise - self.network.apply(
             variables={"params": params},
-            image=e,
+            image=noise,
             timestamps=timestamps,
             edm_cond=None,
             deterministic=deterministic,
