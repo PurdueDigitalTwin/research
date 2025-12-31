@@ -103,8 +103,8 @@ def sinusoidal_patch_enc(
             "Dimensions must be divisible by 4 for 2D positional encoding."
         )
 
-    grid_h = jnp.arange(grid_size, dtype=jnp.float_)
-    grid_w = jnp.arange(grid_size, dtype=jnp.float_)
+    grid_h = jnp.arange(grid_size, dtype=jnp.float32)
+    grid_w = jnp.arange(grid_size, dtype=jnp.float32)
     grid = jnp.stack(jnp.meshgrid(grid_w, grid_h), axis=0)  # (2, gs, gs)
 
     emb_h = sinusoidal_pos_enc(features // 2, grid[0:1])
@@ -114,6 +114,7 @@ def sinusoidal_patch_enc(
     if num_extra_tokens > 0:
         extra_emb = jnp.zeros([num_extra_tokens, features], dtype=out.dtype)
         out = jnp.concatenate([extra_emb, out], axis=0)
+
     return out
 
 
@@ -850,5 +851,13 @@ class DiffusionTransformer(nn.Module):
             name="patch_embed",
         )
         out = patch_embed(inputs.astype(self.dtype))
+
+        # positional encoding
+        pos_emb = sinusoidal_patch_enc(
+            features=self.features,
+            grid_size=out.shape[-2] ** 0.5,
+            num_extra_tokens=0,
+        )
+        out = out + pos_emb[None, :, :].astype(self.dtype)
 
         return out
