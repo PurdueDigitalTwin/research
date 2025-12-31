@@ -1,5 +1,7 @@
+import functools
 import typing
 
+import chex
 from flax import linen as nn
 import jax
 from jax import numpy as jnp
@@ -52,6 +54,67 @@ def approx_gelu_tanh(x: jax.Array) -> jax.Array:
     sqrt_2_over_pi = jnp.sqrt(2 / jnp.pi)
     x_cubed = jnp.power(x, 3)
     return 0.5 * x * (1 + jnp.tanh(sqrt_2_over_pi * (x + 0.044715 * x_cubed)))
+
+
+@functools.partial(jax.jit, static_argnames=("features",))
+def sinusoidal_pos_enc(features: int, pos: jax.Array) -> jax.Array:
+    r"""Returns 1D sinusoidal positional encodings.
+
+    Args:
+        features (int): Dimensionality of the embedding.
+        pos (jax.Array): Positions tensor of shape `(*,)`.
+
+    Returns:
+        Positional encodings of shape `(flattened_shape, features)`.
+    """
+    assert features % 2 == 0, "Features must be even for sinusoidal encoding."
+    pos = pos.reshape(-1)
+
+    indx = jnp.arange(features // 2, dtype=jnp.float_)
+    indx /= features / 2.0
+    freqs = 1.0 / jnp.power(10_000.0, indx)
+
+    emb = jnp.einsum("p,f->pf", pos, freqs)
+    out = jnp.concatenate([jnp.sin(emb), jnp.cos(emb)], axis=-1)
+    chex.assert_shape(out, (pos.shape[0], features))
+
+    return out
+
+
+def sinusoidal_patch_enc(
+    features: int,
+    grid_size: int,
+    num_extra_tokens: int = 0,
+) -> jax.Array:
+    r"""Returns sinusoidal positional encodings for 2D patches.
+
+    Args:
+        features (int): Dimensionality of the positional embedding.
+        grid_size (int): Size of the (squared) grid of patches.
+        num_extra_tokens (int, optional): Number of extra tokens to include.
+            Default is `0`.
+
+    Returns:
+        Positional encodings array with a shape of
+            `(num_patches + num_extra_tokens, features)`.
+    """
+    if features % 4 != 0:
+        raise ValueError(
+            "Dimensions must be divisible by 4 for 2D positional encoding."
+        )
+
+    grid_h = jnp.arange(grid_size, dtype=jnp.float_)
+    grid_w = jnp.arange(grid_size, dtype=jnp.float_)
+    grid = jnp.stack(jnp.meshgrid(grid_w, grid_h), axis=0)  # (2, gs, gs)
+
+    emb_h = sinusoidal_pos_enc(features // 2, grid[0:1])
+    emb_w = sinusoidal_pos_enc(features // 2, grid[1:2])
+    out = jnp.concatenate([emb_h, emb_w], axis=-1)
+
+    if num_extra_tokens > 0:
+        extra_emb = jnp.zeros([num_extra_tokens, features], dtype=out.dtype)
+        out = jnp.concatenate([extra_emb, out], axis=0)
+    return out
 
 
 # ==============================================================================

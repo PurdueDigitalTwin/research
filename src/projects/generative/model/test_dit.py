@@ -8,6 +8,29 @@ import pytest
 from src.projects.generative.model import dit
 
 
+def test_sinusoidal_pos_enc() -> None:
+    r"""Test the sinusoidal positional encoding function."""
+    test_pos = jnp.array([0, 1, 2], dtype=jnp.float32)
+    test_features = 6
+    test_output = dit.sinusoidal_pos_enc(test_features, test_pos)
+    assert isinstance(test_output, jax.Array)
+    assert test_output.shape == (3, test_features)
+    assert test_output.dtype == jnp.float32
+
+
+@pytest.mark.parametrize("num_extra_tokens", [0, 2])
+def test_sinusoidal_patch_enc(num_extra_tokens: int) -> None:
+    r"""Test the sinusoidal patch positional encoding function."""
+    test_output = dit.sinusoidal_patch_enc(
+        features=8,
+        grid_size=16,
+        num_extra_tokens=num_extra_tokens,
+    )
+    assert isinstance(test_output, jax.Array)
+    assert test_output.shape == (16 * 16 + num_extra_tokens, 8)
+    assert test_output.dtype == jnp.float32
+
+
 @pytest.mark.parametrize("num_heads", [1, 8])
 @pytest.mark.parametrize("dtype", [jnp.bfloat16, jnp.float32])
 def test_attention(num_heads: int, dtype: typing.Any) -> None:
