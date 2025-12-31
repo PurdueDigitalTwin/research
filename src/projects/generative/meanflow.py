@@ -539,7 +539,6 @@ class MeanFlowUNetModel(_model.Model):
             assert isinstance(cond, jax.Array)
         else:
             cond = None
-        image = jnp.clip(image, -1.0, 1.0)
 
         # NOTE: following the notation in Algorithm 1 of the source paper
         # sample begin timestep r and end timestep t.
