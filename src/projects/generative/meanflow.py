@@ -539,7 +539,6 @@ class MeanFlowUNetModel(_model.Model):
             assert isinstance(cond, jax.Array)
         else:
             cond = None
-        image = jnp.clip(image, -1.0, 1.0)
 
         # NOTE: following the notation in Algorithm 1 of the source paper
         # sample begin timestep r and end timestep t.
@@ -651,7 +650,7 @@ class MeanFlowUNetModel(_model.Model):
         *,
         rngs: jax.Array,
         params: frozen_dict.FrozenDict,
-        batch: typing.Dict[str, typing.Any],
+        shape: typing.Sequence[typing.Union[int, typing.Any]],
         deterministic: bool = True,
         **kwargs,
     ) -> _model.StepOutputs:
@@ -660,10 +659,8 @@ class MeanFlowUNetModel(_model.Model):
         Args:
             rngs (jax.Array): Random key for sampling.
             params (frozen_dict.FrozenDict): The model parameters.
-            batch (Dict[str, Any]): A batch of data containing:
-                - image (jax.Array): Input images of shape `(*, H, W, C)`.
-            shape (jax.typing.Shape): The shape of the output samples.
-            dtype (Any): The dtype of the output samples.
+            shape (typing.Sequence[typing.Union[int, typing.Any]]): The shape
+                of the generated samples, including batch size.
             deterministic (bool): Whether to run the model deterministically.
             **kwargs: Additional keyword arguments.
 
@@ -672,13 +669,13 @@ class MeanFlowUNetModel(_model.Model):
         """
         del kwargs  # unused
 
-        # TODO (juanwulu): unconditional generation
-        image = batch["image"]
-        shape, dtype = image.shape, image.dtype
-
-        e = jax.random.normal(key=rngs, shape=shape, dtype=dtype)
-        r = jnp.zeros(e.shape[:-3], dtype=dtype)
-        t = jnp.ones(e.shape[:-3], dtype=dtype)
+        z_1 = jax.random.normal(
+            key=rngs,
+            shape=shape,
+            dtype=self.network.dtype,
+        )
+        r = jnp.zeros(z_1.shape[:-3], dtype=z_1.dtype)
+        t = jnp.ones(z_1.shape[:-3], dtype=z_1.dtype)
         if self.timestamp_cond == "t_and_r":
             timestamps = (t, r)
         elif self.timestamp_cond == "t_and_t_minus_r":
@@ -692,9 +689,9 @@ class MeanFlowUNetModel(_model.Model):
                 f"Unsupported timestamp conditioning: {self.timestamp_cond}."
             )
 
-        out = e - self.network.apply(
+        out = z_1 - self.network.apply(
             variables={"params": params},
-            image=e,
+            image=z_1,
             timestamps=timestamps,
             edm_cond=None,
             deterministic=deterministic,

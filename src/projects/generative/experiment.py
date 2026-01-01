@@ -91,14 +91,29 @@ def evaluate(
     fid_metric: fid.FrechetInceptionDistance,
     **kwargs,
 ) -> _model.StepOutputs:
-    r"""Conduct a single evaluation step and compute metrics."""
+    r"""Conduct a single evaluation step and compute metrics.
 
-    def _generate(params: PyTree) -> jax.Array:
-        r"""Generate samples from the model."""
-        local_rng = jax.random.fold_in(rngs, jax.lax.axis_index("batch"))
+    Args:
+        rngs (jax.Array): Random key for sampling.
+        model (Model): The generative model to be evaluated.
+        params (PyTree): The model parameters.
+        batch (Dict[str, Any]): An example batch of evaluation data.
+        fid_metric (FrechetInceptionDistance): The FID metric instance.
+
+    Returns:
+        The evaluation outputs including metrics and generated images.
+    """
+
+    def _generate(
+        params: PyTree,
+        shape: typing.Sequence[typing.Union[int, typing.Any]],
+        step_rngs: jax.Array,
+    ) -> jax.Array:
+        local_rng = jax.random.fold_in(step_rngs, jax.lax.axis_index("batch"))
         outputs = model.forward(
             rngs=local_rng,
             params=params,
+            shape=shape,
             deterministic=True,
             batch=batch,
             **kwargs,
@@ -110,7 +125,9 @@ def evaluate(
 
         return img
 
-    generate_fn = jax.pmap(_generate, axis_name="batch")
+    shape = batch["image"].shape
+    p_generate = functools.partial(_generate, shape=shape)
+    p_generate = jax.pmap(p_generate, axis_name="batch")
     with tqdm_logging.logging_redirect_tqdm():
         images, count = [], 0
         if jax.process_index() == 0:
@@ -119,7 +136,9 @@ def evaluate(
             pbar = None
 
         while count < 50_000:
-            out = generate_fn(params=params)
+            step_rng = jax.random.fold_in(rngs, count)
+            step_rng = jax.random.split(step_rng, jax.local_device_count())
+            out = p_generate(params=params, step_rngs=step_rng)
             out = jnp.reshape(out, (-1,) + out.shape[-3:])
             _slice = min(50_000 - count, out.shape[0])
             images.append(out[:_slice])
@@ -132,8 +151,10 @@ def evaluate(
     outputs = _model.StepOutputs()
     images = jnp.concatenate(images, axis=0)
 
-    fid_score = fid_metric(images=jax.device_get(images[0:50_000]))
-    outputs.scalars = {"fid": fid_score}
+    if jax.process_index() == 0:
+        # NOTE: only compute FID metric on process 0
+        fid_score = fid_metric(images=jax.device_get(images[0:50_000]))
+        outputs.scalars = {"fid": fid_score}
 
     img_grid = visualization.make_grid(
         images[0:32],

@@ -858,7 +858,7 @@ class EDMAugmentor(nn.Module):
         # Execute transformation with polyphase upsampling pipeline
         Hz = jnp.array(WAVELETS["sym6"], dtype=jnp.float32)
         Hz_pad = len(Hz) // 4
-        pad_len = Hz_pad + int(min(height, width) * 0.125)
+        pad_len = Hz_pad + int(min(height, width) * 0.5)
         images = jnp.pad(
             images,
             pad_width=((0, 0), (pad_len, pad_len), (pad_len, pad_len), (0, 0)),
