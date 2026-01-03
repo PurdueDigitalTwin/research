@@ -117,14 +117,18 @@ class FrechetInceptionDistance:
         batch_size: int = 32,
     ) -> None:
         self._batch_size = batch_size
-        self._model = inception.InceptionV3()
+        self._model = inception.InceptionV3(
+            num_classes=1_008,
+            last_block_max_pool=True,
+            with_aux_logits=False,
+        )
         logging.rank_zero_info("Downloading FID Inception V3 weights...")
         with open(
             hf_hub_download(
                 repo_id="ChocolateDave/fid-inception-v3",
                 filename="fid_inception_v3.msgpack",
                 token=os.getenv("HF_TOKEN", None),
-                revision="a8e810f308e520fb24aff1fd09392fa229092995",
+                revision="bef27900b6b2c46b866b628a86a1c1cedd95a041",
             ),
             mode="rb",
         ) as f:
@@ -193,12 +197,17 @@ class FrechetInceptionDistance:
         r"""Computes the FID score between the given images and the reference.
 
         Args:
-            images (npt.NDArray): A sequence of images to compute
-                the FID score against the reference statistics.
+            images (npt.NDArray): A sequence of images to compute the FID score
+                against the reference training dataset statistics. The images
+                should be of `uint8` type ranged between `[0, 255]`.
 
         Returns:
             The FID score as a scalar array.
         """
+        # sanity checks
+        chex.assert_type(images, jnp.uint8)
+        chex.assert_rank(images, 4)
+
         if jax.process_index() == 0:
             pbar = tqdm.tqdm(
                 total=len(images),
@@ -275,15 +284,11 @@ class FrechetInceptionDistance:
         batch_stats: jaxtyping.PyTree,
     ) -> jax.Array:
         r"""Computes the feature map from the deepest layer of Inception V3."""
-        _mean = jnp.array([0.485, 0.456, 0.406], dtype=jnp.float32)
-        _std = jnp.array([0.229, 0.224, 0.225], dtype=jnp.float32)
-        inputs = jnp.astype(inputs, jnp.float32) / 255.0
-        inputs = jnp.true_divide(inputs - _mean[None, :], _std[None, :])
+        inputs = (jnp.astype(inputs, jnp.float32) - 128.0) / 128.0
         feat, _ = model.apply(
             variables={"params": params, "batch_stats": batch_stats},
             inputs=inputs,
             deterministic=True,
             with_head=False,
-            with_aux_logits=False,
         )
         return feat
