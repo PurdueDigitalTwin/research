@@ -131,7 +131,11 @@ def evaluate(
     with tqdm_logging.logging_redirect_tqdm():
         images, count = [], 0
         if jax.process_index() == 0:
-            pbar = tqdm.tqdm(total=50_000, unit="sample")
+            pbar = tqdm.tqdm(
+                total=50_000,
+                desc="Generating samples for FID evaluation...",
+                unit="sample",
+            )
         else:
             pbar = None
 

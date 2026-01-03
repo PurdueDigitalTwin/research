@@ -107,7 +107,6 @@ def run(
     else:
         pbar = None
 
-    logging.rank_zero_info("Training...")
     try:
         while step < num_train_steps:
             train_metrics = collections.defaultdict(list)
