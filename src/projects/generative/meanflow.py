@@ -234,7 +234,6 @@ class MeanFlowUNetModule(nn.Module):
 
     Attributes:
         features (int): Number of channels in the latent feature maps.
-        num_groups (int): Number of groups for `GroupNorm` layers.
         dropout_rate (float): Dropout rate for the attention blocks.
         epsilon (float): Small constant for numerical stability in `GroupNorm`.
         skip_scale (float): Scaling factor for skip connections.
@@ -246,7 +245,9 @@ class MeanFlowUNetModule(nn.Module):
     """
 
     features: int
-    dropout_rate: float = 0.0
+    dropout_rate: float
+    epsilon: float
+    skip_scale: float
     resample_filter: typing.Sequence[int] = (1, 1)
     deterministic: typing.Optional[bool] = None
     dtype: typing.Any = None
@@ -333,6 +334,8 @@ class MeanFlowUNetModule(nn.Module):
             features=self.features,
             ch_mults=[2, 2, 2],
             dropout_rate=self.dropout_rate,
+            epsilon=self.epsilon,
+            skip_scale=self.skip_scale,
             resample_filter=self.resample_filter,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
@@ -378,6 +381,8 @@ class MeanFlowUNetModel(_model.Model):
         image_size: int,
         features: int,
         dropout_rate: float,
+        epsilon: float = 1e-6,
+        skip_scale: float = 1.0,
         resample_filter: typing.Sequence[int] = [1, 1],
         dtype: typing.Any = None,
         param_dtype: typing.Any = None,
@@ -418,6 +423,8 @@ class MeanFlowUNetModel(_model.Model):
         self._network = MeanFlowUNetModule(
             features=features,
             dropout_rate=dropout_rate,
+            epsilon=epsilon,
+            skip_scale=skip_scale,
             resample_filter=resample_filter,
             name="unet",
             dtype=dtype,
