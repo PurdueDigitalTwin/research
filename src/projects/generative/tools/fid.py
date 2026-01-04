@@ -185,12 +185,10 @@ class FrechetInceptionDistance:
             if pbar is not None:
                 pbar.close()
 
-        self._ref_mu = jnp.mean(
-            jnp.concatenate(ref_features, axis=0),
-            axis=0,
-        )
-        self._ref_cov = jnp.cov(
-            jnp.matrix_transpose(jnp.concatenate(ref_features, axis=0)),
+        self._ref_mu = np.mean(np.concatenate(ref_features, axis=0), axis=0)
+        self._ref_cov = np.cov(
+            np.concatenate(ref_features, axis=0),
+            rowvar=False,
         )
 
     def __call__(self, images: npt.NDArray) -> npt.NDArray:
@@ -250,12 +248,10 @@ class FrechetInceptionDistance:
         if pbar is not None:
             pbar.close()
 
-        samp_mu = jnp.mean(
-            jnp.concatenate(sampled_features, axis=0),
-            axis=0,
-        )
-        samp_cov = jnp.cov(
-            jnp.matrix_transpose(jnp.concatenate(sampled_features, axis=0)),
+        samp_mu = np.mean(np.concatenate(sampled_features, axis=0), axis=0)
+        samp_cov = np.cov(
+            np.concatenate(sampled_features, axis=0),
+            rowvar=False,
         )
         fid_score = _frechet_distance(
             mu_left=samp_mu,
@@ -287,7 +283,8 @@ class FrechetInceptionDistance:
         inputs = (jnp.astype(inputs, jnp.float32) - 128.0) / 128.0
         feat, _ = model.apply(
             variables={"params": params, "batch_stats": batch_stats},
-            inputs=inputs,
+            # NOTE: force computation on CPU for reproducibility
+            inputs=jax.device_put(inputs, device=jax.devices("cpu")[0]),
             deterministic=True,
             with_head=False,
         )
