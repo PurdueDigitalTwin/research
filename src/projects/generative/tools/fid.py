@@ -52,7 +52,7 @@ def _frechet_distance(
     cov_left = np.atleast_2d(np.array(cov_left))
     cov_right = np.atleast_2d(np.array(cov_right))
 
-    diff = mu_left - mu_right
+    m = np.square(mu_left - mu_right).sum()
     covmean, _ = splin.sqrtm(np.dot(cov_left, cov_right), disp=False)
     if not np.isfinite(covmean).all():
         logging.rank_zero_warning(
@@ -68,31 +68,43 @@ def _frechet_distance(
 
     if np.iscomplexobj(covmean):
         logging.rank_zero_warning(
-            "Complex component detected in covmean during FID calculation. "
-            "Taking only the real part.",
+            "Complex component detected in covmean during FID calculation."
         )
-        covmean = covmean.real
 
     trm = np.trace(covmean)
-    out = diff.dot(diff) + np.trace(cov_left) + np.trace(cov_right) - 2 * trm
+    out = m + np.trace(cov_left + cov_right - 2 * trm)
 
-    return out
+    return np.real(out)
 
 
-def _process_image(image: npt.NDArray[np.float_]) -> npt.NDArray[np.float_]:
-    def __resize(channel: npt.NDArray[np.float_]) -> npt.NDArray[np.float_]:
+def _process_image(image: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
+    r"""Preprocess and resize the image for FID.
+
+    .. note::
+
+        This is adapted from the original image preprocessing in `clean-fid`:
+        `https://github.com/GaParmar/clean-fid/blob/main/cleanfid/resize.py`
+
+    Args:
+        image (npt.NDArray[np.uint8]): The input image to be processed.
+
+    Returns:
+        The processed and resized image as a NumPy array.
+    """
+
+    def __resize(channel: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
         pil_image = Image.fromarray(channel, mode="F")
         pil_image = pil_image.resize((299, 299), Image.Resampling.BICUBIC)
-        out = np.asarray(pil_image).clip(0, 255).reshape(299, 299, 1)
+        out = np.asarray(pil_image).clip(0, 255)
+        out = out.astype(np.uint8).reshape(299, 299, 1)
         return out
 
-    image = np.array(image).astype(np.float32)
-    image = np.concatenate(
-        [__resize(image[..., c]) for c in range(image.shape[-1])],
+    out = np.concatenate(
+        [__resize(np.array(image[..., c])) for c in range(image.shape[-1])],
         axis=-1,
     )
 
-    return image
+    return out
 
 
 class FrechetInceptionDistance:
@@ -135,6 +147,7 @@ class FrechetInceptionDistance:
             self._variables = serialization.msgpack_restore(f.read())
         self._compute_feat = jax.jit(
             functools.partial(self.extract_features, model=self._model),
+            device=jax.devices("cpu")[0],
         )
 
         with tqdm_logging.logging_redirect_tqdm():
