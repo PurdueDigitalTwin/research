@@ -119,8 +119,8 @@ class FrechetInceptionDistance:
             Default is `32`.
     """
 
-    _ref_mu: jxt.ArrayLike
-    _ref_cov: jxt.ArrayLike
+    _ref_mu: npt.NDArray[np.float64]
+    _ref_cov: npt.NDArray[np.float64]
 
     def __init__(
         self,
@@ -134,6 +134,8 @@ class FrechetInceptionDistance:
             last_block_max_pool=True,
             with_aux_logits=False,
         )
+
+        # download converted inception v3 weights
         logging.rank_zero_info("Downloading FID Inception V3 weights...")
         with open(
             hf_hub_download(
@@ -150,11 +152,12 @@ class FrechetInceptionDistance:
             device=jax.devices("cpu")[0],
         )
 
+        # compute reference statistics
         with tqdm_logging.logging_redirect_tqdm():
             if jax.process_index() == 0:
                 pbar = tqdm.tqdm(
                     total=len(train_dataset),
-                    desc="Computing reference statistics...",
+                    desc="Processing reference images...",
                     unit="images",
                 )
             else:
@@ -198,11 +201,9 @@ class FrechetInceptionDistance:
             if pbar is not None:
                 pbar.close()
 
-        self._ref_mu = np.mean(np.concatenate(ref_features, axis=0), axis=0)
-        self._ref_cov = np.cov(
-            np.concatenate(ref_features, axis=0),
-            rowvar=False,
-        )
+        ref_feats = np.concatenate(ref_features, axis=0).astype(np.float64)
+        self._ref_mu = np.mean(ref_feats, axis=0)
+        self._ref_cov = np.cov(ref_feats, rowvar=False)
 
     def __call__(self, images: npt.NDArray) -> npt.NDArray:
         r"""Computes the FID score between the given images and the reference.
@@ -245,7 +246,7 @@ class FrechetInceptionDistance:
             )
         else:
             pbar = None
-        sampled_features = []
+        samp_features = []
         for i in range(0, len(processed_images), self._batch_size):
             batch_images = jnp.array(
                 processed_images[i : i + self._batch_size]
@@ -255,17 +256,15 @@ class FrechetInceptionDistance:
                 params=self._variables["params"],
                 batch_stats=self._variables["batch_stats"],
             )
-            sampled_features.append(feats)
+            samp_features.append(feats)
             if pbar is not None:
                 pbar.update(1)
         if pbar is not None:
             pbar.close()
 
-        samp_mu = np.mean(np.concatenate(sampled_features, axis=0), axis=0)
-        samp_cov = np.cov(
-            np.concatenate(sampled_features, axis=0),
-            rowvar=False,
-        )
+        samp_feats = np.concatenate(samp_features, axis=0).astype(np.float64)
+        samp_mu = np.mean(samp_feats, axis=0)
+        samp_cov = np.cov(samp_feats, rowvar=False)
         fid_score = _frechet_distance(
             mu_left=samp_mu,
             cov_left=samp_cov,
@@ -276,13 +275,13 @@ class FrechetInceptionDistance:
         return fid_score
 
     @property
-    def ref_mu(self) -> jxt.ArrayLike:
-        """ArrayLike: The reference mean vector of shape `(D,)`."""
+    def ref_mu(self) -> npt.NDArray[np.float64]:
+        """npt.NDArray: The reference mean vector of shape `(D,)`."""
         return self._ref_mu
 
     @property
-    def ref_cov(self) -> jxt.ArrayLike:
-        """ArrayLike: The reference covariance matrix of shape `(D, D)`."""
+    def ref_cov(self) -> npt.NDArray[np.float64]:
+        """npt.NDArray: The reference covariance matrix of shape `(D, D)`."""
         return self._ref_cov
 
     @staticmethod
