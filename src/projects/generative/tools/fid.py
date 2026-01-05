@@ -129,6 +129,9 @@ class FrechetInceptionDistance:
         batch_size: int = 32,
     ) -> None:
         self._batch_size = batch_size
+
+        # NOTE: The original FID InceptionV3 variant uses 1,008 output classes
+        # Do not change this unless the weights are updated.
         self._model = inception.InceptionV3(
             num_classes=1_008,
             last_block_max_pool=True,
@@ -205,13 +208,13 @@ class FrechetInceptionDistance:
         self._ref_mu = np.mean(ref_feats, axis=0)
         self._ref_cov = np.cov(ref_feats, rowvar=False)
 
-    def __call__(self, images: npt.NDArray) -> npt.NDArray:
+    def __call__(self, images: npt.NDArray[np.uint8]) -> npt.NDArray:
         r"""Computes the FID score between the given images and the reference.
 
         Args:
-            images (npt.NDArray): A sequence of images to compute the FID score
-                against the reference training dataset statistics. The images
-                should be of `uint8` type ranged between `[0, 255]`.
+            images (npt.NDArray[np.uint8]): A sequence of images to compute the
+                FID score against the reference training dataset statistics.
+                The images should be of `uint8` type ranged between `[0, 255]`.
 
         Returns:
             The FID score as a scalar array.
