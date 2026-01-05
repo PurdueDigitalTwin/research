@@ -209,6 +209,7 @@ class InceptionABlock(nn.Module):
             window_shape=(3, 3),
             strides=(1, 1),
             padding="SAME",
+            count_include_pad=False,
         )
         out_pool = branch_pool(out_pool, deterministic=m_deterministic)
 
@@ -459,6 +460,7 @@ class InceptionCBlock(nn.Module):
             window_shape=(3, 3),
             strides=(1, 1),
             padding="SAME",
+            count_include_pad=False,
         )
         out_pool = branch_pool(out_pool, deterministic=m_deterministic)
 
@@ -586,12 +588,14 @@ class InceptionEBlock(nn.Module):
     r"""An Inception block comprises factorized 3x3 convolutions and avg pool.
 
     Args:
+        apply_max_pool (bool): Whether to apply max pooling.
         deterministic (bool, optional): Whether to apply running averages
             in batch normalization.
         dtype (Any): The dtype of the computation.
         param_dtype (Any): The dtype of the parameters.
     """
 
+    apply_max_pool: bool
     deterministic: typing.Optional[bool] = None
     dtype: typing.Any = None
     param_dtype: typing.Any = None
@@ -713,8 +717,6 @@ class InceptionEBlock(nn.Module):
         out_3x3dbl = jnp.concatenate([out_3x3dbl_a, out_3x3dbl_b], axis=-1)
 
         # branch 4: average pooling followed by 1x1 convolution
-        # Replace the averaging pooling by a max pooling
-        # see: https://github.com/mseitzer/pytorch-fid/blob/master/src/pytorch_fid/inception.py#L320
         branch_pool = ConvBNReLU(
             features=192,
             kernel_size=1,
@@ -724,12 +726,21 @@ class InceptionEBlock(nn.Module):
             param_dtype=self.param_dtype,
             name="branch_pool",
         )
-        out_pool = nn.max_pool(
-            inputs,
-            window_shape=(3, 3),
-            strides=(1, 1),
-            padding="SAME",
-        )
+        if self.apply_max_pool:
+            out_pool = nn.max_pool(
+                inputs,
+                window_shape=(3, 3),
+                strides=(1, 1),
+                padding="SAME",
+            )
+        else:
+            out_pool = nn.avg_pool(
+                inputs,
+                window_shape=(3, 3),
+                strides=(1, 1),
+                padding="SAME",
+                count_include_pad=False,
+            )
         out_pool = branch_pool(out_pool, deterministic=m_deterministic)
 
         return jnp.concatenate(
@@ -842,7 +853,9 @@ class InceptionV3(nn.Module):
         by Szegedy et al. (2015) at `https://arxiv.org/abs/1512.00567`.
 
     Args:
-        num_classes (int): Number of output classes. Default is 1000.
+        num_classes (int): Number of output classes.
+        last_block_max_pool (bool): Whether to apply max pooling in the last
+            Inception-E block.
         with_head (Optional[bool], optional): Whether to include the final
             classification head. Default is `None`.
         with_aux_logits (Optional[bool], optional): Whether to include the
@@ -853,7 +866,8 @@ class InceptionV3(nn.Module):
         param_dtype (Any): The dtype of the parameters.
     """
 
-    num_classes: int = 1_000
+    num_classes: int
+    last_block_max_pool: bool
     with_head: typing.Optional[bool] = None
     with_aux_logits: typing.Optional[bool] = None
     deterministic: typing.Optional[bool] = None
@@ -1047,11 +1061,13 @@ class InceptionV3(nn.Module):
             name="mixed_7a",
         )
         mixed_7b = InceptionEBlock(
+            apply_max_pool=False,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
             name="mixed_7b",
         )
         mixed_7c = InceptionEBlock(
+            apply_max_pool=self.last_block_max_pool,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
             name="mixed_7c",
@@ -1078,7 +1094,7 @@ class InceptionV3(nn.Module):
             bias_init=nn.initializers.zeros,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            name="fc",
+            name="output",
         )
         out = fc(out)
 

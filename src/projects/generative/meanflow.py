@@ -234,11 +234,10 @@ class MeanFlowUNetModule(nn.Module):
 
     Attributes:
         features (int): Number of channels in the latent feature maps.
-        num_groups (int): Number of groups for `GroupNorm` layers.
         dropout_rate (float): Dropout rate for the attention blocks.
         epsilon (float): Small constant for numerical stability in `GroupNorm`.
         skip_scale (float): Scaling factor for skip connections.
-        resample_filter (Optional[Sequence[float | int]]): One-dimensional FIR
+        resample_filter (Optional[Sequence[int]]): One-dimensional FIR
             filter for up/downsampling. Default is :math:`[1, 1]`.
         deterministic (Optional[bool]): Whether to run deterministically.
         dtype (dtype): The dtype of the computation (default: float32).
@@ -246,8 +245,10 @@ class MeanFlowUNetModule(nn.Module):
     """
 
     features: int
-    dropout_rate: float = 0.0
-    resample_filter: typing.Sequence[typing.Union[float, int]] = (1, 1)
+    dropout_rate: float
+    epsilon: float
+    skip_scale: float
+    resample_filter: typing.Sequence[int] = (1, 1)
     deterministic: typing.Optional[bool] = None
     dtype: typing.Any = None
     param_dtype: typing.Any = None
@@ -288,10 +289,10 @@ class MeanFlowUNetModule(nn.Module):
             aug_embed = nn.Dense(
                 features=cond.shape[-1],
                 use_bias=False,
-                kernel_init=functools.partial(
-                    unet.default_init(),
-                    fan_in=edm_cond.shape[-1],
-                    fan_out=cond.shape[-1],
+                kernel_init=jax.nn.initializers.variance_scaling(
+                    scale=1.0,
+                    mode="fan_avg",
+                    distribution="uniform",
                 ),
                 dtype=self.dtype,
                 param_dtype=self.param_dtype,
@@ -303,16 +304,12 @@ class MeanFlowUNetModule(nn.Module):
         # projects the conditioning embeddings
         cond_in = nn.Dense(
             features=self.features * 4,
-            kernel_init=functools.partial(
-                unet.default_init(),
-                fan_in=cond.shape[-1],
-                fan_out=self.features * 4,
+            kernel_init=jax.nn.initializers.variance_scaling(
+                scale=1.0,
+                mode="fan_avg",
+                distribution="uniform",
             ),
-            bias_init=functools.partial(
-                unet.default_init(),
-                fan_in=cond.shape[-1],
-                fan_out=self.features * 4,
-            ),
+            bias_init=jax.nn.initializers.zeros,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
             name="cond_fc_1",
@@ -320,16 +317,12 @@ class MeanFlowUNetModule(nn.Module):
         cond = jax.nn.silu(cond_in(cond))
         cond_out = nn.Dense(
             features=self.features * 4,
-            kernel_init=functools.partial(
-                unet.default_init(),
-                fan_in=cond.shape[-1],
-                fan_out=self.features * 4,
+            kernel_init=jax.nn.initializers.variance_scaling(
+                scale=1.0,
+                mode="fan_avg",
+                distribution="uniform",
             ),
-            bias_init=functools.partial(
-                unet.default_init(),
-                fan_in=cond.shape[-1],
-                fan_out=self.features * 4,
-            ),
+            bias_init=jax.nn.initializers.zeros,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
             name="cond_fc_2",
@@ -339,8 +332,10 @@ class MeanFlowUNetModule(nn.Module):
         # pass through the backbone U-Net
         backbone = unet.SongNetwork(
             features=self.features,
-            channel_mult=[2, 2, 2],
+            ch_mults=[2, 2, 2],
             dropout_rate=self.dropout_rate,
+            epsilon=self.epsilon,
+            skip_scale=self.skip_scale,
             resample_filter=self.resample_filter,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
@@ -386,7 +381,9 @@ class MeanFlowUNetModel(_model.Model):
         image_size: int,
         features: int,
         dropout_rate: float,
-        resample_filter: typing.Sequence[typing.Union[float, int]] = [1, 1],
+        epsilon: float = 1e-6,
+        skip_scale: float = 1.0,
+        resample_filter: typing.Sequence[int] = [1, 1],
         dtype: typing.Any = None,
         param_dtype: typing.Any = None,
         precision: typing.Any = None,
@@ -426,6 +423,8 @@ class MeanFlowUNetModel(_model.Model):
         self._network = MeanFlowUNetModule(
             features=features,
             dropout_rate=dropout_rate,
+            epsilon=epsilon,
+            skip_scale=skip_scale,
             resample_filter=resample_filter,
             name="unet",
             dtype=dtype,

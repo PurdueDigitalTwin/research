@@ -52,7 +52,7 @@ def _frechet_distance(
     cov_left = np.atleast_2d(np.array(cov_left))
     cov_right = np.atleast_2d(np.array(cov_right))
 
-    diff = mu_left - mu_right
+    m = np.square(mu_left - mu_right).sum()
     covmean, _ = splin.sqrtm(np.dot(cov_left, cov_right), disp=False)
     if not np.isfinite(covmean).all():
         logging.rank_zero_warning(
@@ -68,31 +68,43 @@ def _frechet_distance(
 
     if np.iscomplexobj(covmean):
         logging.rank_zero_warning(
-            "Complex component detected in covmean during FID calculation. "
-            "Taking only the real part.",
+            "Complex component detected in covmean during FID calculation."
         )
-        covmean = covmean.real
 
     trm = np.trace(covmean)
-    out = diff.dot(diff) + np.trace(cov_left) + np.trace(cov_right) - 2 * trm
+    out = m + np.trace(cov_left + cov_right - 2 * trm)
 
-    return out
+    return np.real(out)
 
 
-def _process_image(image: npt.NDArray[np.float_]) -> npt.NDArray[np.float_]:
-    def __resize(channel: npt.NDArray[np.float_]) -> npt.NDArray[np.float_]:
-        pil_image = Image.fromarray(channel, mode="F")
+def _process_image(image: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
+    r"""Preprocess and resize the image for FID.
+
+    .. note::
+
+        This is adapted from the original image preprocessing in `clean-fid`:
+        `https://github.com/GaParmar/clean-fid/blob/main/cleanfid/resize.py`
+
+    Args:
+        image (npt.NDArray[np.uint8]): The input image to be processed.
+
+    Returns:
+        The processed and resized image as a NumPy array.
+    """
+
+    def __resize(channel: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
+        pil_image = Image.fromarray(channel.astype(np.float32), mode="F")
         pil_image = pil_image.resize((299, 299), Image.Resampling.BICUBIC)
-        out = np.asarray(pil_image).clip(0, 255).reshape(299, 299, 1)
+        out = np.asarray(pil_image).clip(0, 255)
+        out = out.astype(np.uint8).reshape(299, 299, 1)
         return out
 
-    image = np.array(image).astype(np.float32)
-    image = np.concatenate(
-        [__resize(image[..., c]) for c in range(image.shape[-1])],
+    out = np.concatenate(
+        [__resize(np.array(image[..., c])) for c in range(image.shape[-1])],
         axis=-1,
     )
 
-    return image
+    return out
 
 
 class FrechetInceptionDistance:
@@ -107,8 +119,8 @@ class FrechetInceptionDistance:
             Default is `32`.
     """
 
-    _ref_mu: jxt.ArrayLike
-    _ref_cov: jxt.ArrayLike
+    _ref_mu: npt.NDArray[np.float64]
+    _ref_cov: npt.NDArray[np.float64]
 
     def __init__(
         self,
@@ -117,27 +129,38 @@ class FrechetInceptionDistance:
         batch_size: int = 32,
     ) -> None:
         self._batch_size = batch_size
-        self._model = inception.InceptionV3()
+
+        # NOTE: The original FID InceptionV3 variant uses 1,008 output classes
+        # Do not change this unless the weights are updated.
+        self._model = inception.InceptionV3(
+            num_classes=1_008,
+            last_block_max_pool=True,
+            with_aux_logits=False,
+        )
+
+        # download converted inception v3 weights
         logging.rank_zero_info("Downloading FID Inception V3 weights...")
         with open(
             hf_hub_download(
                 repo_id="ChocolateDave/fid-inception-v3",
                 filename="fid_inception_v3.msgpack",
                 token=os.getenv("HF_TOKEN", None),
-                revision="a8e810f308e520fb24aff1fd09392fa229092995",
+                revision="bef27900b6b2c46b866b628a86a1c1cedd95a041",
             ),
             mode="rb",
         ) as f:
             self._variables = serialization.msgpack_restore(f.read())
         self._compute_feat = jax.jit(
             functools.partial(self.extract_features, model=self._model),
+            device=jax.devices("cpu")[0],
         )
 
+        # compute reference statistics
         with tqdm_logging.logging_redirect_tqdm():
             if jax.process_index() == 0:
                 pbar = tqdm.tqdm(
                     total=len(train_dataset),
-                    desc="Computing reference statistics...",
+                    desc="Processing reference images...",
                     unit="images",
                 )
             else:
@@ -181,24 +204,25 @@ class FrechetInceptionDistance:
             if pbar is not None:
                 pbar.close()
 
-        self._ref_mu = jnp.mean(
-            jnp.concatenate(ref_features, axis=0),
-            axis=0,
-        )
-        self._ref_cov = jnp.cov(
-            jnp.matrix_transpose(jnp.concatenate(ref_features, axis=0)),
-        )
+        ref_feats = np.concatenate(ref_features, axis=0).astype(np.float64)
+        self._ref_mu = np.mean(ref_feats, axis=0)
+        self._ref_cov = np.cov(ref_feats, rowvar=False)
 
-    def __call__(self, images: npt.NDArray) -> npt.NDArray:
+    def __call__(self, images: npt.NDArray[np.uint8]) -> npt.NDArray:
         r"""Computes the FID score between the given images and the reference.
 
         Args:
-            images (npt.NDArray): A sequence of images to compute
-                the FID score against the reference statistics.
+            images (npt.NDArray[np.uint8]): A sequence of images to compute the
+                FID score against the reference training dataset statistics.
+                The images should be of `uint8` type ranged between `[0, 255]`.
 
         Returns:
             The FID score as a scalar array.
         """
+        # sanity checks
+        chex.assert_type(images, jnp.uint8)
+        chex.assert_rank(images, 4)
+
         if jax.process_index() == 0:
             pbar = tqdm.tqdm(
                 total=len(images),
@@ -225,7 +249,7 @@ class FrechetInceptionDistance:
             )
         else:
             pbar = None
-        sampled_features = []
+        samp_features = []
         for i in range(0, len(processed_images), self._batch_size):
             batch_images = jnp.array(
                 processed_images[i : i + self._batch_size]
@@ -235,19 +259,15 @@ class FrechetInceptionDistance:
                 params=self._variables["params"],
                 batch_stats=self._variables["batch_stats"],
             )
-            sampled_features.append(feats)
+            samp_features.append(feats)
             if pbar is not None:
                 pbar.update(1)
         if pbar is not None:
             pbar.close()
 
-        samp_mu = jnp.mean(
-            jnp.concatenate(sampled_features, axis=0),
-            axis=0,
-        )
-        samp_cov = jnp.cov(
-            jnp.matrix_transpose(jnp.concatenate(sampled_features, axis=0)),
-        )
+        samp_feats = np.concatenate(samp_features, axis=0).astype(np.float64)
+        samp_mu = np.mean(samp_feats, axis=0)
+        samp_cov = np.cov(samp_feats, rowvar=False)
         fid_score = _frechet_distance(
             mu_left=samp_mu,
             cov_left=samp_cov,
@@ -258,13 +278,13 @@ class FrechetInceptionDistance:
         return fid_score
 
     @property
-    def ref_mu(self) -> jxt.ArrayLike:
-        """ArrayLike: The reference mean vector of shape `(D,)`."""
+    def ref_mu(self) -> npt.NDArray[np.float64]:
+        """npt.NDArray: The reference mean vector of shape `(D,)`."""
         return self._ref_mu
 
     @property
-    def ref_cov(self) -> jxt.ArrayLike:
-        """ArrayLike: The reference covariance matrix of shape `(D, D)`."""
+    def ref_cov(self) -> npt.NDArray[np.float64]:
+        """npt.NDArray: The reference covariance matrix of shape `(D, D)`."""
         return self._ref_cov
 
     @staticmethod
@@ -275,15 +295,12 @@ class FrechetInceptionDistance:
         batch_stats: jaxtyping.PyTree,
     ) -> jax.Array:
         r"""Computes the feature map from the deepest layer of Inception V3."""
-        _mean = jnp.array([0.485, 0.456, 0.406], dtype=jnp.float32)
-        _std = jnp.array([0.229, 0.224, 0.225], dtype=jnp.float32)
-        inputs = jnp.astype(inputs, jnp.float32) / 255.0
-        inputs = jnp.true_divide(inputs - _mean[None, :], _std[None, :])
+        inputs = (jnp.astype(inputs, jnp.float32) - 128.0) / 128.0
         feat, _ = model.apply(
             variables={"params": params, "batch_stats": batch_stats},
-            inputs=inputs,
+            # NOTE: force computation on CPU for reproducibility
+            inputs=jax.device_put(inputs, device=jax.devices("cpu")[0]),
             deterministic=True,
             with_head=False,
-            with_aux_logits=False,
         )
         return feat
