@@ -116,8 +116,11 @@ class FrechetInceptionDistance:
             contains the images. Default is `"image"`.
         batch_size (int, optional): The batch size for processing images.
             Default is `32`.
+        mode (str, optional): The mode of image processing to use. Either
+            `"tensorflow"` or `"clean"`. Default is `"tensorflow"`.
     """
 
+    _mode: str
     _ref_mu: npt.NDArray[np.float64]
     _ref_cov: npt.NDArray[np.float64]
 
@@ -126,8 +129,16 @@ class FrechetInceptionDistance:
         train_dataset: datasets.Dataset,
         image_key: str = "image",
         batch_size: int = 32,
+        mode: str = "tensorflow",
     ) -> None:
         self._batch_size = batch_size
+
+        if mode not in ["tensorflow", "clean"]:
+            raise ValueError(
+                f"Unsupported FID mode '{mode}'. "
+                "Supported modes are 'tensorflow' and 'clean'."
+            )
+        self._mode = mode
 
         # NOTE: The original FID InceptionV3 variant uses 1,008 output classes
         # Do not change this unless the weights are updated.
@@ -170,10 +181,18 @@ class FrechetInceptionDistance:
                 assert isinstance(item, typing.Dict)
                 image = item.get(image_key, None)
                 if image is None:
-                    raise ValueError(
-                        f"FATAL: Image key '{image_key}' not found in dataset."
+                    raise ValueError(f"'{image_key}' not found in dataset.")
+
+                if self._mode == "clean":
+                    image = _process_image(image)
+                elif self._mode == "tensorflow":
+                    image = jax.image.resize(
+                        np.array(image, dtype=np.uint8),
+                        shape=(299, 299, 3),
+                        method=jax.image.ResizeMethod.LINEAR,
+                        antialias=False,
                     )
-                image = _process_image(image)
+
                 ref_images.append(image)
                 if pbar is not None:
                     pbar.update(1)
@@ -183,15 +202,15 @@ class FrechetInceptionDistance:
             ref_features = []
             if jax.process_index() == 0:
                 pbar = tqdm.tqdm(
-                    total=len(range(0, len(ref_images), batch_size)),
+                    total=len(range(0, len(ref_images), self._batch_size)),
                     desc="Extracting training features...",
                     unit="batches",
                 )
             else:
                 pbar = None
 
-            for i in range(0, len(ref_images), batch_size):
-                batch_images = jnp.array(ref_images[i : i + batch_size])
+            for i in range(0, len(ref_images), self._batch_size):
+                batch_images = jnp.array(ref_images[i : i + self._batch_size])
                 feats = self._compute_feat(
                     batch_images,
                     params=self._variables["params"],
@@ -233,7 +252,15 @@ class FrechetInceptionDistance:
         processed_images = []
         with tqdm_logging.logging_redirect_tqdm():
             for image in images:
-                image = _process_image(image)
+                if self._mode == "clean":
+                    image = _process_image(image)
+                elif self._mode == "tensorflow":
+                    image = jax.image.resize(
+                        np.array(image, dtype=np.uint8),
+                        shape=(299, 299, 3),
+                        method=jax.image.ResizeMethod.LINEAR,
+                        antialias=False,
+                    )
                 processed_images.append(image)
                 if pbar is not None:
                     pbar.update(1)
