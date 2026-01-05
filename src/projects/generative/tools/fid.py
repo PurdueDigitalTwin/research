@@ -93,7 +93,7 @@ def _process_image(image: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
     """
 
     def __resize(channel: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
-        pil_image = Image.fromarray(channel, mode="F")
+        pil_image = Image.fromarray(channel.astype(np.float32), mode="F")
         pil_image = pil_image.resize((299, 299), Image.Resampling.BICUBIC)
         out = np.asarray(pil_image).clip(0, 255)
         out = out.astype(np.uint8).reshape(299, 299, 1)
