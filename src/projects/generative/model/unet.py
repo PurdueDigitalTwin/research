@@ -14,7 +14,40 @@ def upfirdn2d(
     scale: int = 2,
     up: bool = False,
 ) -> jax.Array:
-    r"""Ported from PyTorch implementation of `upfirdn2d`."""
+    r"""Perform 2D upsample-filter-downsample on `NHWC` inputs.
+
+    ..note::
+
+        This helper applies a separable finite impulse response (FIR) filter in
+        2D while optionally changing spatial resolution. It is conceptually
+        similar to the classic *upfirdn* operation:
+
+        * When ``up=True``: the input is upsampled by ``scale`` using zero
+        insertion, filtered with the provided kernel, and cropped so that the
+        output is ``scale`` times larger in height and width (modulo padding).
+        * When ``up=False``: the input is filtered and then downsampled by
+        taking every ``scale``-th pixel in each spatial dimension.
+        The operation is implemented using ``jax.lax.conv_general_dilated`` with
+        per-channel (depthwise) filtering on NHWC tensors.
+
+    Args:
+        inputs: Input tensor of shape ``(..., H, W, C)`` where the leading
+            dimensions (if any) are treated as batch dimensions, ``H`` and
+            ``W`` are spatial dimensions, and ``C`` is the number of channels.
+        kernel: One-dimensional FIR kernel used to construct a 2D separable
+            filter via outer product. The kernel is normalized inside the
+            function, so its absolute scale does not affect the overall gain.
+        scale: Integer scaling factor used for upsampling or downsampling.
+            Must be a positive integer. When ``up=True``, determines the
+            upsampling factor; otherwise, determines the downsampling stride.
+        up: If ``True``, perform upsampling followed by filtering. If
+            ``False``, perform filtering followed by downsampling.
+    Returns:
+        Tensor with the same leading batch dimensions and channel
+        count as ``inputs``. The spatial dimensions are scaled by ``scale``
+        (approximately ``H * scale, W * scale`` when ``up=True``, or
+        ``H / scale, W / scale`` when ``up=False``, subject to kernel padding).
+    """
     batch_dims = inputs.shape[:-3]
     height, width, channels = inputs.shape[-3:]
     inputs = jnp.reshape(inputs, (-1, height, width, channels))
@@ -565,6 +598,8 @@ class SongNetBlock(nn.Module):
         dropout_rate (float, optional): Dropout rate. Default is :math:`0`.
         skip_scale (float, optional): Scaling factor for the residual
             connection output. Default is :math:`1.0`.
+        resample_filter (Sequence[int], optional): One-dimensional FIR filter
+            for resampling. Default is :math:`[1, 1]`.
         dtype (Any, optional): The dtype of the computation.
         param_dtype (Any, optional): The dtype of the parameters.
         precision (Any, optional): Numerical precision of the computation.
@@ -576,7 +611,7 @@ class SongNetBlock(nn.Module):
     deterministic: typing.Optional[bool] = None
     dropout_rate: float = 0.0
     skip_scale: float = 1.0
-    resample_filter: typing.Optional[typing.Sequence[int]] = None
+    resample_filter: typing.Sequence[int] = [1, 1]
     upsampling: bool = False
     dtype: typing.Any = None
     param_dtype: typing.Any = None
@@ -621,7 +656,7 @@ class SongNetBlock(nn.Module):
                 features=self.features,
                 resample_filter=jnp.array(
                     self.resample_filter,
-                    dtype=self.dtype,
+                    dtype=self.param_dtype,
                 ),
                 dtype=self.dtype,
                 param_dtype=self.param_dtype,
@@ -634,7 +669,7 @@ class SongNetBlock(nn.Module):
                 features=self.features,
                 resample_filter=jnp.array(
                     self.resample_filter,
-                    dtype=self.dtype,
+                    dtype=self.param_dtype,
                 ),
                 dtype=self.dtype,
                 param_dtype=self.param_dtype,
@@ -740,8 +775,8 @@ class SongNetwork(nn.Module):
         dropout_rate (float, optional): Dropout rate. Default is :math:`0.0`.
         epsilon (float, optional): Small float added to variance to avoid
             dividing by zero in `GroupNorm`. Default is :math:`1e-6`.
-        resample_filter (Optional[Sequence[int]]): One-dimensional FIR filter
-            for resampling. Default is `None`.
+        resample_filter (typing.Sequence[int]): One-dimensional FIR filter
+            for resampling. Default is `[1, 1]`.
         skip_scale (float, optional): Scaling factor for the residual
             connection outputs. Default is :math:`1.0`.
         deterministic (bool, optional): If true, the model is run in
@@ -758,7 +793,7 @@ class SongNetwork(nn.Module):
     attn_resolutions: typing.Sequence[int] = (16,)
     dropout_rate: float = 0.0
     epsilon: float = 1e-6
-    resample_filter: typing.Optional[typing.Sequence[int]] = None
+    resample_filter: typing.Sequence[int] = [1, 1]
     skip_scale: float = 1.0
     deterministic: typing.Optional[bool] = None
     dtype: typing.Any = None
