@@ -53,26 +53,25 @@ def _frechet_distance(
     cov_right = np.atleast_2d(np.array(cov_right))
 
     m = np.square(mu_left - mu_right).sum()
-    covmean, _ = splin.sqrtm(np.dot(cov_left, cov_right), disp=False)
-    if not np.isfinite(covmean).all():
+    s, _ = splin.sqrtm(np.dot(cov_left, cov_right), disp=False)
+    if not np.isfinite(s).all():
         logging.rank_zero_warning(
             "Singular product detected during FID calculation. "
             "Adding %s to diagonal of covariance estimations.",
             eps,
         )
         offset = np.eye(cov_left.shape[0]) * eps
-        covmean, _ = splin.sqrtm(
+        s, _ = splin.sqrtm(
             np.dot((cov_left + offset), (cov_right + offset)),
             disp=False,
         )
 
-    if np.iscomplexobj(covmean):
+    if np.iscomplexobj(s):
         logging.rank_zero_warning(
             "Complex component detected in covmean during FID calculation."
         )
 
-    trm = np.trace(covmean)
-    out = m + np.trace(cov_left + cov_right - 2 * trm)
+    out = m + np.trace(cov_left + cov_right - 2 * s)
 
     return np.real(out)
 
