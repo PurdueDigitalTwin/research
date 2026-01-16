@@ -68,7 +68,8 @@ def _frechet_distance(
 
     if np.iscomplexobj(s):
         logging.rank_zero_warning(
-            "Complex component detected in covmean during FID calculation."
+            "Complex component detected in matrix square root "
+            "of the product of covariance matrices during FID calculation."
         )
 
     out = m + np.trace(cov_left + cov_right - 2 * s)
