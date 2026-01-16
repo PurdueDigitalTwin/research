@@ -766,12 +766,33 @@ class HoNetwork(nn.Module):
 
     Args:
         features (int): Base number of features for the latent representations.
+        out_features (int, optional): Number of output features. If `None`,
+            the number of input features is used. Default is `None`.
         ch_mults (typing.Sequence[int], optional): Sequence of multipliers
             for the number of features at each level of the U-Net architecture.
+            Default is `(1, 2, 2, 2)`.
+        num_groups (int, optional): Number of groups for `GroupNorm`.
+            Default is :math:`32`.
+        num_res_blocks (int, optional): Number of residual blocks per level.
+            Default is :math:`4`.
+        attn_resolutions (typing.Sequence[int], optional): Sequence of spatial
+            resolutions at which to apply attention. Default is `(16,)`.
+        dropout_rate (float, optional): Dropout rate. Default is :math:`0`.
+        epsilon (float, optional): Small float added to variance to avoid
+            dividing by zero in `GroupNorm`. Default is :math:`1e-6`.
+        resample_with_conv (bool, optional): If `True`, uses convolutional
+            layers for upsampling and downsampling.
+        deterministic (bool, optional): Whether to apply dropout operations.
+            Merged with the `deterministic` argument passed to `__call__`.
+            Defaults to `None`.
+        dtype (Any, optional): The dtype of the computation.
+        param_dtype (Any, optional): The dtype of the parameters.
+        precision (Any, optional): Numerical precision of the computation.
     """
 
     features: int
-    ch_mults: typing.Sequence[int] = (2, 2, 2)
+    out_features: typing.Optional[int] = None
+    ch_mults: typing.Sequence[int] = (1, 2, 2, 2)
     num_groups: int = 32
     num_res_blocks: int = 4
     attn_resolutions: typing.Sequence[int] = (16,)
@@ -800,7 +821,9 @@ class HoNetwork(nn.Module):
 
         Returns:
             Output array of shape `(*, H, W, C_out)`, where `C_out` is the
-                number of channels in the input.
+                number of channels specified by `out_features` during
+                instantiation or the number of input channels if
+                `out_features` is `None`.
         """
         m_determinisitc = nn.merge_param(
             "deterministic",
@@ -839,11 +862,11 @@ class HoNetwork(nn.Module):
             else:
                 res_block = DownsampleBlock(
                     with_conv=self.resample_with_conv,
-                    features=self.features * mult,
+                    features=out.shape[-1],
                     resample_filter=None,
                     dtype=self.dtype,
                     param_dtype=self.param_dtype,
-                    name=f"enc_{out.shape[-3]}x{out.shape[-2]}_down",
+                    name=f"down_{level:d}_downsample",
                 )
                 out = res_block(out)
             hs.append(out)
@@ -858,7 +881,7 @@ class HoNetwork(nn.Module):
                     dtype=self.dtype,
                     param_dtype=self.param_dtype,
                     precision=self.precision,
-                    name=f"enc_{out.shape[-3]}x{out.shape[-2]}_blk_{i + 1:d}",
+                    name=f"down_{level:d}_block_{i + 1:d}",
                 )
                 out = res_block(
                     inputs=out,
@@ -874,7 +897,7 @@ class HoNetwork(nn.Module):
                         dtype=self.dtype,
                         param_dtype=self.param_dtype,
                         precision=self.precision,
-                        name=f"enc_{out.shape[-3]}x{out.shape[-2]}_attn_{i + 1:d}",
+                        name=f"down_{level:d}_attn_{i + 1:d}",
                     )
                     out = attn_block(out)
                 hs.append(out)
@@ -893,7 +916,7 @@ class HoNetwork(nn.Module):
                     dtype=self.dtype,
                     param_dtype=self.param_dtype,
                     precision=self.precision,
-                    name="mid_blk_1",
+                    name="mid_block_1",
                 )
                 out = block(out, cond=cond, deterministic=m_determinisitc)
                 block = AttnBlock(
@@ -916,17 +939,17 @@ class HoNetwork(nn.Module):
                     dtype=self.dtype,
                     param_dtype=self.param_dtype,
                     precision=self.precision,
-                    name="mid_blk_2",
+                    name="mid_block_2",
                 )
                 out = block(out, cond=cond, deterministic=m_determinisitc)
             else:
                 block = UpsampleBlock(
                     with_conv=self.resample_with_conv,
-                    features=out_ch,
+                    features=out.shape[-1],
                     resample_filter=None,
                     dtype=self.dtype,
                     param_dtype=self.param_dtype,
-                    name=f"dec_{out.shape[-3]}x{out.shape[-2]}_up",
+                    name=f"up_{level:d}_upsample",
                 )
                 out = block(out)
 
@@ -942,7 +965,7 @@ class HoNetwork(nn.Module):
                     dtype=self.dtype,
                     param_dtype=self.param_dtype,
                     precision=self.precision,
-                    name=f"dec_{out.shape[-3]}x{out.shape[-2]}_blk_{i + 1:d}",
+                    name=f"up_{level:d}_block_{i + 1:d}",
                 )
                 out = res_block(
                     inputs=out,
@@ -958,7 +981,7 @@ class HoNetwork(nn.Module):
                         dtype=self.dtype,
                         param_dtype=self.param_dtype,
                         precision=self.precision,
-                        name=f"dec_{out.shape[-3]}x{out.shape[-2]}_attn_{i + 1:d}",
+                        name=f"up_{level:d}_attn_{i + 1:d}",
                     )
                     out = attn_block(out)
 
@@ -970,7 +993,14 @@ class HoNetwork(nn.Module):
             name="norm_out",
         )
         conv_out = nn.Conv(
-            features=inputs.shape[-1],
+            features=(
+                self.out_features
+                if isinstance(
+                    self.out_features,
+                    int,
+                )
+                else inputs.shape[-1]
+            ),
             kernel_size=(3, 3),
             strides=(1, 1),
             padding="SAME",
