@@ -182,17 +182,7 @@ class FrechetInceptionDistance:
                 image = item.get(image_key, None)
                 if image is None:
                     raise ValueError(f"'{image_key}' not found in dataset.")
-
-                if self._mode == "clean":
-                    image = _process_image(image)
-                elif self._mode == "tensorflow":
-                    image = jax.image.resize(
-                        np.array(image, dtype=np.uint8),
-                        shape=(299, 299, 3),
-                        method=jax.image.ResizeMethod.LINEAR,
-                        antialias=False,
-                    )
-
+                image = self.process(np.array(image))
                 ref_images.append(image)
                 if pbar is not None:
                     pbar.update(1)
@@ -252,15 +242,7 @@ class FrechetInceptionDistance:
         processed_images = []
         with tqdm_logging.logging_redirect_tqdm():
             for image in images:
-                if self._mode == "clean":
-                    image = _process_image(image)
-                elif self._mode == "tensorflow":
-                    image = jax.image.resize(
-                        np.array(image, dtype=np.uint8),
-                        shape=(299, 299, 3),
-                        method=jax.image.ResizeMethod.LINEAR,
-                        antialias=False,
-                    )
+                image = self.process(image)
                 processed_images.append(image)
                 if pbar is not None:
                     pbar.update(1)
@@ -302,6 +284,28 @@ class FrechetInceptionDistance:
         )
 
         return fid_score
+
+    def process(self, images: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
+        r"""Processes and resizes images for FID computation.
+
+        Args:
+            images (npt.NDArray[np.uint8]): A sequence of images to be processed.
+                The images should be of `uint8` type ranged between `[0, 255]`.
+
+        Returns:
+            The processed and resized images as a NumPy array.
+        """
+        if self._mode == "clean":
+            return _process_image(images)
+        elif self._mode == "tensorflow":
+            return jax.image.resize(
+                np.array(images, dtype=np.uint8),
+                shape=(299, 299, 3),
+                method=jax.image.ResizeMethod.LINEAR,
+                antialias=False,
+            )
+        else:
+            raise ValueError(f"Unsupported FID mode '{self._mode}'.")
 
     @property
     def ref_mu(self) -> npt.NDArray[np.float64]:
