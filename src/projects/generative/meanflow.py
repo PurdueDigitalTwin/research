@@ -1,4 +1,3 @@
-import functools
 import typing
 
 from flax import linen as nn

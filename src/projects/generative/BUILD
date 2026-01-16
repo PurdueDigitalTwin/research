@@ -18,6 +18,16 @@ ml_py_library(
 )
 
 ml_py_library(
+    name = "ddpm",
+    srcs = ["ddpm.py"],
+    deps = [
+        "flax",
+        "jax",
+        "jaxtyping",
+    ],
+)
+
+ml_py_library(
     name = "experiment",
     srcs = ["experiment.py"],
     deps = [
