@@ -7,6 +7,7 @@ from src.projects.generative.tools import fid
 
 
 def test_frechet_distance() -> None:
+    r"""Test frechet distance computation."""
     dim: int = 128
 
     # test identity
