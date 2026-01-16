@@ -24,6 +24,8 @@ ml_py_library(
         "flax",
         "jax",
         "jaxtyping",
+        "//src/core:model",
+        "//src/projects/generative/model:unet",
     ],
 )
 
