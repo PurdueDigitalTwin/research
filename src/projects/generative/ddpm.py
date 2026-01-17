@@ -408,7 +408,7 @@ class DDPMGaussianUNetModel(_model.Model):
                 timestep=t,
                 deterministic=deterministic,
             )
-            x_t = coef_0[t] * carry.x - coef_1[t] * noise_pred
+            x_t = coef_0[t] * (carry.x - coef_1[t] * noise_pred)
 
             # optionally adding noise
             noise = jax.random.normal(
