@@ -2,6 +2,7 @@ import functools
 import typing
 
 from flax import linen as nn
+from flax import struct
 import jax
 from jax import numpy as jnp
 import jaxtyping
@@ -46,6 +47,19 @@ def sinusoidal_embedding(timesteps: jax.Array, features: int) -> jax.Array:
 # ==============================================================================
 # Main DDPM Modules
 # ==============================================================================
+@struct.dataclass
+class DDPMSamplingCarry:
+    r"""A carry dataclass for sampling from the diffusion process.
+
+    Attributes:
+        x (jax.Array): The input data tensor `x_t`.
+        params (PyTree): The model parameters.
+    """
+
+    x: jax.Array
+    params: PyTree
+
+
 class DDPMUNetModule(nn.Module):
     r"""Original Denoising Diffusion Probabilistic Model (DDPM) U-Net arch.
 
@@ -379,51 +393,53 @@ class DDPMGaussianUNetModel(_model.Model):
     ) -> _model.StepOutputs:
         del kwargs  # unused
 
+        # pre-calculate the coefficients
+        coef_0 = 1.0 / jnp.sqrt(self.alphas)
+        coef_1 = self.betas / jnp.sqrt(1.0 - self.alphas_bars)
+
+        @jax.jit
         def _scan_body(
-            carry: jax.Array,
-            x: jax.Array,
-        ) -> typing.Tuple[jax.Array, jax.Array]:
+            carry: DDPMSamplingCarry,
+            t: jax.Array,
+        ) -> typing.Tuple[DDPMSamplingCarry, jax.Array]:
             noise_pred = self.network.apply(
-                variables={"params": params},
-                inputs=carry,
-                timestep=x,
+                variables={"params": carry.params},
+                inputs=carry.x,
+                timestep=t,
                 deterministic=deterministic,
             )
-            _coef_0 = 1.0 / jnp.sqrt(self.alphas[x])
-            _coef_1 = self.betas[x] / jnp.sqrt(1.0 - self.alphas_bars[x])
-            x_t = _coef_0 * carry - _coef_1 * noise_pred
+            x_t = coef_0[t] * carry.x - coef_1[t] * noise_pred
 
             # optionally adding noise
-            noise = jnp.where(
-                jnp.full(carry.shape, x > 0, dtype=jnp.bool_),
-                jax.random.normal(
-                    key=jax.random.fold_in(rngs, x),
-                    shape=carry.shape,
-                    dtype=carry.dtype,
-                ),
-                jnp.zeros_like(carry),
+            noise = jax.random.normal(
+                key=jax.random.fold_in(rngs, t),
+                shape=x_t.shape,
+                dtype=x_t.dtype,
             )
-            sigma_t = jnp.sqrt(self.posterior_vars[x])
-            x_t += sigma_t * noise
+            sigma_t = jnp.sqrt(self.posterior_vars[t])
+            x_t += (t > 0).astype(noise.dtype) * sigma_t * noise
 
-            # scale images to [-1, 1]
-            x_t = jnp.clip(x_t, -1.0, 1.0)
+            return DDPMSamplingCarry(x=x_t, params=carry.params), x_t
 
-            return x_t, x_t
-
-        init = jax.random.normal(
-            key=rngs,
-            shape=shape,
-            dtype=self.dtype,
+        init = DDPMSamplingCarry(
+            x=jax.random.normal(
+                key=rngs,
+                shape=shape,
+                dtype=self.dtype,
+            ),
+            params=params,
         )
-        xs = jnp.arange(self.num_diffusion_steps - 1, -1, -1)
-        _, samples = jax.lax.scan(
+        xs = jnp.arange(0, self.num_diffusion_steps)
+        _, out = jax.lax.scan(
             f=_scan_body,
             init=init,
             xs=xs,
+            reverse=True,
         )
+        # scale images to [-1, 1]
+        out = jnp.clip(out[-1], -1.0, 1.0)
 
-        return _model.StepOutputs(output=samples[-1, ...])
+        return _model.StepOutputs(output=out)
 
     @staticmethod
     def get_betas(
