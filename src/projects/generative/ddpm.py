@@ -354,11 +354,11 @@ class DDPMGaussianUNetModel(_model.Model):
             shape=image.shape,
             dtype=image.dtype,
         )
-        samples = jnp.add(
-            jnp.sqrt(self.alphas_bars[timestep])[:, None, None, None] * image,
-            jnp.sqrt(1.0 - self.alphas_bars[timestep])[:, None, None, None]
-            * noise_true,
+        w = jnp.broadcast_to(
+            self.alphas_bars[timestep][:, None, None, None],
+            image.shape,
         )
+        samples = jnp.sqrt(w) * image + jnp.sqrt(1.0 - w) * noise_true
         noise_pred = self.network.apply(
             variables={"params": params},
             inputs=samples,
@@ -367,7 +367,10 @@ class DDPMGaussianUNetModel(_model.Model):
             rngs={"dropout": dropout_rng},
         )
         loss = jnp.mean(
-            jnp.square(noise_pred - jax.lax.stop_gradient(noise_true))
+            jnp.sum(
+                jnp.square(noise_pred - jax.lax.stop_gradient(noise_true)),
+                axis=(-1, -2, -3),
+            )
         )
 
         out = _model.StepOutputs(
@@ -390,6 +393,7 @@ class DDPMGaussianUNetModel(_model.Model):
         params: PyTree,
         shape: typing.Sequence[typing.Union[int, typing.Any]],
         deterministic: bool = True,
+        return_intermediates: bool = False,
         **kwargs,
     ) -> _model.StepOutputs:
         del kwargs  # unused
@@ -438,7 +442,11 @@ class DDPMGaussianUNetModel(_model.Model):
             reverse=True,
         )
         # scale images to [-1, 1]
-        out = jnp.clip(out[-1], -1.0, 1.0)
+        if return_intermediates:
+            out = jnp.clip(out, -1.0, 1.0)
+        else:
+            # NOTE: with `reverse=True`, the final sample is at index 0
+            out = jnp.clip(out[0], -1.0, 1.0)
 
         return _model.StepOutputs(output=out)
 
