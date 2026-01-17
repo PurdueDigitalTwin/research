@@ -301,6 +301,66 @@ class DDPMGaussianUNetModel(_model.Model):
         return variables["params"]
 
     @typing_extensions.override
+    def compute_loss(
+        self,
+        *,
+        rngs: typing.Any,
+        batch: PyTree,
+        params: PyTree,
+        deterministic: bool = False,
+        **kwargs,
+    ) -> typing.Tuple[jax.Array, _model.StepOutputs]:
+        del kwargs  # unused
+
+        image = batch.get("image")
+        if not isinstance(image, jax.Array):
+            raise ValueError("Missing `image` in batch for training.")
+        image = image.astype(self.dtype).reshape(-1, *image.shape[-3:])
+        image = image * 2.0 - 1.0  # NOTE: scale to [-1, 1]
+
+        rngs, t_rng, noise_rng, dropout_rng = jax.random.split(rngs, num=4)
+        timestep = jax.random.randint(
+            key=t_rng,
+            shape=image.shape[:-3],
+            minval=0,
+            maxval=self.num_diffusion_steps,
+        )
+
+        # draw sample from the posterior `q(x_{t} | x_{0})`
+        noise_true = jax.random.normal(
+            key=noise_rng,
+            shape=image.shape,
+            dtype=image.dtype,
+        )
+        samples = jnp.add(
+            jnp.sqrt(self.alphas_bars[timestep])[:, None, None, None] * image,
+            jnp.sqrt(1.0 - self.alphas_bars[timestep])[:, None, None, None]
+            * noise_true,
+        )
+        noise_pred = self.network.apply(
+            variables={"params": params},
+            inputs=samples,
+            timestep=timestep,
+            deterministic=deterministic,
+            rngs={"dropout": dropout_rng},
+        )
+        loss = jnp.mean(
+            jnp.square(noise_pred - jax.lax.stop_gradient(noise_true))
+        )
+
+        out = _model.StepOutputs(
+            scalars={"loss": loss},
+            histograms={
+                "timestep": timestep,
+                "alpha_bars": self.alphas_bars[timestep],
+                "alphas": self.alphas[timestep],
+                "betas": self.betas[timestep],
+            },
+        )
+
+        return loss, out
+
+    @typing_extensions.override
     def forward(
         self,
         *,
@@ -339,6 +399,7 @@ class DDPMGaussianUNetModel(_model.Model):
             sigma_t = jnp.sqrt(self.posterior_vars[x])
             x_t += sigma_t * noise
 
+            # scale images to [-1, 1]
             x_t = jnp.clip(x_t, -1.0, 1.0)
 
             return x_t, x_t
