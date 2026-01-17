@@ -264,3 +264,37 @@ class DDPMGaussianUNetModel(_model.Model):
             )
 
         return variables["params"]
+
+    @staticmethod
+    def get_betas(
+        beta_start: float,
+        beta_end: float,
+        beta_schedule: str,
+        num_diffusion_steps: int,
+    ) -> jax.Array:
+        if beta_schedule == "quad":
+            return jnp.square(
+                jnp.linspace(
+                    jnp.sqrt(beta_start),
+                    jnp.sqrt(beta_end),
+                    num_diffusion_steps,
+                )
+            )
+        elif beta_schedule == "linear":
+            return jnp.linspace(
+                beta_start,
+                beta_end,
+                num_diffusion_steps,
+            )
+        elif beta_schedule == "const":
+            return jnp.full((num_diffusion_steps,), beta_end)
+        elif beta_schedule == "jsd":
+            return jnp.reciprocal(
+                jnp.linspace(
+                    num_diffusion_steps,
+                    1,
+                    num_diffusion_steps,
+                )
+            )
+        else:
+            raise ValueError(f"Unsupported beta schedule: {beta_schedule}")
