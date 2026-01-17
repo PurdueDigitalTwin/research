@@ -163,7 +163,6 @@ class FrechetInceptionDistance:
             self._variables = serialization.msgpack_restore(f.read())
         self._compute_feat = jax.jit(
             functools.partial(self.extract_features, model=self._model),
-            device=jax.devices("cpu")[0],
         )
 
         # compute reference statistics
@@ -329,8 +328,7 @@ class FrechetInceptionDistance:
         inputs = (jnp.astype(inputs, jnp.float32) - 128.0) / 128.0
         feat, _ = model.apply(
             variables={"params": params, "batch_stats": batch_stats},
-            # NOTE: force computation on CPU for reproducibility
-            inputs=jax.device_put(inputs, device=jax.devices("cpu")[0]),
+            inputs=inputs,
             deterministic=True,
             with_head=False,
         )
