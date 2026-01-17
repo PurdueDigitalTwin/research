@@ -51,6 +51,8 @@ class DDPMUNetModule(nn.Module):
 
     Attributes:
         features (int): Base number of features for the latent representations.
+        ch_mults (typing.Sequence[int]): Multipliers of base number of channels
+            for each level of the U-Net.
         attn_resolutions (typing.Sequence[int]): Resolutions at which to apply
             attention following the residual convolution block.
         num_res_blocks (int): Number of residual blocks per level of the U-Net.
@@ -68,6 +70,7 @@ class DDPMUNetModule(nn.Module):
     """
 
     features: int
+    ch_mults: typing.Sequence[int]
     attn_resolutions: typing.Sequence[int]
     num_res_blocks: int
     resample_with_conv: bool
@@ -141,7 +144,7 @@ class DDPMUNetModule(nn.Module):
         backbone = unet.HoNetwork(
             features=self.features,
             out_features=self.out_features,
-            ch_mults=[1, 2, 2, 2],
+            ch_mults=self.ch_mults,
             attn_resolutions=self.attn_resolutions,
             num_res_blocks=self.num_res_blocks,
             resample_with_conv=self.resample_with_conv,
@@ -164,6 +167,8 @@ class DDPMGaussianUNetModel(_model.Model):
         in_channels (int): Number of input channels.
         image_size (int): Height and width of the (squared) input images.
         features (int): Base number of features for the latent representations.
+        ch_mults (typing.Sequence[int]): Multipliers of base number of channels
+            for each level of the U-Net.
         dropout_rate (float): Dropout rate for regularization.
         epsilon (float): Small constant for numerical stability in
             the group normalization layers.
@@ -193,6 +198,7 @@ class DDPMGaussianUNetModel(_model.Model):
         in_channels: int,
         image_size: int,
         features: int,
+        ch_mults: typing.Sequence[int],
         dropout_rate: float,
         epsilon: float,
         attn_resolutions: typing.Sequence[int],
@@ -219,6 +225,7 @@ class DDPMGaussianUNetModel(_model.Model):
         self._network = DDPMUNetModule(
             features=features,
             out_features=in_channels * 2 if predict_variance else in_channels,
+            ch_mults=ch_mults,
             resample_with_conv=resample_with_conv,
             attn_resolutions=attn_resolutions,
             num_res_blocks=num_res_blocks,
