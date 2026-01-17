@@ -299,7 +299,10 @@ class FrechetInceptionDistance:
             return _process_image(images)
         elif self._mode == "tensorflow":
             return jax.image.resize(
-                np.array(images, dtype=np.uint8),
+                jax.device_put(
+                    np.array(images, dtype=np.uint8),
+                    device=jax.devices("cpu")[0],
+                ),
                 shape=(299, 299, 3),
                 method=jax.image.ResizeMethod.LINEAR,
                 antialias=False,
