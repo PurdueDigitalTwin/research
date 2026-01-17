@@ -75,7 +75,7 @@ def ddpm_unet_cifar_10() -> _config.ExperimentConfig:
             num_train_steps=800_000,
             log_every_n_steps=50,
             checkpoint_every_n_steps=10_000,  # save every 10k steps
-            eval_every_n_steps=2_500,
+            eval_every_n_steps=50_000,  # slow evaluate every 50k steps
             max_checkpoints_to_keep=3,
             profile=False,
         ),
