@@ -9,6 +9,7 @@ ml_py_library(
         "datasets",
         "fiddle",
         "optax",
+        ":ddpm",
         ":meanflow",
         "//src/core:config",
         "//src/data:huggingface",

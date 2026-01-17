@@ -10,8 +10,80 @@ import optax
 from src.core import config as _config
 from src.data import huggingface
 from src.data import preprocess
+from src.projects.generative import ddpm
 from src.projects.generative import meanflow
 from src.projects.generative.tools import fid
+
+
+# ==============================================================================
+# Denoising Deep Probabilistic Models (DDPM)
+def ddpm_unet_cifar_10() -> _config.ExperimentConfig:
+    return _config.ExperimentConfig(
+        project_name="ddpm",
+        exp_name="unet_cifar_10",
+        mode="train",
+        data=_config.DataConfig(
+            module=fdl.Partial(
+                huggingface.CIFAR10DataModule,
+                transform=preprocess.chain(
+                    functools.partial(
+                        preprocess.filter_keys,
+                        keys=["image", "label"],
+                    ),
+                    functools.partial(
+                        preprocess.normalize,
+                        mean=(0.0, 0.0, 0.0),
+                        std=(1.0, 1.0, 1.0),
+                    ),
+                ),
+                use_cache=True,
+            ),
+            batch_size=2048,
+            num_workers=4,
+            deterministic=True,
+            drop_remainder=True,
+        ),
+        model=fdl.Partial(
+            ddpm.DDPMGaussianUNetModel,
+            in_channels=3,
+            image_size=32,
+            features=128,
+            ch_mults=[1, 2, 2, 2],
+            dropout_rate=0.1,
+            epsilon=1e-6,
+            attn_resolutions=[16],
+            num_res_blocks=2,
+            predict_variance=True,
+            beta_start=0.0001,
+            beta_end=0.02,
+            beta_schedule="linear",
+            num_diffusion_steps=1_000,
+        ),
+        trainer=_config.TrainerConfig(
+            num_train_steps=800_000,
+            log_every_n_steps=50,
+            checkpoint_every_n_steps=10_000,  # save every 10k steps
+            eval_every_n_steps=2_500,
+            max_checkpoints_to_keep=3,
+            profile=False,
+        ),
+        optimizer=_config.OptimizerConfig(
+            lr_schedule=fdl.Config(
+                optax.warmup_constant_schedule,
+                init_value=1e-8,
+                peak_value=2e-4,
+                warmup_steps=5_000,
+            ),
+            optimizer=fdl.Partial(optax.adam, b1=0.9, b2=0.999),
+            grad_clip_method="norm",
+            grad_clip_value=1.0,
+            ema_rate=0.9999,
+        ),
+        seed=42,
+        dtype=jax.numpy.float32,
+        param_dtype=jax.numpy.float32,
+        precision=jax.lax.Precision.HIGHEST,
+    )
 
 
 # ==============================================================================
