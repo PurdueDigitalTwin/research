@@ -296,13 +296,14 @@ class DDPMGaussianUNetModel(_model.Model):
             timestep=jnp.zeros((1,), dtype=self.dtype),
             deterministic=True,
         )
-        tabulate_fn = nn.summary.tabulate(
-            self.network,
-            depth=3,
-            rngs=rngs,
-            console_kwargs={"width": 120},
-        )
-        if tabulate_fn is not None:
+
+        if jax.process_index() == 0:
+            tabulate_fn = nn.summary.tabulate(
+                self.network,
+                depth=3,
+                rngs=rngs,
+                console_kwargs={"width": 120},
+            )
             print(
                 tabulate_fn(
                     inputs=jnp.zeros(
