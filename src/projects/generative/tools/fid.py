@@ -298,14 +298,13 @@ class FrechetInceptionDistance:
         if self._mode == "clean":
             return _process_image(images)
         elif self._mode == "tensorflow":
-            return jax.image.resize(
-                jax.device_put(
-                    np.array(images, dtype=np.uint8),
-                    device=jax.devices("cpu")[0],
-                ),
-                shape=(299, 299, 3),
-                method=jax.image.ResizeMethod.LINEAR,
-                antialias=False,
+            return np.array(
+                jax.image.resize(
+                    jnp.array(images, dtype=np.uint8),
+                    shape=(299, 299, 3),
+                    method=jax.image.ResizeMethod.LINEAR,
+                    antialias=False,
+                )
             )
         else:
             raise ValueError(f"Unsupported FID mode '{self._mode}'.")
