@@ -175,6 +175,14 @@ class DDPMGaussianUNetModel(_model.Model):
         predict_variance (bool): Whether the model predicts variance along with
             the mean. If `True`, the output channels will be
             `in_channels * 2`. Default is `False`.
+        beta_start (float, optional): Starting value of beta for the noise
+            schedule. Default is `0.0001`.
+        beta_end (float, optional): Ending value of beta for the noise schedule.
+            Default is `0.02`.
+        beta_schedule (str, optional): Type of beta schedule. One of
+            `["linear", "quad", "const", "jsd"]`. Default is `"linear"`.
+        num_diffusion_steps (int, optional): Number of diffusion steps.
+            Default is `1,000`.
         dtype (typing.Any, optional): Data type for computations.
         param_dtype (typing.Any, optional): Data type for parameters.
         precision (typing.Any, optional): Numerical precision for computations.
@@ -191,6 +199,10 @@ class DDPMGaussianUNetModel(_model.Model):
         num_res_blocks: int,
         resample_with_conv: bool = True,
         predict_variance: bool = False,
+        beta_start: float = 0.0001,
+        beta_end: float = 0.02,
+        beta_schedule: str = "linear",
+        num_diffusion_steps: int = 1_000,
         dtype: typing.Any = None,
         param_dtype: typing.Any = None,
         precision: typing.Any = None,
@@ -199,9 +211,11 @@ class DDPMGaussianUNetModel(_model.Model):
         self.in_channels = in_channels
         self.image_size = image_size
         self.features = features
+        self.num_diffusion_steps = num_diffusion_steps
         self.dtype = dtype
         self.param_dtype = param_dtype
 
+        # U-Net backbone
         self._network = DDPMUNetModule(
             features=features,
             out_features=in_channels * 2 if predict_variance else in_channels,
@@ -214,6 +228,27 @@ class DDPMGaussianUNetModel(_model.Model):
             dtype=dtype,
             param_dtype=param_dtype,
             precision=precision,
+        )
+
+        # initialize the beta schedule
+        self.betas = self.get_betas(
+            beta_start=beta_start,
+            beta_end=beta_end,
+            beta_schedule=beta_schedule,
+            num_diffusion_steps=num_diffusion_steps,
+        )
+        self.alphas = 1.0 - self.betas
+        self.alphas_bars = jnp.cumprod(self.alphas, axis=0)
+        self.alpha_bar_prevs = jnp.concatenate(
+            [jnp.array([1.0], dtype=self.betas.dtype), self.alphas_bars[:-1]],
+            axis=0,
+        )
+
+        # initialize posterior coefficients
+        self.posterior_vars = (
+            self.betas
+            * (1.0 - self.alpha_bar_prevs)
+            / (1.0 - self.alphas_bars)
         )
 
     @property
@@ -264,6 +299,63 @@ class DDPMGaussianUNetModel(_model.Model):
             )
 
         return variables["params"]
+
+    @typing_extensions.override
+    def forward(
+        self,
+        *,
+        rngs: typing.Any,
+        params: PyTree,
+        shape: typing.Sequence[typing.Union[int, typing.Any]],
+        deterministic: bool = True,
+        **kwargs,
+    ) -> _model.StepOutputs:
+        del kwargs  # unused
+
+        def _scan_body(
+            carry: jax.Array,
+            x: jax.Array,
+        ) -> typing.Tuple[jax.Array, jax.Array]:
+            noise_pred = self.network.apply(
+                variables={"params": params},
+                inputs=carry,
+                timestep=x,
+                deterministic=deterministic,
+            )
+            _coef_0 = 1.0 / jnp.sqrt(self.alphas[x])
+            _coef_1 = self.betas[x] / jnp.sqrt(1.0 - self.alphas_bars[x])
+            x_t = _coef_0 * carry - _coef_1 * noise_pred
+
+            # optionally adding noise
+            noise = jnp.where(
+                jnp.full(carry.shape, x > 0, dtype=jnp.bool_),
+                jax.random.normal(
+                    key=jax.random.fold_in(rngs, x),
+                    shape=carry.shape,
+                    dtype=carry.dtype,
+                ),
+                jnp.zeros_like(carry),
+            )
+            sigma_t = jnp.sqrt(self.posterior_vars[x])
+            x_t += sigma_t * noise
+
+            x_t = jnp.clip(x_t, -1.0, 1.0)
+
+            return x_t, x_t
+
+        init = jax.random.normal(
+            key=rngs,
+            shape=shape,
+            dtype=self.dtype,
+        )
+        xs = jnp.arange(self.num_diffusion_steps - 1, -1, -1)
+        _, samples = jax.lax.scan(
+            f=_scan_body,
+            init=init,
+            xs=xs,
+        )
+
+        return _model.StepOutputs(output=samples[-1, ...])
 
     @staticmethod
     def get_betas(
