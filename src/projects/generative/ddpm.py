@@ -333,14 +333,21 @@ class DDPMGaussianUNetModel(_model.Model):
         **kwargs,
     ) -> typing.Tuple[jax.Array, _model.StepOutputs]:
         del kwargs  # unused
+        flip_rng, t_rng, noise_rng, dropout_rng = jax.random.split(rngs, num=4)
 
         image = batch.get("image")
         if not isinstance(image, jax.Array):
             raise ValueError("Missing `image` in batch for training.")
         image = image.astype(self.dtype).reshape(-1, *image.shape[-3:])
         image = image * 2.0 - 1.0  # NOTE: scale to [-1, 1]
+        # random horizontal flipping
+        mask = jax.random.uniform(key=flip_rng, shape=image.shape[:-3]) < 0.5
+        image = jnp.where(
+            mask[..., None, None, None],
+            jnp.flip(image, axis=-2),
+            image,
+        )
 
-        rngs, t_rng, noise_rng, dropout_rng = jax.random.split(rngs, num=4)
         timestep = jax.random.randint(
             key=t_rng,
             shape=image.shape[:-3],
