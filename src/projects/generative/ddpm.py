@@ -200,6 +200,8 @@ class DDPMGaussianUNetModel(_model.Model):
             Default is `0.02`.
         beta_schedule (str, optional): Type of beta schedule. One of
             `["linear", "quad", "const", "jsd"]`. Default is `"linear"`.
+        model_var_type (str, optional): Type of the posterior variances. One of
+            `["fixed_large", "fixed_small"]`. Default is `"fixed_large"`.
         num_diffusion_steps (int, optional): Number of diffusion steps.
             Default is `1,000`.
         dtype (typing.Any, optional): Data type for computations.
@@ -222,6 +224,7 @@ class DDPMGaussianUNetModel(_model.Model):
         beta_start: float = 0.0001,
         beta_end: float = 0.02,
         beta_schedule: str = "linear",
+        model_var_type: str = "fixed_large",
         num_diffusion_steps: int = 1_000,
         dtype: typing.Any = None,
         param_dtype: typing.Any = None,
@@ -266,10 +269,20 @@ class DDPMGaussianUNetModel(_model.Model):
         )
 
         # initialize posterior coefficients
-        self.posterior_vars = (
-            self.betas
-            * (1.0 - self.alpha_bar_prevs)
-            / (1.0 - self.alphas_bars)
+        if model_var_type == "fixed_large":
+            # NOTE: discard scaling with cumulative products of alphas
+            # see https://github.com/hojonathanho/diffusion/blob/master/diffusion_tf/diffusion_utils_2.py#L142
+            self.posterior_vars = self.betas
+        elif model_var_type == "fixed_small":
+            self.posterior_vars = (
+                self.betas
+                * (1.0 - self.alpha_bar_prevs)
+                / (1.0 - self.alphas_bars)
+            )
+        else:
+            raise ValueError(f"Unsupported model_var_type: {model_var_type}")
+        self.log_posterior_vars = jnp.log(
+            jnp.append(self.posterior_vars[1], self.posterior_vars[1:])
         )
 
     @property
@@ -428,7 +441,7 @@ class DDPMGaussianUNetModel(_model.Model):
                 shape=x_t.shape,
                 dtype=x_t.dtype,
             )
-            sigma_t = jnp.sqrt(self.posterior_vars[t])
+            sigma_t = jnp.exp(0.5 * self.log_posterior_vars[t])
             x_t += (t > 0).astype(noise.dtype) * sigma_t * noise
 
             return DDPMSamplingCarry(x=x_t, params=carry.params), x_t

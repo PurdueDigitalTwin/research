@@ -58,6 +58,7 @@ def ddpm_unet_cifar_10() -> _config.ExperimentConfig:
             beta_start=0.0001,
             beta_end=0.02,
             beta_schedule="linear",
+            model_var_type="fixed_large",
             num_diffusion_steps=1_000,
         ),
         metric=fdl.Config(
