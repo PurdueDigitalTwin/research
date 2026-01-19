@@ -14,7 +14,8 @@ class DataConfig:
 
     Attributes:
         module (fiddle.Partial): A factory function to create a `DataModule`.
-        batch_size (int): The batch size used for data loading.
+        batch_size (int): The batch size used for data loading. In a multi-host
+            multi-process environment, this is de batch size for each device.
         num_workers (int): The number of parallel workers for data loading.
         deterministic (bool): Whether to enforce deterministic data loading.
         drop_remainder (bool): Whether to drop the last incomplete batch.
