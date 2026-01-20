@@ -2,7 +2,6 @@ import functools
 import typing
 
 from flax import linen as nn
-from flax import struct
 import jax
 from jax import numpy as jnp
 import jaxtyping
@@ -44,22 +43,104 @@ def sinusoidal_embedding(timesteps: jax.Array, features: int) -> jax.Array:
     return emb
 
 
+def make_gaussian_sample_loop(
+    network: nn.Module,
+    alphas: jax.Array,
+    alpha_bars: jax.Array,
+    alpha_bar_prevs: jax.Array,
+    log_posterior_vars: jax.Array,
+    num_diffusion_steps: int,
+    dtype: typing.Any,
+) -> typing.Callable:
+    r"""Wraps a JIT compiled sampling loop for Gaussian DDPM.
+
+    Args:
+        network (nn.Module): The neural network in the DDPM model.
+        rngs (jax.Array): JAX random number generator key.
+        params (PyTree): The model parameters.
+        shape (typing.Tuple[int, ...]): Shape of the output samples.
+        deterministic (bool): Whether to apply dropout.
+
+    Returns:
+        A callable function that performs the sampling loop.
+    """
+
+    # pre-compute constants
+    recip_sqrt_alpha_bars = jnp.sqrt(jnp.reciprocal(alpha_bars))
+    recip_sqrtm1_alpha_bars = jnp.sqrt(jnp.reciprocal(alpha_bars) - 1.0)
+    posterior_coef_t = jnp.true_divide(
+        (1.0 - alpha_bar_prevs) * jnp.sqrt(alphas),
+        1.0 - alpha_bars,
+    )
+    posterior_coef_start = jnp.true_divide(
+        (1.0 - alphas) * jnp.sqrt(alpha_bar_prevs),
+        1.0 - alpha_bars,
+    )
+
+    def _sample_loop(
+        rngs: jax.Array,
+        params: PyTree,
+        shape: typing.Tuple[int, ...],
+        deterministic: bool,
+    ) -> jax.Array:
+        def __body_fn(
+            x_t: jax.Array,
+            t: jax.Array,
+        ) -> typing.Tuple[jax.Array, jax.Array]:
+            noise_pred = network.apply(
+                variables={"params": params},
+                inputs=x_t,
+                timestep=t,
+                deterministic=deterministic,
+            )
+            x_0_rec = jnp.clip(
+                recip_sqrt_alpha_bars[t] * x_t
+                - recip_sqrtm1_alpha_bars[t] * noise_pred,
+                -1.0,
+                1.0,
+            )
+            x_prev = jnp.add(
+                posterior_coef_t[t] * x_t,
+                posterior_coef_start[t] * x_0_rec,
+            )
+
+            # optionally adding noise
+            noise = jax.random.normal(
+                key=jax.random.fold_in(rngs, t),
+                shape=x_prev.shape,
+                dtype=x_prev.dtype,
+            )
+            sigma_t = jnp.exp(0.5 * log_posterior_vars[t])
+            mask = jnp.full(
+                shape=x_prev.shape,
+                fill_value=(1 - jnp.equal(t, 0)),
+                dtype=noise.dtype,
+            )
+            x_prev = x_prev + mask * sigma_t * noise
+
+            return x_prev, x_prev
+
+        x_init = jax.random.normal(
+            key=rngs,
+            shape=shape,
+            dtype=dtype,
+        )
+        xs = jnp.arange(0, num_diffusion_steps)
+        _, out = jax.lax.scan(
+            f=__body_fn,
+            init=x_init,
+            xs=xs,
+            reverse=True,
+        )
+
+        return out
+
+    return jax.jit(_sample_loop, static_argnames=["shape", "deterministic"])
+
+
 # ==============================================================================
 # Main DDPM Modules
 # ==============================================================================
-@struct.dataclass
-class DDPMSamplingCarry:
-    r"""A carry dataclass for sampling from the diffusion process.
-
-    Attributes:
-        x (jax.Array): The input data tensor `x_t`.
-        params (PyTree): The model parameters.
-    """
-
-    x: jax.Array
-    params: PyTree
-
-
 class DDPMUNetModule(nn.Module):
     r"""Original Denoising Diffusion Probabilistic Model (DDPM) U-Net arch.
 
@@ -262,9 +343,9 @@ class DDPMGaussianUNetModel(_model.Model):
             num_diffusion_steps=num_diffusion_steps,
         )
         self.alphas = 1.0 - self.betas
-        self.alphas_bars = jnp.cumprod(self.alphas, axis=0)
-        self.alphas_bar_prevs = jnp.concatenate(
-            [jnp.array([1.0], dtype=self.betas.dtype), self.alphas_bars[:-1]],
+        self.alpha_bars = jnp.cumprod(self.alphas, axis=0)
+        self.alpha_bar_prevs = jnp.concatenate(
+            [jnp.array([1.0], dtype=self.betas.dtype), self.alpha_bars[:-1]],
             axis=0,
         )
         self.recip_sqrt_alphas = jnp.sqrt(jnp.reciprocal(self.alphas))
@@ -272,9 +353,7 @@ class DDPMGaussianUNetModel(_model.Model):
 
         # initialize posterior coefficients
         self.posterior_vars = (
-            self.betas
-            * (1.0 - self.alphas_bar_prevs)
-            / (1.0 - self.alphas_bars)
+            self.betas * (1.0 - self.alpha_bar_prevs) / (1.0 - self.alpha_bars)
         )
         if model_var_type == "fixed_large":
             # NOTE: discard scaling with cumulative products of alphas
@@ -290,12 +369,23 @@ class DDPMGaussianUNetModel(_model.Model):
         else:
             raise ValueError(f"Unsupported model_var_type: {model_var_type}")
         self.posterior_coef_t = jnp.true_divide(
-            (1.0 - self.alphas_bar_prevs) * jnp.sqrt(self.alphas),
-            1.0 - self.alphas_bars,
+            (1.0 - self.alpha_bar_prevs) * jnp.sqrt(self.alphas),
+            1.0 - self.alpha_bars,
         )
         self.posterior_coef_start = jnp.true_divide(
-            self.betas * jnp.sqrt(self.alphas_bar_prevs),
-            1.0 - self.alphas_bars,
+            self.betas * jnp.sqrt(self.alpha_bar_prevs),
+            1.0 - self.alpha_bars,
+        )
+
+        # initialize jit-compiled functions
+        self._p_sample_loop = make_gaussian_sample_loop(
+            network=self._network,
+            alphas=self.alphas,
+            alpha_bars=self.alpha_bars,
+            alpha_bar_prevs=self.alpha_bar_prevs,
+            log_posterior_vars=self.log_posterior_vars,
+            num_diffusion_steps=num_diffusion_steps,
+            dtype=dtype,
         )
 
     @property
@@ -388,7 +478,7 @@ class DDPMGaussianUNetModel(_model.Model):
             dtype=image.dtype,
         )
         w = jnp.broadcast_to(
-            self.alphas_bars[timestep][:, None, None, None],
+            self.alpha_bars[timestep][:, None, None, None],
             image.shape,
         )
         samples = jnp.sqrt(w) * image + jnp.sqrt(1.0 - w) * noise_true
@@ -410,7 +500,7 @@ class DDPMGaussianUNetModel(_model.Model):
             scalars={"loss": loss},
             histograms={
                 "timestep": timestep,
-                "alpha_bars": self.alphas_bars[timestep],
+                "alpha_bars": self.alpha_bars[timestep],
                 "alphas": self.alphas[timestep],
                 "betas": self.betas[timestep],
             },
@@ -431,93 +521,19 @@ class DDPMGaussianUNetModel(_model.Model):
     ) -> _model.StepOutputs:
         del kwargs  # unused
 
-        @jax.jit
-        def _scan_body(
-            carry: DDPMSamplingCarry,
-            t: jax.Array,
-        ) -> typing.Tuple[DDPMSamplingCarry, jax.Array]:
-            noise_pred = self.network.apply(
-                variables={"params": carry.params},
-                inputs=carry.x,
-                timestep=t,
-                deterministic=deterministic,
-            )
-            x_0_recon = jnp.clip(
-                self.recip_sqrt_alphas[t][:, None, None, None] * carry.x
-                - self.recip_sqrtm1_alphas[t][:, None, None, None]
-                * noise_pred,
-                -1.0,
-                1.0,
-            )
-            x_prev = self._q_mean(x_t=carry.x, x_0=x_0_recon, t=t)
-
-            # optionally adding noise
-            noise = jax.random.normal(
-                key=jax.random.fold_in(rngs, t),
-                shape=x_prev.shape,
-                dtype=x_prev.dtype,
-            )
-            sigma_t = jnp.exp(0.5 * self.log_posterior_vars[t])
-            mask = jnp.full(
-                shape=x_prev.shape,
-                fill_value=(1 - jnp.equal(t, 0)),
-                dtype=noise.dtype,
-            )
-            x_t = x_prev + mask * sigma_t * noise
-
-            return DDPMSamplingCarry(x=x_t, params=carry.params), x_t
-
-        init = DDPMSamplingCarry(
-            x=jax.random.normal(
-                key=rngs,
-                shape=shape,
-                dtype=self.dtype,
-            ),
+        out = self._p_sample_loop(
+            rngs=rngs,
             params=params,
+            shape=tuple(shape),
+            deterministic=deterministic,
         )
-        xs = jnp.arange(0, self.num_diffusion_steps)
-        _, out = jax.lax.scan(
-            f=_scan_body,
-            init=init,
-            xs=xs,
-            reverse=True,
-        )
+
         # scale images to [-1, 1]
         if return_intermediates:
-            out = jnp.clip(out, -1.0, 1.0)
+            return _model.StepOutputs(output=out)
         else:
             # NOTE: with `reverse=True`, the final sample is at index 0
-            out = jnp.clip(out[0], -1.0, 1.0)
-
-        return _model.StepOutputs(output=out)
-
-    def _q_mean(
-        self,
-        x_t: jax.Array,
-        x_0: jax.Array,
-        t: jax.Array,
-    ) -> jax.Array:
-        r"""Returns the mean of posterior `q(x_{t-1} | x_{t}, x_{0})`.
-
-        Args:
-            x_t (jax.Array): Noisy input at `t` of shape `(N, H, W, C)`.
-            x_0 (jax.Array): Original input at `t=0` of shape `(N, H, W, C)`.
-            t (jax.Array): Time step array of shape `(N,)`.
-
-        Returns:
-            Mean tensor of the posterior `q(x_{t-1} | x_{t}, x_{0})` with a
-                shape of `(N, H, W, C)`.
-        """
-        coef_t = jnp.broadcast_to(
-            self.posterior_coef_t[t][:, None, None, None],
-            x_t.shape,
-        )
-        coef_0 = jnp.broadcast_to(
-            self.posterior_coef_start[t][:, None, None, None],
-            x_t.shape,
-        )
-        mean = coef_t * x_t + coef_0 * x_0
-        return mean
+            return _model.StepOutputs(output=out[0])
 
     @staticmethod
     def get_betas(
