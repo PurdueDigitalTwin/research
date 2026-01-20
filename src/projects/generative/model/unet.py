@@ -890,7 +890,7 @@ class HoNetwork(nn.Module):
                 )
                 if out.shape[-3] in self.attn_resolutions:
                     attn_block = AttnBlock(
-                        num_heads=4,
+                        num_heads=1,
                         num_groups=self.num_groups,
                         epsilon=self.epsilon,
                         skip_scale=1.0,
@@ -974,7 +974,7 @@ class HoNetwork(nn.Module):
                 )
                 if out.shape[-3] in self.attn_resolutions:
                     attn_block = AttnBlock(
-                        num_heads=4,
+                        num_heads=1,
                         num_groups=self.num_groups,
                         epsilon=self.epsilon,
                         skip_scale=1.0,
