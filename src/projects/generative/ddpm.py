@@ -263,26 +263,39 @@ class DDPMGaussianUNetModel(_model.Model):
         )
         self.alphas = 1.0 - self.betas
         self.alphas_bars = jnp.cumprod(self.alphas, axis=0)
-        self.alpha_bar_prevs = jnp.concatenate(
+        self.alphas_bar_prevs = jnp.concatenate(
             [jnp.array([1.0], dtype=self.betas.dtype), self.alphas_bars[:-1]],
             axis=0,
         )
+        self.recip_sqrt_alphas = jnp.sqrt(jnp.reciprocal(self.alphas))
+        self.recip_sqrtm1_alphas = jnp.sqrt(jnp.reciprocal(self.alphas) - 1.0)
 
         # initialize posterior coefficients
+        self.posterior_vars = (
+            self.betas
+            * (1.0 - self.alphas_bar_prevs)
+            / (1.0 - self.alphas_bars)
+        )
         if model_var_type == "fixed_large":
             # NOTE: discard scaling with cumulative products of alphas
             # see https://github.com/hojonathanho/diffusion/blob/master/diffusion_tf/diffusion_utils_2.py#L142
+            self.log_posterior_vars = jnp.log(
+                jnp.append(self.posterior_vars[1], self.betas[1:])
+            )
             self.posterior_vars = self.betas
         elif model_var_type == "fixed_small":
-            self.posterior_vars = (
-                self.betas
-                * (1.0 - self.alpha_bar_prevs)
-                / (1.0 - self.alphas_bars)
+            self.log_posterior_vars = jnp.log(
+                jnp.append(self.posterior_vars[1], self.posterior_vars[1:])
             )
         else:
             raise ValueError(f"Unsupported model_var_type: {model_var_type}")
-        self.log_posterior_vars = jnp.log(
-            jnp.append(self.posterior_vars[1], self.posterior_vars[1:])
+        self.posterior_coef_t = jnp.true_divide(
+            (1.0 - self.alphas_bar_prevs) * jnp.sqrt(self.alphas),
+            1.0 - self.alphas_bars,
+        )
+        self.posterior_coef_start = jnp.true_divide(
+            self.betas * jnp.sqrt(self.alphas_bar_prevs),
+            1.0 - self.alphas_bars,
         )
 
     @property
@@ -418,10 +431,6 @@ class DDPMGaussianUNetModel(_model.Model):
     ) -> _model.StepOutputs:
         del kwargs  # unused
 
-        # pre-calculate the coefficients
-        coef_0 = 1.0 / jnp.sqrt(self.alphas)
-        coef_1 = self.betas / jnp.sqrt(1.0 - self.alphas_bars)
-
         @jax.jit
         def _scan_body(
             carry: DDPMSamplingCarry,
@@ -433,16 +442,28 @@ class DDPMGaussianUNetModel(_model.Model):
                 timestep=t,
                 deterministic=deterministic,
             )
-            x_t = coef_0[t] * (carry.x - coef_1[t] * noise_pred)
+            x_0_recon = jnp.clip(
+                self.recip_sqrt_alphas[t][:, None, None, None] * carry.x
+                - self.recip_sqrtm1_alphas[t][:, None, None, None]
+                * noise_pred,
+                -1.0,
+                1.0,
+            )
+            x_prev = self._q_mean(x_t=carry.x, x_0=x_0_recon, t=t)
 
             # optionally adding noise
             noise = jax.random.normal(
                 key=jax.random.fold_in(rngs, t),
-                shape=x_t.shape,
-                dtype=x_t.dtype,
+                shape=x_prev.shape,
+                dtype=x_prev.dtype,
             )
             sigma_t = jnp.exp(0.5 * self.log_posterior_vars[t])
-            x_t += (t > 0).astype(noise.dtype) * sigma_t * noise
+            mask = jnp.full(
+                shape=x_prev.shape,
+                fill_value=(1 - jnp.equal(t, 0)),
+                dtype=noise.dtype,
+            )
+            x_t = x_prev + mask * sigma_t * noise
 
             return DDPMSamplingCarry(x=x_t, params=carry.params), x_t
 
@@ -469,6 +490,34 @@ class DDPMGaussianUNetModel(_model.Model):
             out = jnp.clip(out[0], -1.0, 1.0)
 
         return _model.StepOutputs(output=out)
+
+    def _q_mean(
+        self,
+        x_t: jax.Array,
+        x_0: jax.Array,
+        t: jax.Array,
+    ) -> jax.Array:
+        r"""Returns the mean of posterior `q(x_{t-1} | x_{t}, x_{0})`.
+
+        Args:
+            x_t (jax.Array): Noisy input at `t` of shape `(N, H, W, C)`.
+            x_0 (jax.Array): Original input at `t=0` of shape `(N, H, W, C)`.
+            t (jax.Array): Time step array of shape `(N,)`.
+
+        Returns:
+            Mean tensor of the posterior `q(x_{t-1} | x_{t}, x_{0})` with a
+                shape of `(N, H, W, C)`.
+        """
+        coef_t = jnp.broadcast_to(
+            self.posterior_coef_t[t][:, None, None, None],
+            x_t.shape,
+        )
+        coef_0 = jnp.broadcast_to(
+            self.posterior_coef_start[t][:, None, None, None],
+            x_t.shape,
+        )
+        mean = coef_t * x_t + coef_0 * x_0
+        return mean
 
     @staticmethod
     def get_betas(
