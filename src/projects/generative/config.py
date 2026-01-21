@@ -25,6 +25,7 @@ def ddpm_unet_cifar_10() -> _config.ExperimentConfig:
         data=_config.DataConfig(
             module=fdl.Partial(
                 huggingface.CIFAR10DataModule,
+                shuffle_buffer_size=50_000,
                 transform=preprocess.chain(
                     functools.partial(
                         preprocess.filter_keys,
@@ -109,6 +110,7 @@ def meanflow_unet_cifar_10() -> _config.ExperimentConfig:
         data=_config.DataConfig(
             module=fdl.Partial(
                 huggingface.CIFAR10DataModule,
+                shuffle_buffer_size=50_000,
                 transform=preprocess.chain(
                     functools.partial(
                         preprocess.filter_keys,
