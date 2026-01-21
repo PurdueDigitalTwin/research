@@ -111,7 +111,7 @@ class FrechetInceptionDistance:
     r"""Computes the Fréchet Inception Distance (FID) score.
 
     Args:
-        train_dataset (datasets.Dataset): The training dataset used to compute
+        dataset (datasets.Dataset): The reference dataset used to compute
             the reference statistics.
         image_key (str, optional): The column name in the dataset that
             contains the images. Default is `"image"`.
@@ -127,7 +127,7 @@ class FrechetInceptionDistance:
 
     def __init__(
         self,
-        train_dataset: datasets.Dataset,
+        dataset: datasets.Dataset,
         image_key: str = "image",
         batch_size: int = 32,
         mode: str = "tensorflow",
@@ -169,7 +169,7 @@ class FrechetInceptionDistance:
         with tqdm_logging.logging_redirect_tqdm():
             if jax.process_index() == 0:
                 pbar = tqdm.tqdm(
-                    total=len(train_dataset),
+                    total=len(dataset),
                     desc="Processing reference images...",
                     unit="images",
                 )
@@ -177,7 +177,7 @@ class FrechetInceptionDistance:
                 pbar = None
 
             ref_images = []
-            for item in train_dataset:
+            for item in dataset:
                 assert isinstance(item, typing.Dict)
                 image = item.get(image_key, None)
                 if image is None:
@@ -193,7 +193,7 @@ class FrechetInceptionDistance:
             if jax.process_index() == 0:
                 pbar = tqdm.tqdm(
                     total=len(range(0, len(ref_images), self._batch_size)),
-                    desc="Extracting training features...",
+                    desc="Extracting reference features...",
                     unit="batches",
                 )
             else:

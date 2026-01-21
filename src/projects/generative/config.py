@@ -63,11 +63,11 @@ def ddpm_unet_cifar_10() -> _config.ExperimentConfig:
         ),
         metric=fdl.Config(
             fid.FrechetInceptionDistance,
-            train_dataset=datasets.load_dataset(
+            dataset=datasets.load_dataset(
                 path="uoft-cs/cifar10",
                 token=os.getenv("HF_TOKEN", None),
                 revision="0b2714987fa478483af9968de7c934580d0bb9a2",
-                split="train",
+                split="test",
             ),
             image_key="img",
             batch_size=32,
@@ -144,11 +144,11 @@ def meanflow_unet_cifar_10() -> _config.ExperimentConfig:
         ),
         metric=fdl.Config(
             fid.FrechetInceptionDistance,
-            train_dataset=datasets.load_dataset(
+            dataset=datasets.load_dataset(
                 path="uoft-cs/cifar10",
                 token=os.getenv("HF_TOKEN", None),
                 revision="0b2714987fa478483af9968de7c934580d0bb9a2",
-                split="train",
+                split="test",
             ),
             image_key="img",
             batch_size=32,
