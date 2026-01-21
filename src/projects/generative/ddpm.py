@@ -219,6 +219,7 @@ class DDPMUNetModule(nn.Module):
             precision=self.precision,
             name="cond_fc_1",
         )
+        t_emb = jax.nn.silu(cond_in(t_emb))
         cond_out = nn.Dense(
             features=self.features * 4,
             kernel_init=jax.nn.initializers.variance_scaling(
@@ -233,7 +234,7 @@ class DDPMUNetModule(nn.Module):
             precision=self.precision,
             name="cond_fc_2",
         )
-        t_emb = cond_out(jax.nn.silu(cond_in(t_emb)))
+        t_emb = jax.nn.silu(cond_out(t_emb))
 
         # forward pass through U-Net
         backbone = unet.HoNetwork(
