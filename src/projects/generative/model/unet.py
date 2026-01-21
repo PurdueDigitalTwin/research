@@ -842,41 +842,27 @@ class HoNetwork(nn.Module):
             W=inputs.shape[-2],
             C=inputs.shape[-1],
         )
-        hs = []
+
+        # input convolution
+        conv_in = nn.Conv(
+            features=self.features,
+            kernel_size=(3, 3),
+            strides=(1, 1),
+            padding=(1, 1),
+            kernel_init=jax.nn.initializers.variance_scaling(
+                scale=1.0,
+                mode="fan_avg",
+                distribution="uniform",
+            ),
+            use_bias=True,
+            bias_init=jax.nn.initializers.zeros,
+            name="conv_in",
+        )
+        out = conv_in(inputs.astype(self.dtype))
+        hs = [out]
 
         # forward pass the downsampling path
-        out = inputs.astype(self.dtype)
         for level, mult in enumerate(self.ch_mults):
-            if level == 0:
-                res_block = nn.Conv(
-                    features=self.features,
-                    kernel_size=(3, 3),
-                    strides=(1, 1),
-                    padding="SAME",
-                    kernel_init=jax.nn.initializers.variance_scaling(
-                        scale=1.0,
-                        mode="fan_avg",
-                        distribution="uniform",
-                    ),
-                    use_bias=True,
-                    bias_init=jax.nn.initializers.zeros,
-                    dtype=self.dtype,
-                    param_dtype=self.param_dtype,
-                    name="conv_in",
-                )
-                out = res_block(out)
-            else:
-                res_block = DownsampleBlock(
-                    with_conv=self.resample_with_conv,
-                    features=out.shape[-1],
-                    resample_filter=None,
-                    dtype=self.dtype,
-                    param_dtype=self.param_dtype,
-                    name=f"down_{level:d}_downsample",
-                )
-                out = res_block(out)
-            hs.append(out)
-
             for i in range(self.num_res_blocks):
                 res_block = ResNetBlock(
                     features=self.features * mult,
@@ -907,63 +893,62 @@ class HoNetwork(nn.Module):
                     )
                     out = attn_block(out)
                 hs.append(out)
-
-        # forward pass the upsampling path
-        for level, mult in reversed(list(enumerate(self.ch_mults))):
-            out_ch = self.features * mult
-            if level == len(self.ch_mults) - 1:
-                # forward pass the middle blocks
-                block = ResNetBlock(
-                    features=out.shape[-1],
-                    num_groups=self.num_groups,
-                    dropout_rate=self.dropout_rate,
-                    epsilon=self.epsilon,
-                    skip_scale=1.0,
-                    dtype=self.dtype,
-                    param_dtype=self.param_dtype,
-                    precision=self.precision,
-                    name="mid_block_1",
-                )
-                out = block(out, cond=cond, deterministic=m_determinisitc)
-                block = AttnBlock(
-                    num_heads=1,
-                    num_groups=self.num_groups,
-                    epsilon=self.epsilon,
-                    skip_scale=1.0,
-                    dtype=self.dtype,
-                    param_dtype=self.param_dtype,
-                    precision=self.precision,
-                    name="mid_attn",
-                )
-                out = block(out)
-                block = ResNetBlock(
-                    features=out.shape[-1],
-                    num_groups=self.num_groups,
-                    dropout_rate=self.dropout_rate,
-                    epsilon=self.epsilon,
-                    skip_scale=1.0,
-                    dtype=self.dtype,
-                    param_dtype=self.param_dtype,
-                    precision=self.precision,
-                    name="mid_block_2",
-                )
-                out = block(out, cond=cond, deterministic=m_determinisitc)
-            else:
-                block = UpsampleBlock(
+            if level != len(self.ch_mults) - 1:
+                down_block = DownsampleBlock(
                     with_conv=self.resample_with_conv,
                     features=out.shape[-1],
                     resample_filter=None,
                     dtype=self.dtype,
                     param_dtype=self.param_dtype,
-                    name=f"up_{level:d}_upsample",
+                    name=f"down_{level:d}_downsample",
                 )
-                out = block(out)
+                out = down_block(out)
+                hs.append(out)
 
+        # forward pass the bottleneck
+        mid_res_block_1 = ResNetBlock(
+            features=out.shape[-1],
+            num_groups=self.num_groups,
+            dropout_rate=self.dropout_rate,
+            epsilon=self.epsilon,
+            skip_scale=1.0,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            precision=self.precision,
+            name="mid_block_1",
+        )
+        out = mid_res_block_1(out, cond=cond, deterministic=m_determinisitc)
+        mid_attn = AttnBlock(
+            num_heads=1,
+            num_groups=self.num_groups,
+            epsilon=self.epsilon,
+            skip_scale=1.0,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            precision=self.precision,
+            name="mid_attn",
+        )
+        out = mid_attn(out)
+        mid_res_block_2 = ResNetBlock(
+            features=out.shape[-1],
+            num_groups=self.num_groups,
+            dropout_rate=self.dropout_rate,
+            epsilon=self.epsilon,
+            skip_scale=1.0,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            precision=self.precision,
+            name="mid_block_2",
+        )
+        out = mid_res_block_2(out, cond=cond, deterministic=m_determinisitc)
+
+        # forward pass the upsampling path
+        for level, mult in reversed(list(enumerate(self.ch_mults))):
             for i in range(self.num_res_blocks + 1):
                 skip = hs.pop()
                 out = jnp.concatenate([out, skip], axis=-1)
                 res_block = ResNetBlock(
-                    features=out_ch,
+                    features=self.features * mult,
                     num_groups=self.num_groups,
                     dropout_rate=self.dropout_rate,
                     epsilon=self.epsilon,
@@ -990,6 +975,17 @@ class HoNetwork(nn.Module):
                         name=f"up_{level:d}_attn_{i + 1:d}",
                     )
                     out = attn_block(out)
+            if level != 0:
+                up_block = UpsampleBlock(
+                    antialias=False,  # NOTE: align with original implementation
+                    with_conv=self.resample_with_conv,
+                    features=out.shape[-1],
+                    resample_filter=None,
+                    dtype=self.dtype,
+                    param_dtype=self.param_dtype,
+                    name=f"up_{level:d}_upsample",
+                )
+                out = up_block(out)
 
         norm_out = nn.GroupNorm(
             num_groups=self.num_groups,
