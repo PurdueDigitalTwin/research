@@ -342,6 +342,10 @@ class UpsampleBlock(nn.Module):
     r"""An upsampling block using nearest-neighbor interpolation.
 
     Args:
+        antialias (bool, optional): If `True`, applies anti-aliasing when
+            calling `jax.image.resize`. Default is `False`.
+        method (jax.image.ResizeMethod, optional): The upsampling method to use.
+            Default is `jax.image.ResizeMethod.NEAREST`.
         with_conv (bool, optional): If true, applies a convolution after
             upsampling. Default is `True`.
         features (int, optional): Number of output features. If `None`,
@@ -355,6 +359,8 @@ class UpsampleBlock(nn.Module):
         precision (Any, optional): Numerical precision of the computation.
     """
 
+    antialias: bool = False
+    method: jax.image.ResizeMethod = jax.image.ResizeMethod.NEAREST
     with_conv: bool = True
     features: typing.Optional[int] = None
     kernel_size: int = 3
@@ -386,8 +392,8 @@ class UpsampleBlock(nn.Module):
             out = jax.image.resize(
                 inputs,
                 shape=(*batch_dims, *dims["hwC"]),
-                method="nearest",
-                antialias=True,
+                method=self.method,
+                antialias=self.antialias,
                 precision=self.precision,
             )
             if self.with_conv:
