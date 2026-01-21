@@ -7,67 +7,96 @@ import pytest
 
 from src.projects.generative.model import unet
 
+# constant
+rng = jax.random.PRNGKey(42)
+
 
 @pytest.mark.parametrize("dtype", [jnp.float32, jnp.bfloat16])
-def test_conv2d(dtype: typing.Any) -> None:
-    r"""Tests the ported `Conv2D` layer."""
-    rng = jax.random.PRNGKey(42)
+def test_resnet_block(dtype: typing.Any) -> None:
+    r"""Tests the residual downsampling block in U-Net models."""
+    global rng
 
-    test_input = jax.random.normal(rng, (2, 2, 32, 32, 3), dtype=dtype)
-    test_filter = [1, 3, 3, 1]
-
-    # test Conv2D with downsampling only
-    layer = unet.Conv2D(
-        features=16,
-        resample_filter=test_filter,
-        downsampling=True,
-        upsampling=False,
-        dtype=dtype,
-        param_dtype=dtype,
+    block = unet.ResNetBlock(features=64, dtype=dtype, param_dtype=dtype)
+    test_input = jnp.ones((2, 32, 32, 32), dtype=dtype)
+    test_cond = jnp.ones((2, 16), dtype=dtype)
+    params_rng, dropout_rng = jax.random.split(rng, num=2)
+    variables = block.init(
+        rngs={"params": params_rng},
+        inputs=test_input,
+        cond=test_cond,
+        deterministic=False,
     )
-    variables = layer.init(rngs={"params": rng}, inputs=test_input)
-    outputs = layer.apply(variables=variables, inputs=test_input)
+    outputs = block.apply(
+        variables=variables,
+        inputs=test_input,
+        cond=test_cond,
+        deterministic=False,
+        rngs={"dropout": dropout_rng},
+    )
     assert isinstance(outputs, jax.Array)
-    assert outputs.shape == (2, 2, 16, 16, 3)
+    assert outputs.shape == (2, 32, 32, 64)
     assert outputs.dtype == dtype
 
-    # test Conv2D with upsampling only
-    layer = unet.Conv2D(
-        features=16,
-        resample_filter=test_filter,
-        downsampling=False,
-        upsampling=True,
+
+@pytest.mark.parametrize("with_conv", [True, False])
+@pytest.mark.parametrize("dtype", [jnp.float32, jnp.bfloat16])
+def test_downsample_block(with_conv: bool, dtype: typing.Any) -> None:
+    r"""Tests the downsampling block in U-Net models."""
+    global rng
+
+    block = unet.DownsampleBlock(
+        with_conv=with_conv,
         dtype=dtype,
         param_dtype=dtype,
     )
-    variables = layer.init(rngs={"params": rng}, inputs=test_input)
-    outputs = layer.apply(variables=variables, inputs=test_input)
+    test_input = jnp.ones((2, 32, 32, 32), dtype=dtype)
+    variables = block.init(
+        rngs={"params": rng},
+        inputs=test_input,
+    )
+    if with_conv:
+        assert "conv" in variables["params"]
+        kernel = variables["params"]["conv"]["kernel"]
+        assert isinstance(kernel, jax.Array)
+        assert kernel.shape == (3, 3, 32, 32)
+        bias = variables["params"]["conv"]["bias"]
+        assert isinstance(bias, jax.Array)
+        assert bias.shape == (32,)
+
+    outputs = block.apply(variables=variables, inputs=test_input)
     assert isinstance(outputs, jax.Array)
-    assert outputs.shape == (2, 2, 64, 64, 3)
+    assert outputs.shape == (2, 16, 16, 32)
     assert outputs.dtype == dtype
 
-    # test Conv2D with convolution only
-    layer = unet.Conv2D(
-        features=16,
-        kernel_size=1,
-        use_bias=True,
-        resample_filter=test_filter,
-        downsampling=False,
-        upsampling=False,
+
+@pytest.mark.parametrize("with_conv", [True, False])
+@pytest.mark.parametrize("dtype", [jnp.float32, jnp.bfloat16])
+def test_upsample_block(with_conv: bool, dtype: typing.Any) -> None:
+    r"""Tests the upsampling block in U-Net models."""
+    global rng
+
+    block = unet.UpsampleBlock(
+        with_conv=with_conv,
         dtype=dtype,
         param_dtype=dtype,
     )
-    variables = layer.init(rngs={"params": rng}, inputs=test_input)
-    assert "kernel" in variables["params"]["conv_out"]
-    kernel = variables["params"]["conv_out"]["kernel"]
-    assert isinstance(kernel, jax.Array)
-    assert kernel.shape == (1, 1, 3, 16)
-    bias = variables["params"]["conv_out"]["bias"]
-    assert isinstance(bias, jax.Array)
-    assert bias.shape == (16,)
-    outputs = layer.apply(variables=variables, inputs=test_input)
+    test_input = jnp.ones((2, 16, 16, 32), dtype=dtype)
+    variables = block.init(
+        rngs={"params": rng},
+        inputs=test_input,
+    )
+    if with_conv:
+        assert "conv" in variables["params"]
+        kernel = variables["params"]["conv"]["kernel"]
+        assert isinstance(kernel, jax.Array)
+        assert kernel.shape == (3, 3, 32, 32)
+        bias = variables["params"]["conv"]["bias"]
+        assert isinstance(bias, jax.Array)
+        assert bias.shape == (32,)
+
+    outputs = block.apply(variables=variables, inputs=test_input)
     assert isinstance(outputs, jax.Array)
-    assert outputs.shape == (2, 2, 32, 32, 16)
+    assert outputs.shape == (2, 32, 32, 32)
     assert outputs.dtype == dtype
 
 
@@ -75,11 +104,11 @@ def test_conv2d(dtype: typing.Any) -> None:
 @pytest.mark.parametrize("dtype", [jnp.float32, jnp.bfloat16])
 def test_attn_block(num_heads: int, dtype: typing.Any) -> None:
     r"""Tests the attention block in U-Net models."""
-    rng = jax.random.PRNGKey(42)
+    global rng
 
     block = unet.AttnBlock(
         num_heads=num_heads,
-        num_groups=1,
+        num_groups=32,
         dtype=dtype,
         param_dtype=dtype,
     )
@@ -96,69 +125,43 @@ def test_attn_block(num_heads: int, dtype: typing.Any) -> None:
 
 
 @pytest.mark.parametrize("dtype", [jnp.float32, jnp.bfloat16])
-def test_edm_unet_block(dtype: typing.Any) -> None:
-    r"""Tests the U-Net block for score-based generative modeling."""
-    rng = jax.random.PRNGKey(42)
+def test_ho_network(dtype: typing.Any) -> None:
+    r"""Tests the U-Net model for DDPM by Ho et al."""
+    global rng
 
-    # test downsampling block with attention
-    block = unet.EDMUNetBlock(
-        features=64,
-        downsampling=True,
-        dropout_rate=0.2,
-        num_heads=1,
+    model = unet.HoNetwork(
+        features=128,
+        num_groups=32,
+        num_res_blocks=2,
+        dropout_rate=0.1,
         dtype=dtype,
         param_dtype=dtype,
     )
-    test_input = jnp.ones((2, 2, 32, 32, 32), dtype=dtype)
-    test_cond = jnp.ones((2, 2, 16), dtype=dtype)
-    variables = block.init(
-        rngs={"params": rng},
+    test_input = jnp.ones((2, 32, 32, 3), dtype=dtype)
+    test_cond = jnp.ones((2, 512), dtype=dtype)
+    params_rng, dropout_rng = jax.random.split(rng, num=2)
+    variables = model.init(
+        rngs={"params": params_rng},
         inputs=test_input,
         cond=test_cond,
         deterministic=True,
     )
-    outputs = block.apply(
+    outputs = model.apply(
         variables=variables,
         inputs=test_input,
         cond=test_cond,
-        deterministic=True,
+        deterministic=False,
+        rngs={"dropout": dropout_rng},
     )
     assert isinstance(outputs, jax.Array)
-    assert outputs.shape == (2, 2, 16, 16, 64)
-    assert outputs.dtype == dtype
-
-    # test upsampling block without attention
-    block = unet.EDMUNetBlock(
-        features=64,
-        upsampling=True,
-        dropout_rate=0.2,
-        num_heads=None,
-        dtype=dtype,
-        param_dtype=dtype,
-    )
-    test_input = jnp.ones((2, 2, 16, 16, 64), dtype=dtype)
-    test_cond = jnp.ones((2, 2, 16), dtype=dtype)
-    variables = block.init(
-        rngs={"params": rng},
-        inputs=test_input,
-        cond=test_cond,
-        deterministic=True,
-    )
-    outputs = block.apply(
-        variables=variables,
-        inputs=test_input,
-        cond=test_cond,
-        deterministic=True,
-    )
-    assert isinstance(outputs, jax.Array)
-    assert outputs.shape == (2, 2, 32, 32, 64)
+    assert outputs.shape == (2, 32, 32, 3)
     assert outputs.dtype == dtype
 
 
 @pytest.mark.parametrize("dtype", [jnp.float32, jnp.bfloat16])
 def test_song_network(dtype: typing.Any) -> None:
     r"""Tests the full U-Net model for score-based generative modeling."""
-    rng = jax.random.PRNGKey(42)
+    global rng
 
     model = unet.SongNetwork(
         features=128,
@@ -179,7 +182,7 @@ def test_song_network(dtype: typing.Any) -> None:
         variables=variables,
         inputs=test_input,
         cond=test_cond,
-        deterministic=True,
+        deterministic=False,
         rngs={"dropout": dropout_rng},
     )
     assert isinstance(outputs, jax.Array)

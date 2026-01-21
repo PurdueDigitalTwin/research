@@ -342,6 +342,10 @@ class UpsampleBlock(nn.Module):
     r"""An upsampling block using nearest-neighbor interpolation.
 
     Args:
+        antialias (bool, optional): If `True`, applies anti-aliasing when
+            calling `jax.image.resize`. Default is `False`.
+        method (jax.image.ResizeMethod, optional): The upsampling method to use.
+            Default is `jax.image.ResizeMethod.NEAREST`.
         with_conv (bool, optional): If true, applies a convolution after
             upsampling. Default is `True`.
         features (int, optional): Number of output features. If `None`,
@@ -355,6 +359,8 @@ class UpsampleBlock(nn.Module):
         precision (Any, optional): Numerical precision of the computation.
     """
 
+    antialias: bool = False
+    method: jax.image.ResizeMethod = jax.image.ResizeMethod.NEAREST
     with_conv: bool = True
     features: typing.Optional[int] = None
     kernel_size: int = 3
@@ -386,8 +392,8 @@ class UpsampleBlock(nn.Module):
             out = jax.image.resize(
                 inputs,
                 shape=(*batch_dims, *dims["hwC"]),
-                method="nearest",
-                antialias=True,
+                method=self.method,
+                antialias=self.antialias,
                 precision=self.precision,
             )
             if self.with_conv:
@@ -611,7 +617,7 @@ class SongNetBlock(nn.Module):
     deterministic: typing.Optional[bool] = None
     dropout_rate: float = 0.0
     skip_scale: float = 1.0
-    resample_filter: typing.Sequence[int] = [1, 1]
+    resample_filter: typing.Sequence[int] = (1, 1)
     upsampling: bool = False
     dtype: typing.Any = None
     param_dtype: typing.Any = None
@@ -756,6 +762,266 @@ class SongNetBlock(nn.Module):
 
 # ==============================================================================
 # Network Wrapper
+class HoNetwork(nn.Module):
+    r"""U-Net architecture in "Denoising Deep Probabilistic Models".
+
+    This module is adapted from the original implementation of the U-Net
+    architecture from "Denoising Diffusion Probabilistic Models" by
+    Jonathan Ho et al. and the original implementation is available at
+    `https://github.com/hojonathanho/diffusion`.
+
+    Args:
+        features (int): Base number of features for the latent representations.
+        out_features (int, optional): Number of output features. If `None`,
+            the number of input features is used. Default is `None`.
+        ch_mults (typing.Sequence[int], optional): Sequence of multipliers
+            for the number of features at each level of the U-Net architecture.
+            Default is `(1, 2, 2, 2)`.
+        num_groups (int, optional): Number of groups for `GroupNorm`.
+            Default is :math:`32`.
+        num_res_blocks (int, optional): Number of residual blocks per level.
+            Default is :math:`4`.
+        attn_resolutions (typing.Sequence[int], optional): Sequence of spatial
+            resolutions at which to apply attention. Default is `(16,)`.
+        dropout_rate (float, optional): Dropout rate. Default is :math:`0`.
+        epsilon (float, optional): Small float added to variance to avoid
+            dividing by zero in `GroupNorm`. Default is :math:`1e-6`.
+        resample_with_conv (bool, optional): If `True`, uses convolutional
+            layers for upsampling and downsampling.
+        deterministic (bool, optional): Whether to apply dropout operations.
+            Merged with the `deterministic` argument passed to `__call__`.
+            Defaults to `None`.
+        dtype (Any, optional): The dtype of the computation.
+        param_dtype (Any, optional): The dtype of the parameters.
+        precision (Any, optional): Numerical precision of the computation.
+    """
+
+    features: int
+    out_features: typing.Optional[int] = None
+    ch_mults: typing.Sequence[int] = (1, 2, 2, 2)
+    num_groups: int = 32
+    num_res_blocks: int = 4
+    attn_resolutions: typing.Sequence[int] = (16,)
+    dropout_rate: float = 0.0
+    epsilon: float = 1e-6
+    resample_with_conv: bool = True
+    deterministic: typing.Optional[bool] = None
+    dtype: typing.Any = None
+    param_dtype: typing.Any = None
+    precision: typing.Any = None
+
+    @nn.compact
+    def __call__(
+        self,
+        inputs: jax.Array,
+        cond: jax.Array,
+        deterministic: typing.Optional[bool] = None,
+    ) -> jax.Array:
+        r"""Forward pass of the `HoNetwork` architecture.
+
+        Args:
+            inputs (jax.Array): Input array of shape `(*, H, W, C_in)`.
+            cond (jax.Array): Conditioning array of shape `(*, C_cond)`.
+            deterministic (bool, optional): If true, the model is run in
+                deterministic mode (e.g., no dropout). Defaults to `None`.
+
+        Returns:
+            Output array of shape `(*, H, W, C_out)`, where `C_out` is the
+                number of channels specified by `out_features` during
+                instantiation or the number of input channels if
+                `out_features` is `None`.
+        """
+        m_deterministic = nn.merge_param(
+            "deterministic",
+            self.deterministic,
+            deterministic,
+        )
+        batch_dims = inputs.shape[:-3]
+        dims = chex.Dimensions(
+            H=inputs.shape[-3],
+            W=inputs.shape[-2],
+            C=inputs.shape[-1],
+        )
+
+        # input convolution
+        conv_in = nn.Conv(
+            features=self.features,
+            kernel_size=(3, 3),
+            strides=(1, 1),
+            padding=(1, 1),
+            kernel_init=jax.nn.initializers.variance_scaling(
+                scale=1.0,
+                mode="fan_avg",
+                distribution="uniform",
+            ),
+            use_bias=True,
+            bias_init=jax.nn.initializers.zeros,
+            name="conv_in",
+        )
+        out = conv_in(inputs.astype(self.dtype))
+        hs = [out]
+
+        # forward pass the downsampling path
+        for level, mult in enumerate(self.ch_mults):
+            for i in range(self.num_res_blocks):
+                res_block = ResNetBlock(
+                    features=self.features * mult,
+                    num_groups=self.num_groups,
+                    dropout_rate=self.dropout_rate,
+                    epsilon=self.epsilon,
+                    skip_scale=1.0,
+                    dtype=self.dtype,
+                    param_dtype=self.param_dtype,
+                    precision=self.precision,
+                    name=f"down_{level:d}_block_{i + 1:d}",
+                )
+                out = res_block(
+                    inputs=out,
+                    cond=cond,
+                    deterministic=m_deterministic,
+                )
+                if out.shape[-3] in self.attn_resolutions:
+                    attn_block = AttnBlock(
+                        num_heads=1,
+                        num_groups=self.num_groups,
+                        epsilon=self.epsilon,
+                        skip_scale=1.0,
+                        dtype=self.dtype,
+                        param_dtype=self.param_dtype,
+                        precision=self.precision,
+                        name=f"down_{level:d}_attn_{i + 1:d}",
+                    )
+                    out = attn_block(out)
+                hs.append(out)
+            if level != len(self.ch_mults) - 1:
+                down_block = DownsampleBlock(
+                    with_conv=self.resample_with_conv,
+                    features=out.shape[-1],
+                    resample_filter=None,
+                    dtype=self.dtype,
+                    param_dtype=self.param_dtype,
+                    name=f"down_{level:d}_downsample",
+                )
+                out = down_block(out)
+                hs.append(out)
+
+        # forward pass the bottleneck
+        mid_res_block_1 = ResNetBlock(
+            features=out.shape[-1],
+            num_groups=self.num_groups,
+            dropout_rate=self.dropout_rate,
+            epsilon=self.epsilon,
+            skip_scale=1.0,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            precision=self.precision,
+            name="mid_block_1",
+        )
+        out = mid_res_block_1(out, cond=cond, deterministic=m_deterministic)
+        mid_attn = AttnBlock(
+            num_heads=1,
+            num_groups=self.num_groups,
+            epsilon=self.epsilon,
+            skip_scale=1.0,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            precision=self.precision,
+            name="mid_attn",
+        )
+        out = mid_attn(out)
+        mid_res_block_2 = ResNetBlock(
+            features=out.shape[-1],
+            num_groups=self.num_groups,
+            dropout_rate=self.dropout_rate,
+            epsilon=self.epsilon,
+            skip_scale=1.0,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            precision=self.precision,
+            name="mid_block_2",
+        )
+        out = mid_res_block_2(out, cond=cond, deterministic=m_deterministic)
+
+        # forward pass the upsampling path
+        for level, mult in reversed(list(enumerate(self.ch_mults))):
+            for i in range(self.num_res_blocks + 1):
+                skip = hs.pop()
+                out = jnp.concatenate([out, skip], axis=-1)
+                res_block = ResNetBlock(
+                    features=self.features * mult,
+                    num_groups=self.num_groups,
+                    dropout_rate=self.dropout_rate,
+                    epsilon=self.epsilon,
+                    skip_scale=1.0,
+                    dtype=self.dtype,
+                    param_dtype=self.param_dtype,
+                    precision=self.precision,
+                    name=f"up_{level:d}_block_{i + 1:d}",
+                )
+                out = res_block(
+                    inputs=out,
+                    cond=cond,
+                    deterministic=m_deterministic,
+                )
+                if out.shape[-3] in self.attn_resolutions:
+                    attn_block = AttnBlock(
+                        num_heads=1,
+                        num_groups=self.num_groups,
+                        epsilon=self.epsilon,
+                        skip_scale=1.0,
+                        dtype=self.dtype,
+                        param_dtype=self.param_dtype,
+                        precision=self.precision,
+                        name=f"up_{level:d}_attn_{i + 1:d}",
+                    )
+                    out = attn_block(out)
+            if level != 0:
+                up_block = UpsampleBlock(
+                    antialias=False,  # NOTE: align with original implementation
+                    with_conv=self.resample_with_conv,
+                    features=out.shape[-1],
+                    resample_filter=None,
+                    dtype=self.dtype,
+                    param_dtype=self.param_dtype,
+                    name=f"up_{level:d}_upsample",
+                )
+                out = up_block(out)
+
+        norm_out = nn.GroupNorm(
+            num_groups=self.num_groups,
+            epsilon=self.epsilon,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="norm_out",
+        )
+        conv_out = nn.Conv(
+            features=(
+                self.out_features
+                if isinstance(
+                    self.out_features,
+                    int,
+                )
+                else inputs.shape[-1]
+            ),
+            kernel_size=(3, 3),
+            strides=(1, 1),
+            padding="SAME",
+            kernel_init=jax.nn.initializers.variance_scaling(
+                scale=1e-10,
+                mode="fan_avg",
+                distribution="uniform",
+            ),
+            bias_init=jax.nn.initializers.zeros,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="conv_out",
+        )
+        out = conv_out(jax.nn.silu(norm_out(out)))
+        chex.assert_shape(out, (*batch_dims, *dims["HWC"]))
+
+        return out
+
+
 class SongNetwork(nn.Module):
     r"""U-Net architecture for score-function estimation.
 
@@ -793,7 +1059,7 @@ class SongNetwork(nn.Module):
     attn_resolutions: typing.Sequence[int] = (16,)
     dropout_rate: float = 0.0
     epsilon: float = 1e-6
-    resample_filter: typing.Sequence[int] = [1, 1]
+    resample_filter: typing.Sequence[int] = (1, 1)
     skip_scale: float = 1.0
     deterministic: typing.Optional[bool] = None
     dtype: typing.Any = None

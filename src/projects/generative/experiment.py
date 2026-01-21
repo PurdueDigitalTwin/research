@@ -246,22 +246,9 @@ def train_and_evaluate(
     rng, data_rng = jax.random.split(rng, num=2)
     p_datamodule = fdl.build(exp_config.data.module)
     # properly handle batch size in distributed setting
-    _global_batch_size = exp_config.data.batch_size
-    if _global_batch_size % jax.process_count() != 0:
-        logging.rank_zero_warning(
-            (
-                "Global batch size %d is not evenly divisible by process count %d; "
-                "per-process batch size will be truncated to %d (effective global "
-                "batch size %d)."
-            ),
-            _global_batch_size,
-            jax.process_count(),
-            _global_batch_size // jax.process_count(),
-            (_global_batch_size // jax.process_count()) * jax.process_count(),
-        )
-    _per_process_batch_size = int(_global_batch_size // jax.process_count())
+    _local_batch_size = exp_config.data.batch_size * jax.local_device_count()
     datamodule = p_datamodule(
-        batch_size=_per_process_batch_size,
+        batch_size=_local_batch_size,
         deterministic=exp_config.data.deterministic,
         drop_remainder=exp_config.data.drop_remainder,
         num_workers=exp_config.data.num_workers,

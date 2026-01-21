@@ -111,7 +111,7 @@ class FrechetInceptionDistance:
     r"""Computes the Fréchet Inception Distance (FID) score.
 
     Args:
-        train_dataset (datasets.Dataset): The training dataset used to compute
+        dataset (datasets.Dataset): The reference dataset used to compute
             the reference statistics.
         image_key (str, optional): The column name in the dataset that
             contains the images. Default is `"image"`.
@@ -127,7 +127,7 @@ class FrechetInceptionDistance:
 
     def __init__(
         self,
-        train_dataset: datasets.Dataset,
+        dataset: datasets.Dataset,
         image_key: str = "image",
         batch_size: int = 32,
         mode: str = "tensorflow",
@@ -163,14 +163,13 @@ class FrechetInceptionDistance:
             self._variables = serialization.msgpack_restore(f.read())
         self._compute_feat = jax.jit(
             functools.partial(self.extract_features, model=self._model),
-            device=jax.devices("cpu")[0],
         )
 
         # compute reference statistics
         with tqdm_logging.logging_redirect_tqdm():
             if jax.process_index() == 0:
                 pbar = tqdm.tqdm(
-                    total=len(train_dataset),
+                    total=len(dataset),
                     desc="Processing reference images...",
                     unit="images",
                 )
@@ -178,7 +177,7 @@ class FrechetInceptionDistance:
                 pbar = None
 
             ref_images = []
-            for item in train_dataset:
+            for item in dataset:
                 assert isinstance(item, typing.Dict)
                 image = item.get(image_key, None)
                 if image is None:
@@ -194,7 +193,7 @@ class FrechetInceptionDistance:
             if jax.process_index() == 0:
                 pbar = tqdm.tqdm(
                     total=len(range(0, len(ref_images), self._batch_size)),
-                    desc="Extracting training features...",
+                    desc="Extracting reference features...",
                     unit="batches",
                 )
             else:
@@ -299,11 +298,13 @@ class FrechetInceptionDistance:
         if self._mode == "clean":
             return _process_image(images)
         elif self._mode == "tensorflow":
-            return jax.image.resize(
-                np.array(images, dtype=np.uint8),
-                shape=(299, 299, 3),
-                method=jax.image.ResizeMethod.LINEAR,
-                antialias=False,
+            return np.array(
+                jax.image.resize(
+                    jnp.array(images, dtype=np.uint8),
+                    shape=(299, 299, 3),
+                    method=jax.image.ResizeMethod.LINEAR,
+                    antialias=False,
+                )
             )
         else:
             raise ValueError(f"Unsupported FID mode '{self._mode}'.")
@@ -329,8 +330,7 @@ class FrechetInceptionDistance:
         inputs = (jnp.astype(inputs, jnp.float32) - 128.0) / 128.0
         feat, _ = model.apply(
             variables={"params": params, "batch_stats": batch_stats},
-            # NOTE: force computation on CPU for reproducibility
-            inputs=jax.device_put(inputs, device=jax.devices("cpu")[0]),
+            inputs=inputs,
             deterministic=True,
             with_head=False,
         )

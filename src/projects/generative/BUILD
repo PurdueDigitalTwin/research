@@ -9,11 +9,24 @@ ml_py_library(
         "datasets",
         "fiddle",
         "optax",
+        ":ddpm",
         ":meanflow",
         "//src/core:config",
         "//src/data:huggingface",
         "//src/data:preprocess",
         "//src/projects/generative/tools:fid",
+    ],
+)
+
+ml_py_library(
+    name = "ddpm",
+    srcs = ["ddpm.py"],
+    deps = [
+        "flax",
+        "jax",
+        "jaxtyping",
+        "//src/core:model",
+        "//src/projects/generative/model:unet",
     ],
 )
 

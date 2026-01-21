@@ -19,7 +19,6 @@ def _uniform_init() -> jax.nn.initializers.Initializer:
         key: jax.Array,
         shape: jax_typing.Shape,
         dtype: typing.Any = jnp.float_,
-        out_sharding: typing.Any = None,
     ) -> jax.Array:
         """Uniform initializer for one-dimensional parameters."""
         dim = shape[-1]
@@ -31,7 +30,6 @@ def _uniform_init() -> jax.nn.initializers.Initializer:
             dtype=dtype,
             minval=-jnp.sqrt(1.0 / dim),
             maxval=jnp.sqrt(1.0 / dim),
-            out_sharding=out_sharding,
         )
 
     return init
@@ -154,7 +152,6 @@ class ConditionalInstanceNorm2dPlus(nn.Module):
             key: typing.Any,
             shape: jax_typing.Shape,
             dtype: typing.Any,
-            out_sharding: typing.Any = None,
         ) -> jax.Array:
             dtype = jax_dtypes.canonicalize_dtype(dtype)
             named_shape = jax_core.canonicalize_shape(shape)
@@ -164,7 +161,6 @@ class ConditionalInstanceNorm2dPlus(nn.Module):
                     key=key,
                     shape=named_shape,
                     dtype=dtype,
-                    out_sharding=out_sharding,
                 )
                 * 0.02
             )

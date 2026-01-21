@@ -10,20 +10,22 @@ import optax
 from src.core import config as _config
 from src.data import huggingface
 from src.data import preprocess
+from src.projects.generative import ddpm
 from src.projects.generative import meanflow
 from src.projects.generative.tools import fid
 
 
 # ==============================================================================
-# MeanFlow Models
-def meanflow_unet_cifar_10() -> _config.ExperimentConfig:
+# Denoising Deep Probabilistic Models (DDPM)
+def ddpm_unet_cifar_10() -> _config.ExperimentConfig:
     return _config.ExperimentConfig(
-        project_name="meanflow",
+        project_name="ddpm",
         exp_name="unet_cifar_10",
         mode="train",
         data=_config.DataConfig(
             module=fdl.Partial(
                 huggingface.CIFAR10DataModule,
+                shuffle_buffer_size=50_000,
                 transform=preprocess.chain(
                     functools.partial(
                         preprocess.filter_keys,
@@ -37,7 +39,92 @@ def meanflow_unet_cifar_10() -> _config.ExperimentConfig:
                 ),
                 use_cache=True,
             ),
-            batch_size=1024,
+            batch_size=128,
+            num_workers=4,
+            deterministic=True,
+            drop_remainder=True,
+        ),
+        model=fdl.Partial(
+            ddpm.DDPMGaussianUNetModel,
+            in_channels=3,
+            image_size=32,
+            features=128,
+            ch_mults=[1, 2, 2, 2],
+            dropout_rate=0.1,
+            epsilon=1e-6,
+            attn_resolutions=[16],
+            num_res_blocks=2,
+            resample_with_conv=True,
+            predict_variance=False,
+            beta_start=0.0001,
+            beta_end=0.02,
+            beta_schedule="linear",
+            model_var_type="fixed_large",
+            num_diffusion_steps=1_000,
+        ),
+        metric=fdl.Config(
+            fid.FrechetInceptionDistance,
+            dataset=datasets.load_dataset(
+                path="uoft-cs/cifar10",
+                token=os.getenv("HF_TOKEN", None),
+                revision="0b2714987fa478483af9968de7c934580d0bb9a2",
+                split="test",
+            ),
+            image_key="img",
+            batch_size=32,
+        ),
+        trainer=_config.TrainerConfig(
+            num_train_steps=800_000,
+            log_every_n_steps=50,
+            checkpoint_every_n_steps=10_000,  # save every 10k steps
+            eval_every_n_steps=50_000,  # slow evaluate every 50k steps
+            max_checkpoints_to_keep=3,
+            profile=False,
+        ),
+        optimizer=_config.OptimizerConfig(
+            lr_schedule=fdl.Config(
+                optax.warmup_constant_schedule,
+                init_value=1e-8,
+                peak_value=2e-4,
+                warmup_steps=5_000,
+            ),
+            optimizer=fdl.Partial(optax.adam, b1=0.9, b2=0.999),
+            grad_clip_method="norm",
+            grad_clip_value=1.0,
+            ema_rate=0.9999,
+        ),
+        seed=42,
+        dtype=jax.numpy.float32,
+        param_dtype=jax.numpy.float32,
+        precision=jax.lax.Precision.HIGHEST,
+    )
+
+
+# ==============================================================================
+# MeanFlow Models
+def meanflow_unet_cifar_10() -> _config.ExperimentConfig:
+    return _config.ExperimentConfig(
+        project_name="meanflow",
+        exp_name="unet_cifar_10",
+        mode="train",
+        data=_config.DataConfig(
+            module=fdl.Partial(
+                huggingface.CIFAR10DataModule,
+                shuffle_buffer_size=50_000,
+                transform=preprocess.chain(
+                    functools.partial(
+                        preprocess.filter_keys,
+                        keys=["image", "label"],
+                    ),
+                    functools.partial(
+                        preprocess.normalize,
+                        mean=(0.0, 0.0, 0.0),
+                        std=(1.0, 1.0, 1.0),
+                    ),
+                ),
+                use_cache=True,
+            ),
+            batch_size=128,
             num_workers=2,
             deterministic=True,
             drop_remainder=True,
@@ -59,11 +146,11 @@ def meanflow_unet_cifar_10() -> _config.ExperimentConfig:
         ),
         metric=fdl.Config(
             fid.FrechetInceptionDistance,
-            train_dataset=datasets.load_dataset(
+            dataset=datasets.load_dataset(
                 path="uoft-cs/cifar10",
                 token=os.getenv("HF_TOKEN", None),
                 revision="0b2714987fa478483af9968de7c934580d0bb9a2",
-                split="train",
+                split="test",
             ),
             image_key="img",
             batch_size=32,
