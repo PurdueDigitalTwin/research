@@ -10,7 +10,7 @@ OPENAI_STD = [0.26862954, 0.26130258, 0.27577711]
 
 
 def chain(*args: typing.Any) -> typing.Callable:
-    """Combine multiple preprocessing functions into a sequence.
+    r"""Combine multiple preprocessing functions into a sequence.
 
     Args:
         *args: The preprocessing functions to combine.
@@ -43,7 +43,7 @@ def filter_keys(
     example: typing.Dict[str, typing.Any],
     keys: typing.Sequence[str],
 ) -> typing.Dict[str, typing.Any]:
-    """Filters a dictionary to only include specified keys.
+    r"""Filters a dictionary to only include specified keys.
 
     Args:
         example (Dict[str, Any]): A dictionary to filter.
@@ -60,7 +60,7 @@ def normalize(
     mean: typing.Union[float, typing.Sequence[float]],
     std: typing.Union[float, typing.Sequence[float]],
 ) -> typing.Dict[str, typing.Any]:
-    """Scales an image array to the range [0, 1] and then standardizes it by subtracting the mean
+    r"""Scales an image array to the range [0, 1] and then standardizes it by subtracting the mean
     and dividing by the standard deviation for each channel.
 
     Args:
@@ -94,7 +94,7 @@ def normalize(
 def normalize_imagenet(
     example: typing.Dict[str, typing.Any],
 ) -> typing.Dict[str, typing.Any]:
-    """Normalizes an image array using ImageNet statistics.
+    r"""Normalizes an image array using ImageNet statistics.
 
     Args:
         example (Dict[str, Any]): A dictionary containing an `image` key
@@ -113,7 +113,7 @@ def normalize_imagenet(
 def normalize_openai(
     example: typing.Dict[str, typing.Any],
 ) -> typing.Dict[str, typing.Any]:
-    """Normalizes an image array using OpenAI CLIP statistics.
+    r"""Normalizes an image array using OpenAI CLIP statistics.
 
     Args:
         example (Dict[str, Any]): A dictionary containing an `image` key
