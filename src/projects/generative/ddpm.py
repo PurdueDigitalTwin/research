@@ -55,14 +55,19 @@ def make_gaussian_sample_loop(
     r"""Wraps a JIT compiled sampling loop for Gaussian DDPM.
 
     Args:
-        network (nn.Module): The neural network in the DDPM model.
-        rngs (jax.Array): JAX random number generator key.
-        params (PyTree): The model parameters.
-        shape (typing.Tuple[int, ...]): Shape of the output samples.
-        deterministic (bool): Whether to apply dropout.
+        network (nn.Module): The diffusion model network used for denoising.
+        alphas (jax.Array): Per-step :math:`\\alpha_t` values of shape ``(T,)``.
+        alpha_bars (jax.Array): Cumulative products :math:`\\bar{\\alpha}_t`
+            with a shape of ``(num_diffusion_steps,)``.
+        alpha_bar_prevs (jax.Array): Previous cumulative products
+            :math:`\\bar{\\alpha}_{t-1}` of shape ``(num_diffusion_steps,)``.
+        log_posterior_vars (jax.Array): Log posterior variances
+            :math:`\\log \\sigma_t^2` of shape ``(num_diffusion_steps,)``.
+        num_diffusion_steps (int): Total number of diffusion steps.
+        dtype (typing.Any): Data type to use for input and output.
 
     Returns:
-        A callable function that performs the sampling loop.
+        A JIT-compiled function that performs the sampling loop.
     """
 
     # pre-compute constants

@@ -763,7 +763,7 @@ class SongNetBlock(nn.Module):
 # ==============================================================================
 # Network Wrapper
 class HoNetwork(nn.Module):
-    r"""U-Net architecture for in denoising deep probabilistic models.
+    r"""U-Net architecture in "Denoising Deep Probabilistic Models".
 
     This module is adapted from the original implementation of the U-Net
     architecture from "Denoising Diffusion Probabilistic Models" by
@@ -817,7 +817,7 @@ class HoNetwork(nn.Module):
         cond: jax.Array,
         deterministic: typing.Optional[bool] = None,
     ) -> jax.Array:
-        r"""Forward pass of the `HoNetwork" architecture.
+        r"""Forward pass of the `HoNetwork` architecture.
 
         Args:
             inputs (jax.Array): Input array of shape `(*, H, W, C_in)`.
@@ -831,7 +831,7 @@ class HoNetwork(nn.Module):
                 instantiation or the number of input channels if
                 `out_features` is `None`.
         """
-        m_determinisitc = nn.merge_param(
+        m_deterministic = nn.merge_param(
             "deterministic",
             self.deterministic,
             deterministic,
@@ -878,7 +878,7 @@ class HoNetwork(nn.Module):
                 out = res_block(
                     inputs=out,
                     cond=cond,
-                    deterministic=m_determinisitc,
+                    deterministic=m_deterministic,
                 )
                 if out.shape[-3] in self.attn_resolutions:
                     attn_block = AttnBlock(
@@ -917,7 +917,7 @@ class HoNetwork(nn.Module):
             precision=self.precision,
             name="mid_block_1",
         )
-        out = mid_res_block_1(out, cond=cond, deterministic=m_determinisitc)
+        out = mid_res_block_1(out, cond=cond, deterministic=m_deterministic)
         mid_attn = AttnBlock(
             num_heads=1,
             num_groups=self.num_groups,
@@ -940,7 +940,7 @@ class HoNetwork(nn.Module):
             precision=self.precision,
             name="mid_block_2",
         )
-        out = mid_res_block_2(out, cond=cond, deterministic=m_determinisitc)
+        out = mid_res_block_2(out, cond=cond, deterministic=m_deterministic)
 
         # forward pass the upsampling path
         for level, mult in reversed(list(enumerate(self.ch_mults))):
@@ -961,7 +961,7 @@ class HoNetwork(nn.Module):
                 out = res_block(
                     inputs=out,
                     cond=cond,
-                    deterministic=m_determinisitc,
+                    deterministic=m_deterministic,
                 )
                 if out.shape[-3] in self.attn_resolutions:
                     attn_block = AttnBlock(
