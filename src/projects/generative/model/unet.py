@@ -457,6 +457,8 @@ class AttnBlock(nn.Module):
         num_groups (int): Number of groups for `GroupNorm`.
         epsilon (float, optional): Small float added to variance to avoid
             dividing by zero in `GroupNorm`. Default is :math:`1e-5`.
+        init_scale (float, optional): Initial scale for the attention weights.
+            Default is :math:`0.2`.
         skip_scale (float, optional): Scaling factor for the residual
             connection output. Default is :math:`1.0`.
         dtype (Any, optional): The dtype of the computation.
@@ -467,6 +469,7 @@ class AttnBlock(nn.Module):
     num_heads: int
     num_groups: int
     epsilon: float = 1e-5
+    init_scale: float = 0.2
     skip_scale: float = 1.0
     dtype: typing.Any = None
     param_dtype: typing.Any = None
@@ -502,7 +505,9 @@ class AttnBlock(nn.Module):
             qkv_proj = nn.Dense(
                 features=3 * channels,
                 kernel_init=jax.nn.initializers.variance_scaling(
-                    scale=0.2, mode="fan_avg", distribution="uniform"
+                    scale=self.init_scale,
+                    mode="fan_avg",
+                    distribution="uniform",
                 ),
                 bias_init=jax.nn.initializers.zeros,
                 dtype=self.dtype,
@@ -547,7 +552,7 @@ class AttnBlock(nn.Module):
             qkv_proj = nn.DenseGeneral(
                 features=(self.num_heads, head_dim * 3),
                 kernel_init=jax.nn.initializers.variance_scaling(
-                    scale=0.2,
+                    scale=self.init_scale,
                     mode="fan_avg",
                     distribution="uniform",
                 ),
@@ -893,6 +898,7 @@ class HoNetwork(nn.Module):
                         num_heads=1,
                         num_groups=self.num_groups,
                         epsilon=self.epsilon,
+                        init_scale=1.0,
                         skip_scale=1.0,
                         dtype=self.dtype,
                         param_dtype=self.param_dtype,
@@ -930,6 +936,7 @@ class HoNetwork(nn.Module):
             num_heads=1,
             num_groups=self.num_groups,
             epsilon=self.epsilon,
+            init_scale=1.0,
             skip_scale=1.0,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
@@ -976,6 +983,7 @@ class HoNetwork(nn.Module):
                         num_heads=1,
                         num_groups=self.num_groups,
                         epsilon=self.epsilon,
+                        init_scale=1.0,
                         skip_scale=1.0,
                         dtype=self.dtype,
                         param_dtype=self.param_dtype,
