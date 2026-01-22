@@ -71,7 +71,6 @@ def ddpm_unet_cifar_10() -> _config.ExperimentConfig:
                 split="test",
             ),
             image_key="img",
-            batch_size=32,
         ),
         trainer=_config.TrainerConfig(
             num_train_steps=800_000,
@@ -153,7 +152,6 @@ def meanflow_unet_cifar_10() -> _config.ExperimentConfig:
                 split="test",
             ),
             image_key="img",
-            batch_size=32,
         ),
         trainer=_config.TrainerConfig(
             num_train_steps=800_000,
