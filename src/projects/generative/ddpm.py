@@ -3,6 +3,7 @@ import typing
 
 from flax import linen as nn
 import jax
+from jax import lax
 from jax import numpy as jnp
 import jaxtyping
 import typing_extensions
@@ -131,7 +132,7 @@ def make_gaussian_sample_loop(
             dtype=dtype,
         )
         xs = jnp.arange(0, num_diffusion_steps)
-        _, out = jax.lax.scan(
+        _, out = lax.scan(
             f=__body_fn,
             init=x_init,
             xs=xs,
@@ -495,12 +496,7 @@ class DDPMGaussianUNetModel(_model.Model):
             deterministic=deterministic,
             rngs={"dropout": dropout_rng},
         )
-        loss = jnp.mean(
-            jnp.sum(
-                jnp.square(noise_pred - jax.lax.stop_gradient(noise_true)),
-                axis=(-1, -2, -3),
-            )
-        )
+        loss = jnp.mean(jnp.square(noise_pred - lax.stop_gradient(noise_true)))
 
         out = _model.StepOutputs(
             scalars={"loss": loss},
