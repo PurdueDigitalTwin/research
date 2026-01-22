@@ -526,7 +526,11 @@ class AttnBlock(nn.Module):
 
             out_proj = nn.Dense(
                 features=channels,
-                kernel_init=jax.nn.initializers.zeros,
+                kernel_init=jax.nn.initializers.variance_scaling(
+                    scale=1e-10,
+                    mode="fan_avg",
+                    distribution="uniform",
+                ),
                 bias_init=jax.nn.initializers.zeros,
                 dtype=self.dtype,
                 param_dtype=self.param_dtype,
@@ -574,7 +578,11 @@ class AttnBlock(nn.Module):
             out_proj = nn.DenseGeneral(
                 features=inputs.shape[-1],
                 axis=(-2, -1),
-                kernel_init=jax.nn.initializers.zeros,
+                kernel_init=jax.nn.initializers.variance_scaling(
+                    scale=1e-10,
+                    mode="fan_avg",
+                    distribution="uniform",
+                ),
                 bias_init=jax.nn.initializers.zeros,
                 dtype=self.dtype,
                 param_dtype=self.param_dtype,
