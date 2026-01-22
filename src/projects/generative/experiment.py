@@ -196,6 +196,9 @@ def training_step(
     (_, outputs), grads = grad_fn(state.params)
     grads = jax.lax.pmean(grads, axis_name="batch")
     new_state = state.apply_gradients(grads=grads)
+    assert isinstance(outputs, _model.StepOutputs)
+    assert isinstance(outputs.scalars, dict)
+    outputs.scalars["grad_norm"] = optax.global_norm(grads)
 
     return new_state, outputs
 
