@@ -496,7 +496,8 @@ class DDPMGaussianUNetModel(_model.Model):
             deterministic=deterministic,
             rngs={"dropout": dropout_rng},
         )
-        loss = jnp.mean(jnp.square(noise_pred - lax.stop_gradient(noise_true)))
+        loss = jnp.square(noise_pred - lax.stop_gradient(noise_true))
+        loss = jnp.sum(jnp.mean(loss, axis=tuple(range(1, loss.ndim))))
 
         out = _model.StepOutputs(
             scalars={"loss": loss},
