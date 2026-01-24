@@ -461,6 +461,8 @@ class AttnBlock(nn.Module):
             Default is :math:`0.2`.
         skip_scale (float, optional): Scaling factor for the residual
             connection output. Default is :math:`1.0`.
+        combined_proj (bool, optional): If `True`, uses a single linear layer
+            to project queries, keys, and values. Default is `False`.
         dtype (Any, optional): The dtype of the computation.
         param_dtype (Any, optional): The dtype of the parameters.
         precision (Any, optional): Numerical precision of the computation.
@@ -471,6 +473,7 @@ class AttnBlock(nn.Module):
     epsilon: float = 1e-5
     init_scale: float = 0.2
     skip_scale: float = 1.0
+    combined_proj: bool = False
     dtype: typing.Any = None
     param_dtype: typing.Any = None
     precision: typing.Any = None
@@ -502,20 +505,62 @@ class AttnBlock(nn.Module):
 
         if self.num_heads == 1:
             # scaled dot-product attention
-            qkv_proj = nn.Dense(
-                features=3 * channels,
-                kernel_init=jax.nn.initializers.variance_scaling(
-                    scale=self.init_scale,
-                    mode="fan_avg",
-                    distribution="uniform",
-                ),
-                bias_init=jax.nn.initializers.zeros,
-                dtype=self.dtype,
-                param_dtype=self.param_dtype,
-                name="qkv_proj",
-            )
-            qkv = qkv_proj(out)
-            query, key, value = jnp.split(qkv, 3, axis=-1)
+            if self.combined_proj:
+                qkv_proj = nn.Dense(
+                    features=3 * channels,
+                    kernel_init=jax.nn.initializers.variance_scaling(
+                        scale=self.init_scale,
+                        mode="fan_avg",
+                        distribution="uniform",
+                    ),
+                    bias_init=jax.nn.initializers.zeros,
+                    dtype=self.dtype,
+                    param_dtype=self.param_dtype,
+                    name="qkv_proj",
+                )
+                qkv = qkv_proj(out)
+                query, key, value = jnp.split(qkv, 3, axis=-1)
+            else:
+                q_proj = nn.Dense(
+                    features=channels,
+                    kernel_init=jax.nn.initializers.variance_scaling(
+                        scale=self.init_scale,
+                        mode="fan_avg",
+                        distribution="uniform",
+                    ),
+                    bias_init=jax.nn.initializers.zeros,
+                    dtype=self.dtype,
+                    param_dtype=self.param_dtype,
+                    name="q_proj",
+                )
+                query = q_proj(out)
+                k_proj = nn.Dense(
+                    features=channels,
+                    kernel_init=jax.nn.initializers.variance_scaling(
+                        scale=self.init_scale,
+                        mode="fan_avg",
+                        distribution="uniform",
+                    ),
+                    bias_init=jax.nn.initializers.zeros,
+                    dtype=self.dtype,
+                    param_dtype=self.param_dtype,
+                    name="k_proj",
+                )
+                key = k_proj(out)
+                v_proj = nn.Dense(
+                    features=channels,
+                    kernel_init=jax.nn.initializers.variance_scaling(
+                        scale=self.init_scale,
+                        mode="fan_avg",
+                        distribution="uniform",
+                    ),
+                    bias_init=jax.nn.initializers.zeros,
+                    dtype=self.dtype,
+                    param_dtype=self.param_dtype,
+                    name="v_proj",
+                )
+                value = v_proj(out)
+
             scale = 1.0 / jnp.sqrt(jnp.sqrt(channels).astype(self.dtype))
             query = query * scale
             key = key * scale
@@ -528,20 +573,6 @@ class AttnBlock(nn.Module):
             )
             attn_weight = jax.nn.softmax(attn_weight, axis=-1)
             out = jnp.einsum("...qk,...vc->...qc", attn_weight, value)
-
-            out_proj = nn.Dense(
-                features=channels,
-                kernel_init=jax.nn.initializers.variance_scaling(
-                    scale=1e-10,
-                    mode="fan_avg",
-                    distribution="uniform",
-                ),
-                bias_init=jax.nn.initializers.zeros,
-                dtype=self.dtype,
-                param_dtype=self.param_dtype,
-                name="out_proj",
-            )
-            out = out_proj(out)
         else:
             head_dim = inputs.shape[-1] // self.num_heads
             if head_dim * self.num_heads != inputs.shape[-1]:
@@ -549,20 +580,62 @@ class AttnBlock(nn.Module):
                     f"Number of heads {self.num_heads} not compatible with "
                     f"input channels {inputs.shape[-1]}."
                 )
-            qkv_proj = nn.DenseGeneral(
-                features=(self.num_heads, head_dim * 3),
-                kernel_init=jax.nn.initializers.variance_scaling(
-                    scale=self.init_scale,
-                    mode="fan_avg",
-                    distribution="uniform",
-                ),
-                bias_init=jax.nn.initializers.zeros,
-                dtype=self.dtype,
-                param_dtype=self.param_dtype,
-                name="qkv_proj",
-            )
-            qkv = qkv_proj(out)
-            query, key, value = jnp.split(qkv, 3, axis=-1)
+
+            if self.combined_proj:
+                qkv_proj = nn.DenseGeneral(
+                    features=(self.num_heads, head_dim * 3),
+                    kernel_init=jax.nn.initializers.variance_scaling(
+                        scale=self.init_scale,
+                        mode="fan_avg",
+                        distribution="uniform",
+                    ),
+                    bias_init=jax.nn.initializers.zeros,
+                    dtype=self.dtype,
+                    param_dtype=self.param_dtype,
+                    name="qkv_proj",
+                )
+                qkv = qkv_proj(out)
+                query, key, value = jnp.split(qkv, 3, axis=-1)
+            else:
+                q_proj = nn.DenseGeneral(
+                    features=(self.num_heads, head_dim),
+                    kernel_init=jax.nn.initializers.variance_scaling(
+                        scale=self.init_scale,
+                        mode="fan_avg",
+                        distribution="uniform",
+                    ),
+                    bias_init=jax.nn.initializers.zeros,
+                    dtype=self.dtype,
+                    param_dtype=self.param_dtype,
+                    name="q_proj",
+                )
+                query = q_proj(out)
+                k_proj = nn.DenseGeneral(
+                    features=(self.num_heads, head_dim),
+                    kernel_init=jax.nn.initializers.variance_scaling(
+                        scale=self.init_scale,
+                        mode="fan_avg",
+                        distribution="uniform",
+                    ),
+                    bias_init=jax.nn.initializers.zeros,
+                    dtype=self.dtype,
+                    param_dtype=self.param_dtype,
+                    name="k_proj",
+                )
+                key = k_proj(out)
+                v_proj = nn.DenseGeneral(
+                    features=(self.num_heads, head_dim),
+                    kernel_init=jax.nn.initializers.variance_scaling(
+                        scale=self.init_scale,
+                        mode="fan_avg",
+                        distribution="uniform",
+                    ),
+                    bias_init=jax.nn.initializers.zeros,
+                    dtype=self.dtype,
+                    param_dtype=self.param_dtype,
+                    name="v_proj",
+                )
+                value = v_proj(out)
 
             scale = 1.0 / jnp.sqrt(jnp.sqrt(head_dim).astype(self.dtype))
             query = query * scale
@@ -580,20 +653,22 @@ class AttnBlock(nn.Module):
                 value,
                 precision=self.precision,
             )
-            out_proj = nn.DenseGeneral(
-                features=inputs.shape[-1],
-                axis=(-2, -1),
-                kernel_init=jax.nn.initializers.variance_scaling(
-                    scale=1e-10,
-                    mode="fan_avg",
-                    distribution="uniform",
-                ),
-                bias_init=jax.nn.initializers.zeros,
-                dtype=self.dtype,
-                param_dtype=self.param_dtype,
-                name="out_proj",
-            )
-            out = out_proj(out)
+
+        # output projection
+        out_proj = nn.DenseGeneral(
+            features=inputs.shape[-1],
+            axis=(-2, -1) if self.num_heads > 1 else -1,
+            kernel_init=jax.nn.initializers.variance_scaling(
+                scale=1e-10,
+                mode="fan_avg",
+                distribution="uniform",
+            ),
+            bias_init=jax.nn.initializers.zeros,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="out_proj",
+        )
+        out = out_proj(out)
 
         chex.assert_equal_shape([out, inputs])
         out = out + inputs
@@ -1173,6 +1248,7 @@ class SongNetwork(nn.Module):
                         num_groups=self.num_groups,
                         epsilon=self.epsilon,
                         skip_scale=self.skip_scale,
+                        combined_proj=True,
                         dtype=self.dtype,
                         param_dtype=self.param_dtype,
                         precision=self.precision,
@@ -1202,6 +1278,7 @@ class SongNetwork(nn.Module):
                     num_groups=self.num_groups,
                     epsilon=self.epsilon,
                     skip_scale=self.skip_scale,
+                    combined_proj=True,
                     dtype=self.dtype,
                     param_dtype=self.param_dtype,
                     precision=self.precision,
