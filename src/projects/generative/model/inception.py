@@ -922,92 +922,99 @@ class InceptionV3(nn.Module):
         )
 
         # stem blocks
-        conv2d_1a_3x3 = ConvBNReLU(
+        conv = ConvBNReLU(
             features=32,
             kernel_size=3,
             strides=2,
             padding="VALID",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            name="conv2d_1a_3x3",
+            name="conv",
         )
-        conv2d_2a_3x3 = ConvBNReLU(
+        out = conv(inputs, deterministic=m_deterministic)
+
+        conv_1 = ConvBNReLU(
             features=32,
             kernel_size=3,
             strides=1,
             padding="VALID",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            name="conv2d_2a_3x3",
+            name="conv_1",
         )
-        conv2d_2b_3x3 = ConvBNReLU(
+        out = conv_1(out, deterministic=m_deterministic)
+
+        conv_2 = ConvBNReLU(
             features=64,
             kernel_size=3,
             strides=1,
             padding=1,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            name="conv2d_2b_3x3",
+            name="conv_2",
         )
-        out = conv2d_1a_3x3(inputs, deterministic=m_deterministic)
-        out = conv2d_2a_3x3(out, deterministic=m_deterministic)
-        out = conv2d_2b_3x3(out, deterministic=m_deterministic)
+        out = conv_2(out, deterministic=m_deterministic)
+
         out = nn.max_pool(
             out,
-            window_shape=(3, 3),
-            strides=(2, 2),
+            window_shape=(3, 3),  # ksize = (1, 3, 3, 1)
+            strides=(2, 2),  # strides = (1, 2, 2, 1)
             padding="VALID",
         )
 
-        conv2d_3b_1x1 = ConvBNReLU(
+        conv_3 = ConvBNReLU(
             features=80,
             kernel_size=1,
-            strides=1,
-            padding=0,
+            strides=1,  # strides = (1, 1, 1, 1)
+            padding="VALID",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            name="conv2d_3b_1x1",
+            name="conv_3",
         )
-        conv2d_4a_3x3 = ConvBNReLU(
+        out = conv_3(out, deterministic=m_deterministic)
+
+        conv_4 = ConvBNReLU(
             features=192,
             kernel_size=3,
             strides=1,
-            padding=0,
+            padding="VALID",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            name="conv2d_4a_3x3",
+            name="conv_4",
         )
-        out = conv2d_3b_1x1(out, deterministic=m_deterministic)
-        out = conv2d_4a_3x3(out, deterministic=m_deterministic)
+        out = conv_4(out, deterministic=m_deterministic)
+
         out = nn.max_pool(
             out,
-            window_shape=(3, 3),
-            strides=(2, 2),
+            window_shape=(3, 3),  # ksize = (1, 3, 3, 1)
+            strides=(2, 2),  # strides = (1, 2, 2, 1)
             padding="VALID",
         )
 
         # inception blocks
-        mixed_5b = InceptionABlock(
+        mixed = InceptionABlock(
             pooled_features=32,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            name="mixed_5b",
+            name="mixed",
         )
-        mixed_5c = InceptionABlock(
+        out = mixed(out, deterministic=m_deterministic)
+
+        mixed_1 = InceptionABlock(
             pooled_features=64,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            name="mixed_5c",
+            name="mixed_1",
         )
-        mixed_5d = InceptionABlock(
+        out = mixed_1(out, deterministic=m_deterministic)
+
+        mixed_2 = InceptionABlock(
             pooled_features=64,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            name="mixed_5d",
+            name="mixed_2",
         )
-        out = mixed_5b(out, deterministic=m_deterministic)
-        out = mixed_5c(out, deterministic=m_deterministic)
-        out = mixed_5d(out, deterministic=m_deterministic)
+        out = mixed_2(out, deterministic=m_deterministic)
 
         mixed_6a = InceptionBBlock(
             dtype=self.dtype,
@@ -1075,8 +1082,14 @@ class InceptionV3(nn.Module):
         out = mixed_7a(out, deterministic=m_deterministic)
         out = mixed_7b(out, deterministic=m_deterministic)
         out = mixed_7c(out, deterministic=m_deterministic)
-        out = jnp.mean(out, axis=(-3, -2), keepdims=True)
-        out = jnp.reshape(out, (*out.shape[:-3], -1))
+        out = nn.avg_pool(
+            out,
+            window_shape=(8, 8),
+            strides=(1, 1),
+            padding="VALID",
+            count_include_pad=False,
+        )
+        out = jnp.reshape(out, (*out.shape[:-3], 2048))
         if not m_with_head:
             return out, aux_logits
 
@@ -1087,9 +1100,9 @@ class InceptionV3(nn.Module):
             features=self.num_classes,
             use_bias=True,
             kernel_init=nn.initializers.variance_scaling(
-                1.0,
-                "fan_avg",
-                "uniform",
+                scale=1e-10,
+                mode="fan_avg",
+                distribution="uniform",
             ),
             bias_init=nn.initializers.zeros,
             dtype=self.dtype,
