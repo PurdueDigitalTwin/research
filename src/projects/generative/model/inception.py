@@ -26,6 +26,7 @@ class ConvBNReLU(nn.Module):
             stored in `batch_stats` for batch normalization operator.
         dtype (Any): The dtype of the computation.
         param_dtype (Any): The dtype of the parameters.
+        precision (Any): The numerical precision of the computation.
     """
 
     features: int
@@ -39,6 +40,7 @@ class ConvBNReLU(nn.Module):
     deterministic: typing.Optional[bool] = None
     dtype: typing.Any = None
     param_dtype: typing.Any = None
+    precision: typing.Any = None
 
     def setup(self) -> None:
         r"""Instantiate the `Conv-BatchNorm-ReLU` block."""
@@ -109,12 +111,14 @@ class InceptionABlock(nn.Module):
                 stored in `batch_stats` for batch normalization operator.
         dtype (Any): The dtype of the computation.
         param_dtype (Any): The dtype of the parameters.
+        precision (Any): The numerical precision of the computation.
     """
 
     pooled_features: int
     deterministic: typing.Optional[bool] = None
     dtype: typing.Any = None
     param_dtype: typing.Any = None
+    precision: typing.Any = None
 
     def setup(self) -> None:
         r"""Instantiate the `Inception-A` block."""
@@ -126,6 +130,7 @@ class InceptionABlock(nn.Module):
             padding="SAME",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="conv",
         )
 
@@ -137,6 +142,7 @@ class InceptionABlock(nn.Module):
             padding="SAME",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="tower_conv",
         )
         self.branch_5x5_2 = ConvBNReLU(
@@ -146,6 +152,7 @@ class InceptionABlock(nn.Module):
             padding="SAME",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="tower_conv_1",
         )
 
@@ -157,6 +164,7 @@ class InceptionABlock(nn.Module):
             padding="SAME",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="tower_1_conv",
         )
         self.branch_3x3_2 = ConvBNReLU(
@@ -166,6 +174,7 @@ class InceptionABlock(nn.Module):
             padding="SAME",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="tower_1_conv_1",
         )
         self.branch_3x3_3 = ConvBNReLU(
@@ -175,6 +184,7 @@ class InceptionABlock(nn.Module):
             padding="SAME",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="tower_1_conv_2",
         )
 
@@ -186,6 +196,7 @@ class InceptionABlock(nn.Module):
             padding="SAME",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="tower_2_conv",
         )
 
@@ -229,7 +240,7 @@ class InceptionABlock(nn.Module):
             window_shape=(3, 3),
             strides=(1, 1),
             padding="SAME",
-            count_include_pad=False,
+            # count_include_pad=False,
         )
         out_pool = self.branch_pool(out_pool, deterministic=m_deterministic)
 
@@ -244,11 +255,13 @@ class InceptionBBlock(nn.Module):
             stored in `batch_stats` for batch normalization operator.
         dtype (Any): The dtype of the computation.
         param_dtype (Any): The dtype of the parameters.
+        precision (Any): The numerical precision of the computation.
     """
 
     deterministic: typing.Optional[bool] = None
     dtype: typing.Any = None
     param_dtype: typing.Any = None
+    precision: typing.Any = None
 
     def setup(self) -> None:
         r"""Instantiate the `InceptionB` block."""
@@ -260,6 +273,7 @@ class InceptionBBlock(nn.Module):
             padding="VALID",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="conv",
         )
 
@@ -271,6 +285,7 @@ class InceptionBBlock(nn.Module):
             padding="SAME",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="tower_conv",
         )
         self.branch_3x3_dbl_2 = ConvBNReLU(
@@ -280,6 +295,7 @@ class InceptionBBlock(nn.Module):
             padding="SAME",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="tower_conv_1",
         )
         self.branch_3x3_dbl_3 = ConvBNReLU(
@@ -289,6 +305,7 @@ class InceptionBBlock(nn.Module):
             padding="VALID",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="tower_conv_2",
         )
 
@@ -340,12 +357,14 @@ class InceptionCBlock(nn.Module):
             stored in `batch_stats` for batch normalization operator.
         dtype (Any): The dtype of the computation.
         param_dtype (Any): The dtype of the parameters.
+        precision (Any): The numerical precision of the computation.
     """
 
     features: int
     deterministic: typing.Optional[bool] = None
     dtype: typing.Any = None
     param_dtype: typing.Any = None
+    precision: typing.Any = None
 
     def setup(self) -> None:
         r"""Instantiates the `Inception-C` block."""
@@ -357,6 +376,7 @@ class InceptionCBlock(nn.Module):
             padding="SAME",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="conv",
         )
 
@@ -368,6 +388,7 @@ class InceptionCBlock(nn.Module):
             padding="SAME",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="tower_conv",
         )
         self.branch_7x7_2 = ConvBNReLU(
@@ -377,6 +398,7 @@ class InceptionCBlock(nn.Module):
             padding="SAME",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="tower_conv_1",
         )
         self.branch_7x7_3 = ConvBNReLU(
@@ -386,6 +408,7 @@ class InceptionCBlock(nn.Module):
             padding="SAME",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="tower_conv_2",
         )
 
@@ -397,6 +420,7 @@ class InceptionCBlock(nn.Module):
             padding="SAME",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="tower_1_conv",
         )
         self.branch_dbl_2 = ConvBNReLU(
@@ -406,6 +430,7 @@ class InceptionCBlock(nn.Module):
             padding="SAME",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="tower_1_conv_1",
         )
         self.branch_dbl_3 = ConvBNReLU(
@@ -415,6 +440,7 @@ class InceptionCBlock(nn.Module):
             padding="SAME",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="tower_1_conv_2",
         )
         self.branch_dbl_4 = ConvBNReLU(
@@ -424,6 +450,7 @@ class InceptionCBlock(nn.Module):
             padding="SAME",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="tower_1_conv_3",
         )
         self.branch_dbl_5 = ConvBNReLU(
@@ -433,6 +460,7 @@ class InceptionCBlock(nn.Module):
             padding="SAME",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="tower_1_conv_4",
         )
 
@@ -444,6 +472,7 @@ class InceptionCBlock(nn.Module):
             padding="SAME",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="tower_2_conv",
         )
 
@@ -505,11 +534,13 @@ class InceptionDBlock(nn.Module):
             stored in `batch_stats` for batch normalization operator.
         dtype (Any): The dtype of the computation.
         param_dtype (Any): The dtype of the parameters.
+        precision (Any): The numerical precision of the computation.
     """
 
     deterministic: typing.Optional[bool] = None
     dtype: typing.Any = None
     param_dtype: typing.Any = None
+    precision: typing.Any = None
 
     def setup(self) -> None:
         r"""Instantiates the `Inception-D` block."""
@@ -521,6 +552,7 @@ class InceptionDBlock(nn.Module):
             padding="SAME",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="tower_conv",
         )
         self.branch_3x3_2 = ConvBNReLU(
@@ -530,6 +562,7 @@ class InceptionDBlock(nn.Module):
             padding="VALID",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="tower_conv_1",
         )
 
@@ -541,6 +574,7 @@ class InceptionDBlock(nn.Module):
             padding="SAME",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="tower_1_conv",
         )
         self.branch_7x7x3_2 = ConvBNReLU(
@@ -550,6 +584,7 @@ class InceptionDBlock(nn.Module):
             padding="SAME",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="tower_1_conv_1",
         )
         self.branch_7x7x3_3 = ConvBNReLU(
@@ -559,6 +594,7 @@ class InceptionDBlock(nn.Module):
             padding="SAME",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="tower_1_conv_2",
         )
         self.branch_7x7x3_4 = ConvBNReLU(
@@ -568,6 +604,7 @@ class InceptionDBlock(nn.Module):
             padding="VALID",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="tower_1_conv_3",
         )
 
@@ -623,12 +660,14 @@ class InceptionEBlock(nn.Module):
             stored in `batch_stats` for batch normalization operator.
         dtype (Any): The dtype of the computation.
         param_dtype (Any): The dtype of the parameters.
+        precision (Any): The numerical precision of the computation.
     """
 
     apply_max_pool: bool
     deterministic: typing.Optional[bool] = None
     dtype: typing.Any = None
     param_dtype: typing.Any = None
+    precision: typing.Any = None
 
     def setup(self) -> None:
         r"""Instantiates the `Inception-E` block."""
@@ -640,6 +679,7 @@ class InceptionEBlock(nn.Module):
             padding="SAME",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="conv",
         )
 
@@ -651,6 +691,7 @@ class InceptionEBlock(nn.Module):
             padding="SAME",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="tower_conv",
         )
         self.branch_3x3_2a = ConvBNReLU(
@@ -660,6 +701,7 @@ class InceptionEBlock(nn.Module):
             padding="SAME",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="tower_mixed_conv",
         )
         self.branch_3x3_2b = ConvBNReLU(
@@ -669,6 +711,7 @@ class InceptionEBlock(nn.Module):
             padding="SAME",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="tower_mixed_conv_1",
         )
 
@@ -680,6 +723,7 @@ class InceptionEBlock(nn.Module):
             padding="SAME",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="tower_1_conv",
         )
         self.branch_dbl_2 = ConvBNReLU(
@@ -689,6 +733,7 @@ class InceptionEBlock(nn.Module):
             padding="SAME",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="tower_1_conv_1",
         )
         self.branch_dbl_3a = ConvBNReLU(
@@ -698,6 +743,7 @@ class InceptionEBlock(nn.Module):
             padding="SAME",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="tower_1_mixed_conv",
         )
         self.branch_dbl_3b = ConvBNReLU(
@@ -707,6 +753,7 @@ class InceptionEBlock(nn.Module):
             padding="SAME",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="tower_1_mixed_conv_1",
         )
 
@@ -718,6 +765,7 @@ class InceptionEBlock(nn.Module):
             padding="SAME",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="tower_2_conv",
         )
 
@@ -790,12 +838,14 @@ class InceptionAuxiliaryHead(nn.Module):
             stored in `batch_stats` for batch normalization operator.
         dtype (Any): The dtype of the computation.
         param_dtype (Any): The dtype of the parameters.
+        precision (Any): The numerical precision of the computation.
     """
 
     num_classes: int
     deterministic: typing.Optional[bool] = None
     dtype: typing.Any = None
     param_dtype: typing.Any = None
+    precision: typing.Any = None
 
     @nn.compact
     def __call__(
@@ -837,6 +887,7 @@ class InceptionAuxiliaryHead(nn.Module):
             padding="VALID",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="conv0",
         )
         out = conv_0(out, deterministic=m_deterministic)
@@ -849,6 +900,7 @@ class InceptionAuxiliaryHead(nn.Module):
             padding=0,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="conv1",
         )
         out = conv_1(out, deterministic=m_deterministic)
@@ -869,6 +921,7 @@ class InceptionAuxiliaryHead(nn.Module):
             bias_init=nn.initializers.zeros,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="logits",
         )
         out = fc(inputs=out)
@@ -898,6 +951,7 @@ class InceptionV3(nn.Module):
             in batch normalization.
         dtype (Any): The dtype of the computation.
         param_dtype (Any): The dtype of the parameters.
+        precision (Any): The numerical precision of the computation.
     """
 
     num_classes: int
@@ -907,6 +961,7 @@ class InceptionV3(nn.Module):
     deterministic: typing.Optional[bool] = None
     dtype: typing.Any = jnp.float32
     param_dtype: typing.Any = jnp.float32
+    precision: typing.Any = None
 
     @nn.compact
     def __call__(
@@ -963,6 +1018,7 @@ class InceptionV3(nn.Module):
             padding="VALID",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="conv",
         )
         out = conv(inputs, deterministic=m_deterministic)
@@ -974,6 +1030,7 @@ class InceptionV3(nn.Module):
             padding="VALID",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="conv_1",
         )
         out = conv_1(out, deterministic=m_deterministic)
@@ -985,6 +1042,7 @@ class InceptionV3(nn.Module):
             padding=1,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="conv_2",
         )
         out = conv_2(out, deterministic=m_deterministic)
@@ -1003,6 +1061,7 @@ class InceptionV3(nn.Module):
             padding="VALID",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="conv_3",
         )
         out = conv_3(out, deterministic=m_deterministic)
@@ -1014,6 +1073,7 @@ class InceptionV3(nn.Module):
             padding="VALID",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="conv_4",
         )
         out = conv_4(out, deterministic=m_deterministic)
@@ -1030,6 +1090,7 @@ class InceptionV3(nn.Module):
             pooled_features=32,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="mixed",
         )
         out = mixed(out, deterministic=m_deterministic)
@@ -1038,6 +1099,7 @@ class InceptionV3(nn.Module):
             pooled_features=64,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="mixed_1",
         )
         out = mixed_1(out, deterministic=m_deterministic)
@@ -1046,6 +1108,7 @@ class InceptionV3(nn.Module):
             pooled_features=64,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="mixed_2",
         )
         out = mixed_2(out, deterministic=m_deterministic)
@@ -1053,6 +1116,7 @@ class InceptionV3(nn.Module):
         mixed_3 = InceptionBBlock(
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="mixed_3",
         )
         out = mixed_3(out, deterministic=m_deterministic)
@@ -1061,6 +1125,7 @@ class InceptionV3(nn.Module):
             features=128,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="mixed_4",
         )
         out = mixed_4(out, deterministic=m_deterministic)
@@ -1069,6 +1134,7 @@ class InceptionV3(nn.Module):
             features=160,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="mixed_5",
         )
         out = mixed_5(out, deterministic=m_deterministic)
@@ -1077,6 +1143,7 @@ class InceptionV3(nn.Module):
             features=160,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="mixed_6",
         )
         out = mixed_6(out, deterministic=m_deterministic)
@@ -1085,6 +1152,7 @@ class InceptionV3(nn.Module):
             features=192,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="mixed_7",
         )
         out = mixed_7(out, deterministic=m_deterministic)
@@ -1103,6 +1171,7 @@ class InceptionV3(nn.Module):
         mixed_8 = InceptionDBlock(
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="mixed_8",
         )
         out = mixed_8(out, deterministic=m_deterministic)
@@ -1111,6 +1180,7 @@ class InceptionV3(nn.Module):
             apply_max_pool=False,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="mixed_9",
         )
         out = mixed_9(out, deterministic=m_deterministic)
@@ -1119,6 +1189,7 @@ class InceptionV3(nn.Module):
             apply_max_pool=self.last_block_max_pool,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="mixed_10",
         )
         out = mixed_10(out, deterministic=m_deterministic)
