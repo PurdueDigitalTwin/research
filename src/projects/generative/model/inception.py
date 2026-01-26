@@ -126,7 +126,7 @@ class InceptionABlock(nn.Module):
             padding="SAME",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            name="branch_1x1",
+            name="conv",
         )
 
         # */tower/**
@@ -137,7 +137,7 @@ class InceptionABlock(nn.Module):
             padding="SAME",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            name="branch_5x5_1",
+            name="tower_conv",
         )
         self.branch_5x5_2 = ConvBNReLU(
             features=64,
@@ -146,7 +146,7 @@ class InceptionABlock(nn.Module):
             padding="SAME",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            name="branch_5x5_2",
+            name="tower_conv_1",
         )
 
         # */tower_1/**
@@ -157,7 +157,7 @@ class InceptionABlock(nn.Module):
             padding="SAME",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            name="branch_3x3_dbl_1",
+            name="tower_1_conv",
         )
         self.branch_3x3_2 = ConvBNReLU(
             features=96,
@@ -166,7 +166,7 @@ class InceptionABlock(nn.Module):
             padding="SAME",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            name="branch_3x3_dbl_2",
+            name="tower_1_conv_1",
         )
         self.branch_3x3_3 = ConvBNReLU(
             features=96,
@@ -175,7 +175,7 @@ class InceptionABlock(nn.Module):
             padding="SAME",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            name="branch_3x3_dbl_3",
+            name="tower_1_conv_2",
         )
 
         # */tower_2/**
@@ -186,7 +186,7 @@ class InceptionABlock(nn.Module):
             padding="SAME",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            name="branch_pool",
+            name="tower_2_conv",
         )
 
     def __call__(
@@ -260,7 +260,7 @@ class InceptionBBlock(nn.Module):
             padding="VALID",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            name="branch_3x3",
+            name="conv",
         )
 
         # */tower/**
@@ -271,7 +271,7 @@ class InceptionBBlock(nn.Module):
             padding="SAME",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            name="branch_3x3_dbl_1",
+            name="tower_conv",
         )
         self.branch_3x3_dbl_2 = ConvBNReLU(
             features=96,
@@ -280,7 +280,7 @@ class InceptionBBlock(nn.Module):
             padding="SAME",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            name="branch_3x3_dbl_2",
+            name="tower_conv_1",
         )
         self.branch_3x3_dbl_3 = ConvBNReLU(
             features=96,
@@ -289,7 +289,7 @@ class InceptionBBlock(nn.Module):
             padding="VALID",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            name="branch_3x3_dbl_3",
+            name="tower_conv_2",
         )
 
     def __call__(
@@ -336,8 +336,8 @@ class InceptionCBlock(nn.Module):
 
     Args:
         features (int): Dimensionality of 7x7 convolution output.
-        deterministic (bool, optional): Whether to apply running averages
-            in batch normalization.
+        deterministic (bool, optional): Whether to use the statistics
+            stored in `batch_stats` for batch normalization operator.
         dtype (Any): The dtype of the computation.
         param_dtype (Any): The dtype of the parameters.
     """
@@ -347,7 +347,106 @@ class InceptionCBlock(nn.Module):
     dtype: typing.Any = None
     param_dtype: typing.Any = None
 
-    @nn.compact
+    def setup(self) -> None:
+        r"""Instantiates the `Inception-C` block."""
+        # */conv
+        self.branch_1x1 = ConvBNReLU(
+            features=192,
+            kernel_size=1,
+            strides=1,
+            padding="SAME",
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="conv",
+        )
+
+        # */tower/**
+        self.branch_7x7_1 = ConvBNReLU(
+            features=self.features,
+            kernel_size=1,
+            strides=1,
+            padding="SAME",
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="tower_conv",
+        )
+        self.branch_7x7_2 = ConvBNReLU(
+            features=128,
+            kernel_size=(1, 7),
+            strides=1,
+            padding="SAME",
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="tower_conv_1",
+        )
+        self.branch_7x7_3 = ConvBNReLU(
+            features=192,
+            kernel_size=(7, 1),
+            strides=1,
+            padding="SAME",
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="tower_conv_2",
+        )
+
+        # */tower_1/**
+        self.branch_dbl_1 = ConvBNReLU(
+            features=self.features,
+            kernel_size=1,
+            strides=1,
+            padding="SAME",
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="tower_1_conv",
+        )
+        self.branch_dbl_2 = ConvBNReLU(
+            features=self.features,
+            kernel_size=(7, 1),
+            strides=1,
+            padding="SAME",
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="tower_1_conv_1",
+        )
+        self.branch_dbl_3 = ConvBNReLU(
+            features=self.features,
+            kernel_size=(1, 7),
+            strides=1,
+            padding="SAME",
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="tower_1_conv_2",
+        )
+        self.branch_dbl_4 = ConvBNReLU(
+            features=self.features,
+            kernel_size=(7, 1),
+            strides=1,
+            padding="SAME",
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="tower_1_conv_3",
+        )
+        self.branch_dbl_5 = ConvBNReLU(
+            features=192,
+            kernel_size=(1, 7),
+            strides=1,
+            padding="SAME",
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="tower_1_conv_4",
+        )
+
+        # */tower_2/**
+        self.branch_pool = ConvBNReLU(
+            features=192,
+            kernel_size=1,
+            strides=1,
+            padding="SAME",
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="tower_2_conv",
+        )
+
     def __call__(
         self,
         inputs: jax.Array,
@@ -357,8 +456,8 @@ class InceptionCBlock(nn.Module):
 
         Args:
             inputs (jax.Array): Input array of shape `(*, height, width, C)`.
-            deterministic (bool, optional): Whether to apply running averages
-                in batch normalization.
+            deterministic (bool, optional): Whether to use the statistics
+                stored in `batch_stats` for batch normalization operator.
 
         Returns:
             Output array of shape `(*, new_height, new_width, features)`.
@@ -368,126 +467,34 @@ class InceptionCBlock(nn.Module):
             self.deterministic,
             deterministic,
         )
+        out = inputs.astype(self.dtype)
 
         # branch 1: 1x1 convolution
-        branch1x1_conv = ConvBNReLU(
-            features=192,
-            kernel_size=1,
-            strides=1,
-            padding="VALID",
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="branch1x1",
-        )
-        out_1x1 = branch1x1_conv(inputs, deterministic=m_deterministic)
+        out_1x1 = self.branch_1x1(out, deterministic=m_deterministic)
 
         # branch 2: factorized 7x7 convolution
-        branch7x7_1 = ConvBNReLU(
-            features=self.features,
-            kernel_size=1,
-            strides=1,
-            padding="VALID",
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="branch7x7_1",
-        )
-        branch7x7_2 = ConvBNReLU(
-            features=self.features,
-            kernel_size=(1, 7),
-            strides=1,
-            padding=(0, 3),
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="branch7x7_2",
-        )
-        branch7x7_3 = ConvBNReLU(
-            features=192,
-            kernel_size=(7, 1),
-            strides=1,
-            padding=(3, 0),
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="branch7x7_3",
-        )
-        out_7x7 = branch7x7_1(inputs, deterministic=m_deterministic)
-        out_7x7 = branch7x7_2(out_7x7, deterministic=m_deterministic)
-        out_7x7 = branch7x7_3(out_7x7, deterministic=m_deterministic)
+        out_7x7 = self.branch_7x7_1(out, deterministic=m_deterministic)
+        out_7x7 = self.branch_7x7_2(out_7x7, deterministic=m_deterministic)
+        out_7x7 = self.branch_7x7_3(out_7x7, deterministic=m_deterministic)
 
         # branch 3: factorized 7x7 convolution (double)
-        branch7x7dbl_1 = ConvBNReLU(
-            features=self.features,
-            kernel_size=1,
-            strides=1,
-            padding="VALID",
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="branch7x7dbl_1",
-        )
-        branch7x7dbl_2 = ConvBNReLU(
-            features=self.features,
-            kernel_size=(7, 1),
-            strides=1,
-            padding=(3, 0),
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="branch7x7dbl_2",
-        )
-        branch7x7dbl_3 = ConvBNReLU(
-            features=self.features,
-            kernel_size=(1, 7),
-            strides=1,
-            padding=(0, 3),
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="branch7x7dbl_3",
-        )
-        branch7x7dbl_4 = ConvBNReLU(
-            features=self.features,
-            kernel_size=(7, 1),
-            strides=1,
-            padding=(3, 0),
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="branch7x7dbl_4",
-        )
-        branch7x7dbl_5 = ConvBNReLU(
-            features=192,
-            kernel_size=(1, 7),
-            strides=1,
-            padding=(0, 3),
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="branch7x7dbl_5",
-        )
-        out_7x7dbl = branch7x7dbl_1(inputs, deterministic=m_deterministic)
-        out_7x7dbl = branch7x7dbl_2(out_7x7dbl, deterministic=m_deterministic)
-        out_7x7dbl = branch7x7dbl_3(out_7x7dbl, deterministic=m_deterministic)
-        out_7x7dbl = branch7x7dbl_4(out_7x7dbl, deterministic=m_deterministic)
-        out_7x7dbl = branch7x7dbl_5(out_7x7dbl, deterministic=m_deterministic)
+        out_dbl = self.branch_dbl_1(out, deterministic=m_deterministic)
+        out_dbl = self.branch_dbl_2(out_dbl, deterministic=m_deterministic)
+        out_dbl = self.branch_dbl_3(out_dbl, deterministic=m_deterministic)
+        out_dbl = self.branch_dbl_4(out_dbl, deterministic=m_deterministic)
+        out_dbl = self.branch_dbl_5(out_dbl, deterministic=m_deterministic)
 
         # branch 4: average pooling followed by 1x1 convolution
-        branch_pool = ConvBNReLU(
-            features=192,
-            kernel_size=1,
-            strides=1,
-            padding="VALID",
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="branch_pool",
-        )
         out_pool = nn.avg_pool(
-            inputs,
+            inputs=out,
             window_shape=(3, 3),
             strides=(1, 1),
             padding="SAME",
             count_include_pad=False,
         )
-        out_pool = branch_pool(out_pool, deterministic=m_deterministic)
+        out_pool = self.branch_pool(out_pool, deterministic=m_deterministic)
 
-        return jnp.concatenate(
-            [out_1x1, out_7x7, out_7x7dbl, out_pool],
-            axis=-1,
-        )
+        return jnp.concatenate([out_1x1, out_7x7, out_dbl, out_pool], axis=-1)
 
 
 class InceptionDBlock(nn.Module):
