@@ -22,6 +22,8 @@ class ConvBNReLU(nn.Module):
             in batch normalization. Default is `0.001`.
         use_bias (bool): Whether to use bias in the convolution.
             Default is `False`.
+        deterministic (bool, optional): Whether to use the statistics
+            stored in `batch_stats` for batch normalization operator.
         dtype (Any): The dtype of the computation.
         param_dtype (Any): The dtype of the parameters.
     """
@@ -79,8 +81,8 @@ class ConvBNReLU(nn.Module):
 
         Args:
             inputs (jax.Array): Input array of shape `(*, height, width, C)`.
-            deterministic (bool, optional): Whether to apply running averages
-                in batch normalization.
+            deterministic (bool, optional): Whether to use the statistics
+                stored in `batch_stats` for batch normalization operator.
 
         Returns:
             Output array of shape `(*, new_height, new_width, features)`.
@@ -103,8 +105,8 @@ class InceptionABlock(nn.Module):
 
     Args:
         pooled_features (int): Number of output features for the pooling branch.
-        deterministic (bool, optional): Whether to apply running averages
-            in batch normalization.
+        deterministic (bool, optional): Whether to use the statistics
+                stored in `batch_stats` for batch normalization operator.
         dtype (Any): The dtype of the computation.
         param_dtype (Any): The dtype of the parameters.
     """
@@ -187,7 +189,6 @@ class InceptionABlock(nn.Module):
             name="branch_pool",
         )
 
-    @nn.compact
     def __call__(
         self,
         inputs: jax.Array,
@@ -197,8 +198,8 @@ class InceptionABlock(nn.Module):
 
         Args:
             inputs (jax.Array): Input array of shape `(*, height, width, C)`.
-            deterministic (bool, optional): Whether to apply running averages
-                in batch normalization.
+            deterministic (bool, optional): Whether to use the statistics
+                stored in `batch_stats` for batch normalization operator.
 
         Returns:
             Output array of shape `(*, new_height, new_width, features)`.
@@ -239,8 +240,8 @@ class InceptionBBlock(nn.Module):
     r"""An Inception block comprises 3x3, 1x1 convolution and max pooling.
 
     Args:
-        deterministic (bool, optional): Whether to apply running averages
-            in batch normalization.
+        deterministic (bool, optional): Whether to use the statistics
+            stored in `batch_stats` for batch normalization operator.
         dtype (Any): The dtype of the computation.
         param_dtype (Any): The dtype of the parameters.
     """
@@ -249,7 +250,48 @@ class InceptionBBlock(nn.Module):
     dtype: typing.Any = None
     param_dtype: typing.Any = None
 
-    @nn.compact
+    def setup(self) -> None:
+        r"""Instantiate the `InceptionB` block."""
+        # */conv
+        self.branch_3x3 = ConvBNReLU(
+            features=384,
+            kernel_size=3,
+            strides=2,
+            padding="VALID",
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="branch_3x3",
+        )
+
+        # */tower/**
+        self.branch_3x3_dbl_1 = ConvBNReLU(
+            features=64,
+            kernel_size=1,
+            strides=1,
+            padding="SAME",
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="branch_3x3_dbl_1",
+        )
+        self.branch_3x3_dbl_2 = ConvBNReLU(
+            features=96,
+            kernel_size=3,
+            strides=1,
+            padding="SAME",
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="branch_3x3_dbl_2",
+        )
+        self.branch_3x3_dbl_3 = ConvBNReLU(
+            features=96,
+            kernel_size=3,
+            strides=2,
+            padding="VALID",
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="branch_3x3_dbl_3",
+        )
+
     def __call__(
         self, inputs: jax.Array, deterministic: typing.Optional[bool] = None
     ) -> jax.Array:
@@ -257,8 +299,8 @@ class InceptionBBlock(nn.Module):
 
         Args:
             inputs (jax.Array): Input array of shape `(*, height, width, C)`.
-            deterministic (bool, optional): Whether to apply running averages
-                in batch normalization.
+            deterministic (bool, optional): Whether to use the statistics
+                stored in `batch_stats` for batch normalization operator.
 
         Returns:
             Output array of shape `(*, new_height, new_width, features)`.
@@ -268,50 +310,15 @@ class InceptionBBlock(nn.Module):
             self.deterministic,
             deterministic,
         )
+        out = inputs.astype(self.dtype)
 
         # branch 1: 3x3 convolution with stride 2
-        branch3x3 = ConvBNReLU(
-            features=384,
-            kernel_size=3,
-            strides=2,
-            padding="VALID",
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="branch3x3",
-        )
-        out_3x3 = branch3x3(inputs, deterministic=m_deterministic)
+        out_3x3 = self.branch_3x3(out, deterministic=m_deterministic)
 
         # branch 2: a cascade of three convolutions
-        branch3x3dbl_1 = ConvBNReLU(
-            features=64,
-            kernel_size=1,
-            strides=1,
-            padding=0,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="branch3x3dbl_1",
-        )
-        branch3x3dbl_2 = ConvBNReLU(
-            features=96,
-            kernel_size=3,
-            strides=1,
-            padding=1,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="branch3x3dbl_2",
-        )
-        branch3x3dbl_3 = ConvBNReLU(
-            features=96,
-            kernel_size=3,
-            strides=2,
-            padding=0,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="branch3x3dbl_3",
-        )
-        out_3x3dbl = branch3x3dbl_1(inputs, deterministic=m_deterministic)
-        out_3x3dbl = branch3x3dbl_2(out_3x3dbl, deterministic=m_deterministic)
-        out_3x3dbl = branch3x3dbl_3(out_3x3dbl, deterministic=m_deterministic)
+        out_dbl = self.branch_3x3_dbl_1(out, deterministic=m_deterministic)
+        out_dbl = self.branch_3x3_dbl_2(out_dbl, deterministic=m_deterministic)
+        out_dbl = self.branch_3x3_dbl_3(out_dbl, deterministic=m_deterministic)
 
         # branch 3: max pooling
         out_pool = nn.max_pool(
@@ -321,10 +328,7 @@ class InceptionBBlock(nn.Module):
             padding="VALID",
         )
 
-        return jnp.concatenate(
-            [out_3x3, out_3x3dbl, out_pool],
-            axis=-1,
-        )
+        return jnp.concatenate([out_3x3, out_dbl, out_pool], axis=-1)
 
 
 class InceptionCBlock(nn.Module):
@@ -1032,40 +1036,44 @@ class InceptionV3(nn.Module):
         )
         out = mixed_2(out, deterministic=m_deterministic)
 
-        mixed_6a = InceptionBBlock(
+        mixed_3 = InceptionBBlock(
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            name="mixed_6a",
+            name="mixed_3",
         )
-        mixed_6b = InceptionCBlock(
+        out = mixed_3(out, deterministic=m_deterministic)
+
+        mixed_4 = InceptionCBlock(
             features=128,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            name="mixed_6b",
+            name="mixed_4",
         )
-        mixed_6c = InceptionCBlock(
+        out = mixed_4(out, deterministic=m_deterministic)
+
+        mixed_5 = InceptionCBlock(
             features=160,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            name="mixed_6c",
+            name="mixed_5",
         )
-        mixed_6d = InceptionCBlock(
+        out = mixed_5(out, deterministic=m_deterministic)
+
+        mixed_6 = InceptionCBlock(
             features=160,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            name="mixed_6d",
+            name="mixed_6",
         )
-        mixed_6e = InceptionCBlock(
+        out = mixed_6(out, deterministic=m_deterministic)
+
+        mixed_7 = InceptionCBlock(
             features=192,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            name="mixed_6e",
+            name="mixed_8",
         )
-        out = mixed_6a(out, deterministic=m_deterministic)
-        out = mixed_6b(out, deterministic=m_deterministic)
-        out = mixed_6c(out, deterministic=m_deterministic)
-        out = mixed_6d(out, deterministic=m_deterministic)
-        out = mixed_6e(out, deterministic=m_deterministic)
+        out = mixed_7(out, deterministic=m_deterministic)
 
         if m_with_aux_logits:
             aux_head = InceptionAuxiliaryHead(
@@ -1078,26 +1086,30 @@ class InceptionV3(nn.Module):
         else:
             aux_logits = None
 
-        mixed_7a = InceptionDBlock(
+        mixed_8 = InceptionDBlock(
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            name="mixed_7a",
+            name="mixed_9",
         )
-        mixed_7b = InceptionEBlock(
+        out = mixed_8(out, deterministic=m_deterministic)
+
+        mixed_9 = InceptionEBlock(
             apply_max_pool=False,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            name="mixed_7b",
+            name="mixed_10",
         )
-        mixed_7c = InceptionEBlock(
+        out = mixed_9(out, deterministic=m_deterministic)
+
+        mixed_10 = InceptionEBlock(
             apply_max_pool=self.last_block_max_pool,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            name="mixed_7c",
+            name="mixed_11",
         )
-        out = mixed_7a(out, deterministic=m_deterministic)
-        out = mixed_7b(out, deterministic=m_deterministic)
-        out = mixed_7c(out, deterministic=m_deterministic)
+        out = mixed_10(out, deterministic=m_deterministic)
+
+        # pool_3 and pool_3/_reshape
         out = nn.avg_pool(
             out,
             window_shape=(8, 8),
@@ -1106,25 +1118,24 @@ class InceptionV3(nn.Module):
             count_include_pad=False,
         )
         out = jnp.reshape(out, (*out.shape[:-3], 2048))
-        if not m_with_head:
-            return out, aux_logits
 
-        # classification head
-        dropout = nn.Dropout(rate=0.5)
-        out = dropout(out, deterministic=m_deterministic)
-        fc = nn.Dense(
-            features=self.num_classes,
-            use_bias=True,
-            kernel_init=nn.initializers.variance_scaling(
-                scale=1e-10,
-                mode="fan_avg",
-                distribution="uniform",
-            ),
-            bias_init=nn.initializers.zeros,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="output",
-        )
-        out = fc(out)
+        # classification head softmax/logits
+        if m_with_head:
+            dropout = nn.Dropout(rate=0.5)
+            out = dropout(out, deterministic=m_deterministic)
+            fc = nn.Dense(
+                features=self.num_classes,
+                use_bias=True,
+                kernel_init=nn.initializers.variance_scaling(
+                    scale=1e-10,
+                    mode="fan_avg",
+                    distribution="uniform",
+                ),
+                bias_init=nn.initializers.zeros,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                name="logits",
+            )
+            out = fc(out)
 
         return out, aux_logits
