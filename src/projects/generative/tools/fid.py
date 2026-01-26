@@ -107,6 +107,63 @@ def _process_image(image: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
     return out
 
 
+@functools.partial(jax.jit, static_argnames="target_shape")
+def _tf_legacy_resize_bilinear(
+    image: jax.Array,
+    shape: typing.Sequence[int],
+) -> jax.Array:
+    r"""Reproduces TensorFlow 1.x's ``ResizeBilinear`` with:
+
+    - `half_pixel_centers=False`, and
+    - `align_corners=False`
+
+    This is critical for running FID score with parameters converted directly
+    from the ``TensorFlow`` checkpoint at `http://download.tensorflow.org/models/image/imagenet/inception-2015-12-05.tgz`.
+
+    Args:
+        image (jax.Array): Input array of shape ``(height, width, channels)``.
+        shape (Sequence[int]): Target shape ``(target_height, target_width)``.
+
+    Returns:
+        Resized image of shape ``(target_height, target_width, channels)``.
+    """
+    in_h, in_w = image.shape[-3:-1]
+    out_h, out_w = shape[0:2]
+
+    # scale calculation (align_corners=False)
+    scale_y = in_h / out_h
+    scale_x = in_w / out_w
+
+    # X coordinates
+    grid_x = jnp.arange(out_w, dtype=jnp.float32)
+    grid_x = grid_x * scale_x
+    grid_x_lo = jnp.floor(grid_x).astype(jnp.int32)
+    grid_x_hi = jnp.clip(grid_x_lo + 1, 0, in_w - 1)
+    grid_x_lo = jnp.clip(grid_x_lo, 0, in_w - 1)
+    grid_dx = grid_x - grid_x_lo.astype(jnp.float32)
+
+    # Y coordinates
+    grid_y = jnp.arange(out_h, dtype=jnp.float32)
+    grid_y = grid_y * scale_y
+    grid_y_lo = jnp.floor(grid_y).astype(jnp.int32)
+    grid_y_hi = jnp.clip(grid_y_lo + 1, 0, in_h - 1)
+    grid_y_lo = jnp.clip(grid_y_lo, 0, in_h - 1)
+    grid_dy = grid_y - grid_y_lo.astype(jnp.float32)
+
+    # Gather the four corners
+    in_00 = image[grid_y_lo, :, :][:, grid_x_lo, :]
+    in_01 = image[grid_y_lo, :, :][:, grid_x_hi, :]
+    in_10 = image[grid_y_hi, :, :][:, grid_x_lo, :]
+    in_11 = image[grid_y_hi, :, :][:, grid_x_hi, :]
+
+    # Bilinear interpolation
+    in_0 = in_00 + (in_01 - in_00) * grid_dx.reshape(1, out_w, 1)
+    in_1 = in_10 + (in_11 - in_10) * grid_dx.reshape(1, out_w, 1)
+    out = in_0 + (in_1 - in_0) * grid_dy.reshape(out_h, 1, 1)
+
+    return out
+
+
 class FrechetInceptionDistance:
     r"""Computes the Fréchet Inception Distance (FID) score.
 
@@ -130,23 +187,27 @@ class FrechetInceptionDistance:
         dataset: datasets.Dataset,
         image_key: str = "image",
         batch_size: int = 32,
-        mode: str = "tensorflow",
+        mode: str = "jax",
     ) -> None:
         self._batch_size = batch_size
 
-        if mode not in ["tensorflow", "clean"]:
+        if mode not in ["clean", "jax", "tensorflow"]:
             raise ValueError(
                 f"Unsupported FID mode '{mode}'. "
-                "Supported modes are 'tensorflow' and 'clean'."
+                "Supported modes are 'clean', 'jax', and 'tensorflow'."
             )
         self._mode = mode
 
         # NOTE: The original FID InceptionV3 variant uses 1,008 output classes
         # Do not change this unless the weights are updated.
-        self._model = inception.InceptionV3(
+        self._model = inception.InceptionV3Network(
             num_classes=1_008,
             last_block_max_pool=True,
             with_aux_logits=False,
+            # NOTE: the following lines are crucial for best reproducibility
+            dtype=jnp.float32,
+            param_dtype=jnp.float32,
+            precision=jax.lax.Precision.HIGHEST,
         )
 
         # download converted inception v3 weights
@@ -156,7 +217,7 @@ class FrechetInceptionDistance:
                 repo_id="ChocolateDave/fid-inception-v3",
                 filename="fid_inception_v3.msgpack",
                 token=os.getenv("HF_TOKEN", None),
-                revision="bef27900b6b2c46b866b628a86a1c1cedd95a041",
+                revision="94a8c495414d53da905bab7a40284f02a931d937",
             ),
             mode="rb",
         ) as f:
@@ -285,26 +346,34 @@ class FrechetInceptionDistance:
 
         return fid_score
 
-    def process(self, images: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
+    def process(self, image: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
         r"""Processes and resizes images for FID computation.
 
         Args:
-            images (npt.NDArray[np.uint8]): A sequence of images to be processed.
+            images (npt.NDArray[np.uint8]): The image of shape ``(H, W, C)``.
                 The images should be of `uint8` type ranged between `[0, 255]`.
 
         Returns:
             The processed and resized images as a NumPy array.
         """
         if self._mode == "clean":
-            return _process_image(images)
-        elif self._mode == "tensorflow":
+            return _process_image(image)
+        elif self._mode == "jax":
             return np.array(
                 jax.image.resize(
-                    jnp.array(images, dtype=np.uint8),
+                    image=jnp.array(image, dtype=jnp.uint8),
                     shape=(299, 299, 3),
                     method=jax.image.ResizeMethod.LINEAR,
                     antialias=False,
                 )
+            )
+        elif self._mode == "tensorflow":
+            return np.array(
+                _tf_legacy_resize_bilinear(
+                    image=jnp.asarray(image).astype(jnp.float32),
+                    shape=(299, 299),
+                ),
+                dtype=np.uint8,
             )
         else:
             raise ValueError(f"Unsupported FID mode '{self._mode}'.")
@@ -322,16 +391,16 @@ class FrechetInceptionDistance:
     @staticmethod
     def extract_features(
         inputs: jax.Array,
-        model: inception.InceptionV3,
+        model: inception.InceptionV3Network,
         params: jaxtyping.PyTree,
         batch_stats: jaxtyping.PyTree,
     ) -> jax.Array:
         r"""Computes the feature map from the deepest layer of Inception V3."""
-        inputs = (jnp.astype(inputs, jnp.float32) - 128.0) / 128.0
-        feat, _ = model.apply(
+        out = 0.0078125 * (jnp.astype(inputs, jnp.float32) - 128.0)
+        out, _ = model.apply(
             variables={"params": params, "batch_stats": batch_stats},
-            inputs=inputs,
+            inputs=out,
             deterministic=True,
             with_head=False,
         )
-        return feat
+        return out

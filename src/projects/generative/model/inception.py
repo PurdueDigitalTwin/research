@@ -932,7 +932,7 @@ class InceptionAuxiliaryHead(nn.Module):
 
 # ==============================================================================
 # Inception Architecture
-class InceptionV3(nn.Module):
+class InceptionV3Network(nn.Module):
     r"""Inception-v3 architecture.
 
     .. note::
