@@ -62,6 +62,7 @@ class ConvBNReLU(nn.Module):
             use_bias=self.use_bias,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            precision=self.precision,
             name="conv",
         )
 
@@ -240,7 +241,7 @@ class InceptionABlock(nn.Module):
             window_shape=(3, 3),
             strides=(1, 1),
             padding="SAME",
-            # count_include_pad=False,
+            count_include_pad=False,
         )
         out_pool = self.branch_pool(out_pool, deterministic=m_deterministic)
 
@@ -1039,7 +1040,7 @@ class InceptionV3(nn.Module):
             features=64,
             kernel_size=3,
             strides=1,
-            padding=1,
+            padding="SAME",
             dtype=self.dtype,
             param_dtype=self.param_dtype,
             precision=self.precision,
