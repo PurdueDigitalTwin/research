@@ -18,6 +18,8 @@ class ConvBNReLU(nn.Module):
         strides (int or tuple): Stride of the convolution.
         padding (PaddingLike): Padding for the 2D convolution.
             Default is `"VALID"`.
+        epsilon (float, optional): A small float added to avoid division by zero
+            in batch normalization. Default is `0.001`.
         use_bias (bool): Whether to use bias in the convolution.
             Default is `False`.
         dtype (Any): The dtype of the computation.
@@ -28,12 +30,45 @@ class ConvBNReLU(nn.Module):
     kernel_size: typing.Union[int, typing.Tuple[int, int]]
     strides: typing.Union[int, typing.Tuple[int, int]]
     padding: flax_typing.PaddingLike = "VALID"
+    bn_use_bias: bool = True
+    bn_use_scale: bool = False  # NOTE: aligns with TensorFlow implementation
+    epsilon: float = 0.001  # NOTE: aligns with TensorFlow implementation
     use_bias: bool = False
     deterministic: typing.Optional[bool] = None
     dtype: typing.Any = None
     param_dtype: typing.Any = None
 
-    @nn.compact
+    def setup(self) -> None:
+        r"""Instantiate the `Conv-BatchNorm-ReLU` block."""
+        if isinstance(self.kernel_size, int):
+            kernel_size = (self.kernel_size, self.kernel_size)
+        else:
+            kernel_size = self.kernel_size[0:2]
+
+        if isinstance(self.strides, int):
+            strides = (self.strides, self.strides)
+        else:
+            strides = self.strides[0:2]
+
+        self.conv = nn.Conv(
+            features=self.features,
+            kernel_size=kernel_size,
+            strides=strides,
+            padding=self.padding,
+            use_bias=self.use_bias,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="conv",
+        )
+
+        self.batchnorm = nn.BatchNorm(
+            epsilon=self.epsilon,
+            use_bias=self.bn_use_bias,
+            use_scale=self.bn_use_scale,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+        )
+
     def __call__(
         self,
         inputs: jax.Array,
@@ -55,34 +90,14 @@ class ConvBNReLU(nn.Module):
             deterministic,
         )
 
-        if isinstance(self.kernel_size, int):
-            kernel_size = (self.kernel_size, self.kernel_size)
-        else:
-            kernel_size = self.kernel_size[0:2]
-
-        if isinstance(self.strides, int):
-            strides = (self.strides, self.strides)
-        else:
-            strides = self.strides[0:2]
-
-        conv = nn.Conv(
-            features=self.features,
-            kernel_size=kernel_size,
-            strides=strides,
-            padding=self.padding,
-            use_bias=self.use_bias,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="conv",
-        )
-        out = conv(inputs)
+        out = self.conv(inputs.astype(self.dtype))
         bn = nn.BatchNorm(
             use_running_average=m_deterministic,
             epsilon=0.001,
             momentum=0.1,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            name="bn",
+            name="batchnorm",
         )
         out = bn(out)
         out = jax.nn.relu(out)
