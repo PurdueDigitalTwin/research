@@ -786,8 +786,8 @@ class InceptionAuxiliaryHead(nn.Module):
 
     Args:
         num_classes (int): Number of output classes.
-        deterministic (bool, optional): Whether to apply running averages
-            in batch normalization.
+        deterministic (bool, optional): Whether to use the statistics
+            stored in `batch_stats` for batch normalization operator.
         dtype (Any): The dtype of the computation.
         param_dtype (Any): The dtype of the parameters.
     """
@@ -807,8 +807,8 @@ class InceptionAuxiliaryHead(nn.Module):
 
         Args:
             inputs (jax.Array): Input array of shape `(*, height, width, C)`.
-            deterministic (bool, optional): Whether to apply running averages
-                in batch normalization.
+            deterministic (bool, optional): Whether to use the statistics
+                stored in `batch_stats` for batch normalization operator.
 
         Returns:
             Output array of shape `(*, num_classes)`.
@@ -818,6 +818,7 @@ class InceptionAuxiliaryHead(nn.Module):
             self.deterministic,
             deterministic,
         )
+        out = inputs.astype(self.dtype)
 
         # average pooling
         out = nn.avg_pool(
@@ -825,6 +826,7 @@ class InceptionAuxiliaryHead(nn.Module):
             window_shape=(5, 5),
             strides=(3, 3),
             padding="VALID",
+            count_include_pad=False,
         )
 
         # 1x1 convolution
@@ -860,16 +862,16 @@ class InceptionAuxiliaryHead(nn.Module):
             features=self.num_classes,
             use_bias=True,
             kernel_init=nn.initializers.variance_scaling(
-                1.0,
-                "fan_avg",
-                "uniform",
+                scale=1e-10,
+                mode="fan_avg",
+                distribution="uniform",
             ),
             bias_init=nn.initializers.zeros,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            name="fc",
+            name="logits",
         )
-        out = fc(out)
+        out = fc(inputs=out)
 
         return out
 
@@ -1148,6 +1150,6 @@ class InceptionV3(nn.Module):
                 param_dtype=self.param_dtype,
                 name="logits",
             )
-            out = fc(out)
+            out = fc(inputs=out)
 
         return out, aux_logits
