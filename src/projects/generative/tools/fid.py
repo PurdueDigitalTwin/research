@@ -107,7 +107,7 @@ def _process_image(image: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
     return out
 
 
-@functools.partial(jax.jit, static_argnames="target_shape")
+@functools.partial(jax.jit, static_argnames="shape")
 def _tf_legacy_resize_bilinear(
     image: jax.Array,
     shape: typing.Sequence[int],
