@@ -371,7 +371,7 @@ class InceptionCBlock(nn.Module):
             name="tower_conv",
         )
         self.branch_7x7_2 = ConvBNReLU(
-            features=128,
+            features=self.features,
             kernel_size=(1, 7),
             strides=1,
             padding="SAME",
@@ -1085,7 +1085,7 @@ class InceptionV3(nn.Module):
             features=192,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            name="mixed_8",
+            name="mixed_7",
         )
         out = mixed_7(out, deterministic=m_deterministic)
 
@@ -1103,7 +1103,7 @@ class InceptionV3(nn.Module):
         mixed_8 = InceptionDBlock(
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            name="mixed_9",
+            name="mixed_8",
         )
         out = mixed_8(out, deterministic=m_deterministic)
 
@@ -1111,7 +1111,7 @@ class InceptionV3(nn.Module):
             apply_max_pool=False,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            name="mixed_10",
+            name="mixed_9",
         )
         out = mixed_9(out, deterministic=m_deterministic)
 
@@ -1119,7 +1119,7 @@ class InceptionV3(nn.Module):
             apply_max_pool=self.last_block_max_pool,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            name="mixed_11",
+            name="mixed_10",
         )
         out = mixed_10(out, deterministic=m_deterministic)
 
