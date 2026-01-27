@@ -1,38 +1,43 @@
-import sys
 import os
+import sys
 
 # Add the 'src' directory to Python's search path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+sys.path.append(
+    os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+)
 
+import abc
+from dataclasses import dataclass
 import random
 import time
-import abc
 import typing
-from dataclasses import dataclass
-
-import gymnasium as gym
-import numpy as np
-import tyro
-from torch.utils.tensorboard import SummaryWriter
-from cleanrl_utils.buffers import ReplayBuffer
 
 # --- JAX/FLAX IMPORTS ---
 import chex
+from cleanrl_utils.buffers import ReplayBuffer
+from flax.core import frozen_dict
+import flax.linen as nn
+from flax.training.train_state import TrainState
+import gymnasium as gym
 import jax
 import jax.numpy as jnp
-import flax.linen as nn
-import optax
 import jaxtyping
-from flax.core import frozen_dict
-from flax.training.train_state import TrainState
+import numpy as np
+import optax
+from torch.utils.tensorboard import SummaryWriter
+import tyro
 
-from core.model import Model, StepOutputs
+from core.model import Model
+from core.model import StepOutputs
+
 
 @dataclass
 class Args:
     exp_name: str = os.path.basename(__file__)[: -len(".py")]
     seed: int = 1
-    torch_deterministic: bool = True # Kept for arg compatibility, though we use JAX
+    torch_deterministic: bool = (
+        True  # Kept for arg compatibility, though we use JAX
+    )
     cuda: bool = True
     track: bool = False
     wandb_project_name: str = "cleanRL"
@@ -67,6 +72,7 @@ def make_env(env_id, seed, idx, capture_video, run_name):
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env.action_space.seed(seed)
         return env
+
     return thunk
 
 
@@ -136,7 +142,7 @@ class DQNModel(Model):
 
         # Forward pass on current observations
         q_values = self.network.apply(params, observations)
-        
+
         # FIX: 'actions' is already (Batch, 1), so we use it directly.
         # We also squeeze the result to get shape (Batch,) to match the targets.
         q_action = jnp.take_along_axis(q_values, actions, axis=1).squeeze()
@@ -161,10 +167,15 @@ def linear_schedule(start_e: float, end_e: float, duration: int, t: int):
 
 if __name__ == "__main__":
     args = tyro.cli(Args)
-    assert args.num_envs == 1, "vectorized envs are not supported at the moment"
-    run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
+    assert (
+        args.num_envs == 1
+    ), "vectorized envs are not supported at the moment"
+    run_name = (
+        f"{args.env_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
+    )
     if args.track:
         import wandb
+
         wandb.init(
             project=args.wandb_project_name,
             entity=args.wandb_entity,
@@ -177,7 +188,12 @@ if __name__ == "__main__":
     writer = SummaryWriter(f"runs/{run_name}")
     writer.add_text(
         "hyperparameters",
-        "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
+        "|param|value|\n|-|-|\n%s"
+        % (
+            "\n".join(
+                [f"|{key}|{value}|" for key, value in vars(args).items()]
+            )
+        ),
     )
 
     # Seeding
@@ -188,13 +204,20 @@ if __name__ == "__main__":
 
     # Env setup
     envs = gym.vector.SyncVectorEnv(
-        [make_env(args.env_id, args.seed + i, i, args.capture_video, run_name) for i in range(args.num_envs)]
+        [
+            make_env(
+                args.env_id, args.seed + i, i, args.capture_video, run_name
+            )
+            for i in range(args.num_envs)
+        ]
     )
-    assert isinstance(envs.single_action_space, gym.spaces.Discrete), "only discrete action space is supported"
+    assert isinstance(
+        envs.single_action_space, gym.spaces.Discrete
+    ), "only discrete action space is supported"
 
     # --- Initialize Model & Optimizer ---
     dqn_model = DQNModel(action_dim=envs.single_action_space.n)
-    
+
     # Initialize parameters using a dummy input
     dummy_obs = jnp.zeros((1,) + envs.single_observation_space.shape)
     params = dqn_model.init(batch=dummy_obs, rngs=model_key)
@@ -217,16 +240,18 @@ if __name__ == "__main__":
                 rngs=None,
                 params=p,
                 target_params=target_params,
-                observations=batch['observations'],
-                actions=batch['actions'],
-                rewards=batch['rewards'],
-                next_observations=batch['next_observations'],
-                dones=batch['dones'],
-                gamma=args.gamma
+                observations=batch["observations"],
+                actions=batch["actions"],
+                rewards=batch["rewards"],
+                next_observations=batch["next_observations"],
+                dones=batch["dones"],
+                gamma=args.gamma,
             )
             return loss, outputs
 
-        (loss, outputs), grads = jax.value_and_grad(loss_fn, has_aux=True)(params)
+        (loss, outputs), grads = jax.value_and_grad(loss_fn, has_aux=True)(
+            params
+        )
         updates, new_opt_state = tx.update(grads, opt_state)
         new_params = optax.apply_updates(params, updates)
         return new_params, new_opt_state, loss, outputs
@@ -235,7 +260,7 @@ if __name__ == "__main__":
         args.buffer_size,
         envs.single_observation_space,
         envs.single_action_space,
-        "cpu", # CleanRL buffer handles numpy, no need for GPU specific strings here usually
+        "cpu",  # CleanRL buffer handles numpy, no need for GPU specific strings here usually
         handle_timeout_termination=False,
     )
     start_time = time.time()
@@ -243,28 +268,52 @@ if __name__ == "__main__":
     # --- Training Loop ---
     obs, _ = envs.reset(seed=args.seed)
     for global_step in range(args.total_timesteps):
-        epsilon = linear_schedule(args.start_e, args.end_e, args.exploration_fraction * args.total_timesteps, global_step)
-        
+        epsilon = linear_schedule(
+            args.start_e,
+            args.end_e,
+            args.exploration_fraction * args.total_timesteps,
+            global_step,
+        )
+
         # ALGO LOGIC: Action selection
         if random.random() < epsilon:
-            actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
+            actions = np.array(
+                [
+                    envs.single_action_space.sample()
+                    for _ in range(envs.num_envs)
+                ]
+            )
         else:
             # Use the model's forward method
             # JAX requires numpy array inputs
-            step_out = dqn_model.forward(rngs=None, params=params, obs=jnp.array(obs))
+            step_out = dqn_model.forward(
+                rngs=None, params=params, obs=jnp.array(obs)
+            )
             q_values = step_out.output
             actions = np.array(jnp.argmax(q_values, axis=1))
 
         # Execute game
-        next_obs, rewards, terminations, truncations, infos = envs.step(actions)
+        next_obs, rewards, terminations, truncations, infos = envs.step(
+            actions
+        )
 
         # Logging
         if "final_info" in infos:
             for info in infos["final_info"]:
                 if info and "episode" in info:
-                    print(f"global_step={global_step}, episodic_return={info['episode']['r']}")
-                    writer.add_scalar("charts/episodic_return", info["episode"]["r"], global_step)
-                    writer.add_scalar("charts/episodic_length", info["episode"]["l"], global_step)
+                    print(
+                        f"global_step={global_step}, episodic_return={info['episode']['r']}"
+                    )
+                    writer.add_scalar(
+                        "charts/episodic_return",
+                        info["episode"]["r"],
+                        global_step,
+                    )
+                    writer.add_scalar(
+                        "charts/episodic_length",
+                        info["episode"]["l"],
+                        global_step,
+                    )
 
         # Buffer storage
         real_next_obs = next_obs.copy()
@@ -279,14 +328,14 @@ if __name__ == "__main__":
         if global_step > args.learning_starts:
             if global_step % args.train_frequency == 0:
                 data = rb.sample(args.batch_size)
-                
+
                 # Convert CleanRL buffer data (numpy) to JAX arrays
                 batch_data = {
-                    'observations': jnp.array(data.observations),
-                    'actions': jnp.array(data.actions),
-                    'rewards': jnp.array(data.rewards).flatten(),
-                    'next_observations': jnp.array(data.next_observations),
-                    'dones': jnp.array(data.dones).flatten(),
+                    "observations": jnp.array(data.observations),
+                    "actions": jnp.array(data.actions),
+                    "rewards": jnp.array(data.rewards).flatten(),
+                    "next_observations": jnp.array(data.next_observations),
+                    "dones": jnp.array(data.dones).flatten(),
                 }
 
                 # Run optimization step
@@ -295,20 +344,36 @@ if __name__ == "__main__":
                 )
 
                 if global_step % 100 == 0:
-                    writer.add_scalar("losses/td_loss", loss.item(), global_step)
-                    writer.add_scalar("losses/q_values", outputs.scalars['q_values'].item(), global_step)
-                    print("SPS:", int(global_step / (time.time() - start_time)))
-                    writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
+                    writer.add_scalar(
+                        "losses/td_loss", loss.item(), global_step
+                    )
+                    writer.add_scalar(
+                        "losses/q_values",
+                        outputs.scalars["q_values"].item(),
+                        global_step,
+                    )
+                    print(
+                        "SPS:", int(global_step / (time.time() - start_time))
+                    )
+                    writer.add_scalar(
+                        "charts/SPS",
+                        int(global_step / (time.time() - start_time)),
+                        global_step,
+                    )
 
             # Update target network
             if global_step % args.target_network_frequency == 0:
-                target_params = optax.incremental_update(params, target_params, step_size=args.tau)
+                target_params = optax.incremental_update(
+                    params, target_params, step_size=args.tau
+                )
 
     if args.save_model:
         # Note: Standard torch.save won't work for JAX params.
         # This part requires Flax serialization logic if you want to keep it.
         # For this snippet, we will notify that JAX saving is required.
-        print("Note: Model saving enabled, but requires `flax.serialization` for JAX params.")
-        
+        print(
+            "Note: Model saving enabled, but requires `flax.serialization` for JAX params."
+        )
+
     envs.close()
     writer.close()
