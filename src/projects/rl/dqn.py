@@ -17,7 +17,6 @@ import typing
 
 from absl import app
 from absl import flags
-import flax
 from flax import linen as nn
 from flax import serialization
 import gymnasium as gym
@@ -34,7 +33,7 @@ from src.utilities import logging
 # Running flags
 flags.DEFINE_integer(
     name="batch_size",
-    default=32,
+    default=512,
     required=False,
     help="Batch size for training and evaluation",
 )
