@@ -391,6 +391,7 @@ def main(_: typing.List[str]) -> int:
     rngs, train_rng, buffer_rng, sample_rng = jax.random.split(rngs, num=4)
     p_train_step = functools.partial(train_step, rngs=train_rng)
     p_train_step = jax.jit(p_train_step, static_argnames=["agent"])
+    p_eval_step = jax.jit(agent.forward)
 
     # Populates the replay buffer
     logging.rank_zero_info("Populating buffer...")
@@ -428,7 +429,7 @@ def main(_: typing.List[str]) -> int:
                 action = env.action_space.sample()
             else:
                 # Exploitation: select best action based on Q-values
-                q_values = agent.forward(q_params, jnp.array(state[None, :]))
+                q_values = p_eval_step(q_params, jnp.array(state[None, :]))
                 action = int(jnp.argmax(q_values))
 
             # Take action in the environment
@@ -467,7 +468,7 @@ def main(_: typing.List[str]) -> int:
 
     # When the trainning is done, save the serialized model parameters to a file
     with open("dqn_model_params.msgpack", "wb") as f:
-        f.write(serialization.to_bytes(train_state.params))
+        f.write(serialization.msgpack_serialize(train_state.params))
 
     # Close the environment
     env.close()
@@ -484,12 +485,10 @@ def main(_: typing.List[str]) -> int:
     ##################################################################
     # Test the trained agent: initialize a new environment
     env = gym.make("CartPole-v1")
-    dummy_state = jnp.zeros((1, env.observation_space.shape[0]))
-    dummy_params, _ = agent.init(rngs, dummy_state)
 
     # Load the model parameters and test the trained agent
     with open("dqn_model_params.msgpack", "rb") as f:
-        loaded_params = serialization.from_bytes(dummy_params, f.read())
+        loaded_params = serialization.msgpack_restore(f.read())
 
     # Run the testing loop
     num_test_episodes = 5
@@ -502,10 +501,10 @@ def main(_: typing.List[str]) -> int:
         while not done:
             # Forward pass (Note: pure exploitation)
             # Add batch dimension [None, :] because the model expects (batch, features)
-            q_values = agent.forward(loaded_params, jnp.array(state[None, :]))
+            q_values = p_eval_step(loaded_params, jnp.array(state[None, :]))
 
             # Select the best action
-            action = int(jnp.argmax(q_values))
+            action = jnp.argmax(q_values, axis=-1).item()
 
             # Step
             state, reward, terminated, truncated, _ = env.step(action)
