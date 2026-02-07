@@ -17,14 +17,17 @@ import typing
 
 from absl import app
 from absl import flags
+import chex
 from flax import linen as nn
 from flax import serialization
 import gymnasium as gym
 import jax
 from jax import lax
 from jax import numpy as jnp
+import jaxtyping
 import matplotlib.pyplot as plt
 import optax
+import typing_extensions
 
 from src.core import model as _model
 from src.core import train_state as _train_state
@@ -39,7 +42,7 @@ flags.DEFINE_integer(
 )
 flags.DEFINE_integer(
     name="num_episodes",
-    default=500,
+    default=20_000,
     required=False,
     help="Total number of episodes for training.",
 )
@@ -49,6 +52,30 @@ flags.DEFINE_string(
     required=True,
     help="Working directory",
 )
+
+
+@chex.dataclass
+class StepTuple:
+    r"""Samples of a step in the environment ``(s,a,r,s')``.
+
+    Attributes:
+        state (Optional[jax.Array], optional): The current state array.
+            Default is ``None``.
+        action (Optional[jax.Array], optional): The action taken.
+            Default is ``None``.
+        reward (Optional[jax.Array], optional): Reward from taking the action.
+            Default is ``None``.
+        next_state (Optional[jax.Array], optional): Next state resulted from
+            taking the action. Default is ``None``.
+        done (Optional[jax.Array], optional): Whether the next state is a
+            terminal state. Default is ``None``.
+    """
+
+    state: typing.Optional[jax.Array] = None
+    action: typing.Optional[jax.Array] = None
+    reward: typing.Optional[jax.Array] = None
+    next_state: typing.Optional[jax.Array] = None
+    done: typing.Optional[jax.Array] = None
 
 
 # Define the MLP policy network using Flax Linen (fully connected layers)
@@ -66,17 +93,17 @@ class MlpPolicy(nn.Module):  # NOTE: why no init for this class?
     dtype: typing.Any = None
     param_dtype: typing.Any = None
 
-    @nn.compact  # decorator indicates that this is a compact module. NOTE: what this means?
-    def __call__(self, state: jax.Array) -> jax.Array:
+    @nn.compact
+    def __call__(self, inputs: jax.Array) -> jax.Array:
         r"""Forward pass the policy network `\pi(a|s;\theta)`
 
         Args:
-            state (jax.Array): Input state array of shape `(*, D)`
+            inputs (jax.Array): Input state array of shape `(*, D)`
 
         Returns:
             Action index of shape `(*, 1)`.
         """
-        out = state.astype(self.dtype)
+        out = inputs.astype(self.dtype)
         for i in range(self.num_layers):
             fc = nn.Dense(
                 features=(
@@ -114,112 +141,128 @@ class DQNModel(_model.Model):
         Args:
             action_space_dim (int): Dimension of the action space.
             gamma (float): Discount factor for future rewards.
-
-        Returns:
-            None.
         """
-        self.action_space_dim = action_space_dim
-        self.gamma = gamma
-        self.module = MlpPolicy(
+        self._action_space_dim = action_space_dim
+        self._gamma = gamma
+        self._network = MlpPolicy(
             features=128,
             out_features=action_space_dim,
             num_layers=3,
         )
 
-    def network(self) -> nn.Module:
-        r"""NOTE: useless function here.
-        Returns:
-            nn.Module: The neural network module.
-        """
-        pass
+    @property
+    @typing_extensions.override
+    def network(self) -> MlpPolicy:
+        return self._network
 
+    @typing_extensions.override
     def init(
-        self, rngs: jax.random.PRNGKey, state: jax.Array
-    ) -> typing.Tuple[
-        jax.Array, jax.Array
-    ]:  # NOTE: why there are both __init__ and init?
-        r"""Initializes Q network and target Q network parameters.
+        self,
+        *,
+        batch: StepTuple,
+        rngs: typing.Any,
+        **kwargs,
+    ) -> jaxtyping.PyTree:
+        r"""Initializes Q-network parameters.
 
         Args:
+            batch (StepSample): A sample of state transition for initialization.
             rngs (jax.random.PRNGKey): Random number generator key.
-            state (jax.Array): Example state array for initialization.
+
         Returns:
             A tuple of (q_params, target_params).
         """
-        # NOTE: can I change this to self.q_params?
-        q_params = self.module.init(
-            rngs=rngs,
-            state=state,
+        del kwargs
+        q_params = self.network.init(rngs, batch.state)
+        _tabulate_fn = nn.summary.tabulate(
+            self.network,
+            rngs,
+            console_kwargs=dict(width=120),
         )
-        target_params = copy.deepcopy(q_params)
+        print(_tabulate_fn(batch.state))
 
-        return q_params, target_params
+        return q_params
 
+    @typing_extensions.override
     def forward(
-        self, q_params: jax.Array, state: jax.Array
-    ) -> jax.Array:  # NOTE: should it be typing.Tuple?
-        r"""Compute Q-values of ALL possible actions for the given state. For cartpole, it will be
-        [q_value(action=left), q_value(action=right)]
+        self,
+        *,
+        batch: StepTuple,
+        params: jaxtyping.PyTree,
+        rngs: typing.Any = None,
+        deterministic: bool = True,
+        **kwargs,
+    ) -> _model.StepOutputs:
+        r"""Compute Q-values of ALL possible actions for the given state.
+
+        .. note::
+
+            For ``cartpole``, it will be
+            ``[q_value(action=left), q_value(action=right)]``
 
         Args:
-            state (jax.Array): Input state array.
+            batch (StepTuple): State transition observation.
+            rngs (Any, optional): Random key generator. Default is ``None``.
+            deterministic (bool): Whether to run the model in deterministic
+                mode (e.g., disable dropout). Default is `True`.
+            params (FrozenDict): The model parameters.
+            **kwargs: Keyword arguments consumed by the model.
 
         Returns:
-            jax.Array: Q-values for the given state.
+            Q-values for the given state.
         """
-        return self.module.apply(q_params, state)
+        del deterministic, kwargs, rngs
+        out = self.network.apply(params, batch.state)
+        assert isinstance(out, jax.Array)
 
+        return _model.StepOutputs(output=out)
+
+    @typing_extensions.override
     def compute_loss(
         self,
         *,
-        state: jax.Array,
-        action: jax.Array,
-        next_state: jax.Array,
-        reward: jax.Array,
-        done: jax.Array,
-        # original args
+        batch: StepTuple,
         params: typing.Any,
         target_params: typing.Any,
-        rngs: typing.Any,  # NOTE: we aren't using these three args.
+        rngs: typing.Any,
         deterministic: bool = False,
         **kwargs,
     ) -> typing.Tuple[
         jax.Array, _model.StepOutputs
     ]:  # NOTE: why we need another stepoutputs here?
-        r"""Computes the DQN loss using the Bellman equation.
+        r"""Computes the DQN loss using the Bellman equation."""
+        del deterministic, kwargs
 
-        Args:
-            state (jax.Array): Current state array.
-            action (jax.Array): Action taken array.
-            next_state (jax.Array): Next state based on the action taken array.
-            reward (jax.Array): Reward received array.
-            done (jax.Array): Done flag array. Done == 1 if episode ends after this step, otherwise 0.
-            params (Any): Model parameters.
-            rngs (Any): Random number generators.
-            deterministic (bool): Whether to use deterministic actions.
-            **kwargs: Additional keyword arguments.
-
-        Returns:
-            A tuple of (loss, StepOutputs).
-        """
         # Compute Q-values for current states
-        q_values = self.forward(params, state)
+        q_values = self.network.apply(params, batch.state, rngs=rngs)
+        assert isinstance(q_values, jax.Array)
 
         # Select Q-values for the action actually taken
-        one_hot_action = jax.nn.one_hot(action, num_classes=q_values.shape[-1])
+        one_hot_action = jax.nn.one_hot(
+            batch.action,
+            num_classes=q_values.shape[-1],
+        )
         q_values = jnp.sum(q_values * lax.stop_gradient(one_hot_action), -1)
 
         # Compute Q-values for next states using target network
-        next_q_values = self.forward(
-            target_params, next_state
-        )  # NOTE: initially I use params here and the loss isn't decreasing.
+        next_q_values = self.network.apply(
+            target_params,
+            batch.next_state,
+            rngs=rngs,
+        )
+        assert isinstance(next_q_values, jax.Array)
 
         # Simply max over action dimension, which is the drawback of DQN
         max_next_q = jnp.max(next_q_values, axis=1)
 
         # Compute TD-target using the Bellman equation
-        TD_target = reward + lax.stop_gradient(
-            self.gamma * max_next_q * (1.0 - done)
+        if batch.done is None:
+            done = jnp.zeros_like(max_next_q)
+        else:
+            done = batch.done
+
+        TD_target = lax.stop_gradient(
+            batch.reward + self._gamma * max_next_q * (1.0 - done)
         )
 
         # Compute loss as mean squared error
@@ -264,9 +307,7 @@ class ReplayBuffer:
             d = False
         self.buffer.append((s, a, r, s_next, d))
 
-    def sample(
-        self, batch_size
-    ) -> typing.Tuple[jax.Array, jax.Array, jax.Array, jax.Array, jax.Array]:
+    def sample(self, batch_size) -> StepTuple:
         r"""Samples a batch of experiences from the replay buffer.
 
         Args:
@@ -280,12 +321,12 @@ class ReplayBuffer:
         )  # randomly sample batch_size number of experiences from the buffer
         s, a, r, s_next, d = zip(*batch)  # unzip the batch into separate lists
 
-        return (
-            jnp.array(s),
-            jnp.array(a),
-            jnp.array(r),
-            jnp.array(s_next),
-            jnp.array(d, dtype=jnp.bool_),
+        return StepTuple(
+            state=jnp.array(s),
+            action=jnp.array(a),
+            reward=jnp.array(r),
+            next_state=jnp.array(s_next),
+            done=jnp.array(d),
         )
 
 
@@ -295,30 +336,25 @@ def train_step(
     state: _train_state.TrainState,
     agent: _model.Model,
     target_params: jax.Array,
-    batch: typing.Tuple[jax.Array, jax.Array, jax.Array, jax.Array, jax.Array],
+    batch: StepTuple,
 ) -> typing.Tuple[_train_state.TrainState, _model.StepOutputs]:
     r"""Performs a single training step.
 
     Args:
         params (jax.Array): Current agent parameters.
         target_params (jax.Array): Target network parameters.
-        batch (Tuple[jax.Array, jax.Array, jax.Array, jax.Array, jax.Array]): Batch of experiences.
+        batch (StepTuple): Batch of experiences.
         rngs (jax.random.PRNGKey): Random number generator key.
 
     Returns:
-        A tuple of (updated_params, updated_opt_state, loss).
+        A tuple of updated training state and loss value.
     """
-    states, actions, rewards, next_states, dones = batch
     local_rng = jax.random.fold_in(rngs, state.step)
 
     # Compute loss and gradients
     def loss_fn(params):
         return agent.compute_loss(
-            state=states,
-            action=actions,
-            next_state=next_states,
-            reward=rewards,
-            done=dones,
+            batch=batch,
             params=params,
             target_params=target_params,
             rngs=local_rng,
@@ -340,7 +376,7 @@ def main(_: typing.List[str]) -> int:
     # Define Hyperparameters
     learning_rate = 1e-3
     buffer_capacity = 30000
-    epsilon = 0.05  # for epsilon-greedy policy
+    epsilon = 0.95  # for epsilon-greedy policy
     target_update_freq = 1000  # target network update frequency (in steps)
     gamma = 0.99  # discount factor
 
@@ -353,29 +389,21 @@ def main(_: typing.List[str]) -> int:
     # Create Gym cartpole environment
     env = gym.make("CartPole-v1")
 
-    # Create an instance of the DQNModel
-    # Create an instance of the MlpPolicy (inside the DQNModel). For jax nn, we need to initialize the parameters first.
-    agent = DQNModel(
-        action_space_dim=env.action_space.n,
-        gamma=gamma,
-    )
+    # Create an instance of the MlpPolicy (inside the DQNModel).
+    # For `jax.nn`, we need to initialize the parameters first.
+    agent = DQNModel(action_space_dim=env.action_space.n, gamma=gamma)
 
     # We may need to print the model summary for analysis. Note that each layer has its own kernel matrix and bias vector (if use_bias=True)
 
     # Initialize agent parameters
     rngs, init_rng = jax.random.split(rngs, num=2)
-    (
-        q_params,
-        target_params,
-    ) = agent.init(  # NOTE: why we need rngs and state here?
+    q_params = agent.init(
+        batch=StepTuple(
+            state=jnp.zeros((1, env.observation_space.shape[0])),
+        ),
         rngs=init_rng,
-        state=jnp.zeros((1, env.observation_space.shape[0])),
     )
-    print(
-        nn.summary.tabulate(agent.module, init_rng)(
-            jnp.zeros((1, env.observation_space.shape[0]))
-        )
-    )
+    target_params = copy.deepcopy(q_params)
 
     # Create train state instance
     train_state = _train_state.TrainState.create(
@@ -428,8 +456,11 @@ def main(_: typing.List[str]) -> int:
                 action = env.action_space.sample()
             else:
                 # Exploitation: select best action based on Q-values
-                q_values = p_eval_step(q_params, jnp.array(state[None, :]))
-                action = int(jnp.argmax(q_values))
+                q_values = p_eval_step(
+                    batch=StepTuple(state=jnp.array(state[None, :])),
+                    params=train_state.params,
+                ).output
+                action = jnp.argmax(q_values, axis=-1).item()
 
             # Take action in the environment
             next_state, reward, terminated, truncated, _ = env.step(action)
@@ -458,6 +489,7 @@ def main(_: typing.List[str]) -> int:
                 # Update target network periodically
                 if train_state.step % target_update_freq == 0:
                     target_params = copy.deepcopy(train_state.params)
+                    logging.rank_zero_info("Target network synced!")
 
         logging.rank_zero_info(
             "Episode %d | Episode Loss: %.6f",
@@ -500,7 +532,10 @@ def main(_: typing.List[str]) -> int:
         while not done:
             # Forward pass (Note: pure exploitation)
             # Add batch dimension [None, :] because the model expects (batch, features)
-            q_values = p_eval_step(loaded_params, jnp.array(state[None, :]))
+            q_values = p_eval_step(
+                batch=StepTuple(state=jnp.array(state[None, :])),
+                params=loaded_params,
+            ).output
 
             # Select the best action
             action = jnp.argmax(q_values, axis=-1).item()

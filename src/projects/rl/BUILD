@@ -11,6 +11,7 @@ ml_py_binary(
         "jax",
         "matplotlib",
         "optax",
+        "typing_extensions",
         "//src/core:model",
         "//src/core:train_state",
         "//src/utilities:logging",
