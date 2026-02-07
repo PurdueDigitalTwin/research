@@ -8,28 +8,48 @@
 ################################################
 # qustion: why not recommend using nnx?
 
-import os
-import sys
-
-project_root = os.path.abspath(os.path.join(os.getcwd(), "../../.."))
-if project_root not in sys.path:
-    sys.path.append(project_root)
-
-import copy
-import optax
-import typing
-import random
 import collections
-import gymnasium as gym
+import copy
+import functools
+import os
+import random
+import typing
 
-import jax
+from absl import app
+from absl import flags
 import flax
 from flax import linen as nn
-from jax import numpy as jnp
+from flax import serialization
+import gymnasium as gym
+import jax
 from jax import lax
-from src.core import model
-
+from jax import numpy as jnp
 import matplotlib.pyplot as plt
+import optax
+
+from src.core import model as _model
+from src.core import train_state as _train_state
+from src.utilities import logging
+
+# Running flags
+flags.DEFINE_integer(
+    name="batch_size",
+    default=32,
+    required=False,
+    help="Batch size for training and evaluation",
+)
+flags.DEFINE_integer(
+    name="num_episodes",
+    default=500,
+    required=False,
+    help="Total number of episodes for training.",
+)
+flags.DEFINE_string(
+    name="work_dir",
+    default=None,
+    required=True,
+    help="Working directory",
+)
 
 
 # Define the MLP policy network using Flax Linen (fully connected layers)
@@ -86,7 +106,7 @@ class MlpPolicy(nn.Module):  # NOTE: why no init for this class?
 
 
 # Define the DQNModel class by extending the base Model class
-class DQNModel(model.Model):
+class DQNModel(_model.Model):
     r"""Deep Q-learning model."""
 
     def __init__(self, action_space_dim: int, gamma: float) -> None:
@@ -105,8 +125,6 @@ class DQNModel(model.Model):
             features=128,
             out_features=action_space_dim,
             num_layers=3,
-            dtype=jnp.float32,  # NOTE: float32 or float64?
-            param_dtype=jnp.float32,
         )
 
     def network(self) -> nn.Module:
@@ -141,8 +159,8 @@ class DQNModel(model.Model):
     def forward(
         self, q_params: jax.Array, state: jax.Array
     ) -> jax.Array:  # NOTE: should it be typing.Tuple?
-        r"""compute Q-values of ALL possible actions for the given state.
-            For cartpole, it will be [q_value(action=left), q_value(action=right)]
+        r"""Compute Q-values of ALL possible actions for the given state. For cartpole, it will be
+        [q_value(action=left), q_value(action=right)]
 
         Args:
             state (jax.Array): Input state array.
@@ -167,7 +185,7 @@ class DQNModel(model.Model):
         deterministic: bool = False,
         **kwargs,
     ) -> typing.Tuple[
-        jax.Array, model.StepOutputs
+        jax.Array, _model.StepOutputs
     ]:  # NOTE: why we need another stepoutputs here?
         r"""Computes the DQN loss using the Bellman equation.
 
@@ -209,10 +227,7 @@ class DQNModel(model.Model):
         # loss = jnp.mean((TD_target - q_action) ** 2)
         # NOTE: use Huber loss for more faster and stable training
         loss = jnp.mean(optax.squared_error(q_values, TD_target))
-
-        step_outputs = model.StepOutputs(
-            scalars={"loss": loss},
-        )
+        step_outputs = _model.StepOutputs(scalars={"loss": loss})
 
         return loss, step_outputs
 
@@ -233,8 +248,8 @@ class ReplayBuffer:
         )  # deque is a double-ended queue.
 
     def add(self, s, a, r, s_next, d) -> None:
-        r"""Adds a new experience to the replay buffer. The buffer stores tuples of (s, a, r, s_next, d).
-            Each element of the queue is a tuple.
+        r"""Adds a new experience to the replay buffer. The buffer stores tuples of (s, a, r,
+        s_next, d). Each element of the queue is a tuple.
 
         Args:
             s: state
@@ -246,6 +261,8 @@ class ReplayBuffer:
         Returns:
             None.
         """
+        if d is None:
+            d = False
         self.buffer.append((s, a, r, s_next, d))
 
     def sample(
@@ -269,21 +286,18 @@ class ReplayBuffer:
             jnp.array(a),
             jnp.array(r),
             jnp.array(s_next),
-            jnp.array(
-                d, dtype=jnp.float32
-            ),  # NOTE: can I change this to boolen?
+            jnp.array(d, dtype=jnp.bool_),
         )
 
 
 # the training step function
-@jax.jit
 def train_step(
-    params: jax.Array,
+    rngs: jax.Array,
+    state: _train_state.TrainState,
+    agent: _model.Model,
     target_params: jax.Array,
-    opt_state: optax.OptState,
     batch: typing.Tuple[jax.Array, jax.Array, jax.Array, jax.Array, jax.Array],
-    rngs: jax.random.PRNGKey,
-) -> typing.Tuple[jax.Array, optax.OptState, model.StepOutputs]:
+) -> typing.Tuple[_train_state.TrainState, _model.StepOutputs]:
     r"""Performs a single training step.
 
     Args:
@@ -296,6 +310,7 @@ def train_step(
         A tuple of (updated_params, updated_opt_state, loss).
     """
     states, actions, rewards, next_states, dones = batch
+    local_rng = jax.random.fold_in(rngs, state.step)
 
     # Compute loss and gradients
     def loss_fn(params):
@@ -307,168 +322,203 @@ def train_step(
             done=dones,
             params=params,
             target_params=target_params,
-            rngs=rngs,
+            rngs=local_rng,
             deterministic=False,
         )
 
     # Get gradients
     grads_fn = jax.value_and_grad(loss_fn, has_aux=True)
-    (loss, _), grads = grads_fn(params)
+    (loss, _), grads = grads_fn(state.params)
+    new_state = state.apply_gradients(grads=grads)
 
-    # Update parameters using optimizer
-    updates, updated_opt_state = optimizer.update(grads, opt_state, params)
-    updated_params = optax.apply_updates(params, updates)
-
-    return updated_params, updated_opt_state, loss
+    return new_state, loss
 
 
-# Example usage of the DQNModel class:
-# Define Hyperparameters
-batch_size = 32
-learning_rate = 1e-3
-num_episodes = 1000
-buffer_capacity = 30000
-epsilon = 0.05  # for epsilon-greedy policy
-target_update_freq = 1000  # target network update frequency (in steps)
-gamma = 0.99  # discount factor
+def main(_: typing.List[str]) -> int:
+    del _  # NOTE: unused arguments
 
-# Create Gym cartpole environment
-env = gym.make("CartPole-v1")
+    # Example usage of the DQNModel class:
+    # Define Hyperparameters
+    learning_rate = 1e-3
+    buffer_capacity = 30000
+    epsilon = 0.05  # for epsilon-greedy policy
+    target_update_freq = 1000  # target network update frequency (in steps)
+    gamma = 0.99  # discount factor
 
-# Random keys for JAX
-rngs = jax.random.PRNGKey(0)
+    # Random keys for JAX
+    rngs = jax.random.PRNGKey(0)
 
-# Create replay buffer
-replay_buffer = ReplayBuffer(capacity=buffer_capacity)
+    # Create replay buffer
+    replay_buffer = ReplayBuffer(capacity=buffer_capacity)
 
-# Create an instance of the DQNModel
-# Create an instance of the MlpPolicy (inside the DQNModel). For jax nn, we need to initialize the parameters first.
-agent = DQNModel(
-    action_space_dim=env.action_space.n,
-    gamma=gamma,
-)
+    # Create Gym cartpole environment
+    env = gym.make("CartPole-v1")
 
-# We may need to print the model summary for analysis. Note that each layer has its own kernel matrix and bias vector (if use_bias=True)
-print(
-    nn.summary.tabulate(agent.module, jax.random.PRNGKey(0))(
-        jnp.zeros((batch_size, env.observation_space.shape[0]))
+    # Create an instance of the DQNModel
+    # Create an instance of the MlpPolicy (inside the DQNModel). For jax nn, we need to initialize the parameters first.
+    agent = DQNModel(
+        action_space_dim=env.action_space.n,
+        gamma=gamma,
     )
-)
 
-# Initialize agent parameters
-q_params, target_params = agent.init(  # NOTE: why we need rngs and state here?
-    rngs=rngs,
-    state=jnp.zeros(
-        (batch_size, env.observation_space.shape[0])
-    ),  # NOTE: initially there are no data in the buffer, can use batch_size here?
-)
+    # We may need to print the model summary for analysis. Note that each layer has its own kernel matrix and bias vector (if use_bias=True)
 
-# Define optimizer
-optimizer = optax.adam(learning_rate)
+    # Initialize agent parameters
+    rngs, init_rng = jax.random.split(rngs, num=2)
+    (
+        q_params,
+        target_params,
+    ) = agent.init(  # NOTE: why we need rngs and state here?
+        rngs=init_rng,
+        state=jnp.zeros((1, env.observation_space.shape[0])),
+    )
+    print(
+        nn.summary.tabulate(agent.module, init_rng)(
+            jnp.zeros((1, env.observation_space.shape[0]))
+        )
+    )
 
-# Initialize optimizer state
-opt_state = optimizer.init(q_params)
+    # Create train state instance
+    train_state = _train_state.TrainState.create(
+        params=q_params,
+        tx=optax.adam(learning_rate=learning_rate),
+    )
 
-# log loss for analysis
-loss_log = []
+    # log loss for analysis
+    loss_log = []
 
-# the target network is updated every fixed number of steps
-total_steps = 0
+    # Create two individual rngs for training and sampling
+    rngs, train_rng, buffer_rng, sample_rng = jax.random.split(rngs, num=4)
+    p_train_step = functools.partial(train_step, rngs=train_rng)
+    p_train_step = jax.jit(p_train_step, static_argnames=["agent"])
 
-# The main training loop
-for episode in range(num_episodes):
+    # Populates the replay buffer
+    logging.rank_zero_info("Populating buffer...")
     state, _ = env.reset()
-    done = False
-    episode_reward = 0
-
-    # done marks the end of each episode
-    while not done:
-        total_steps += 1
-
-        # Epsilon-greedy action selection
-        if random.random() < epsilon:
-            # Exploration: random action
-            action = env.action_space.sample()
-        else:
-            # Exploitation: select best action based on Q-values
-            q_values = agent.forward(q_params, jnp.array(state[None, :]))
-            action = int(jnp.argmax(q_values))
-
-        # Take action in the environment
+    for step in range(buffer_capacity):
+        sample_step_rng = jax.random.fold_in(buffer_rng, step)
+        action = env.action_space.sample()
         next_state, reward, terminated, truncated, _ = env.step(action)
         done = (
             terminated or truncated
         )  # NOTE: why need both terminated and truncated?
-        episode_reward += reward
 
         # Store experience in replay buffer
         replay_buffer.add(state, action, reward, next_state, done)
         state = next_state
 
-        # Sample a batch of experiences from the replay buffer and train the agent
-        if len(replay_buffer.buffer) >= batch_size:
-            batch = replay_buffer.sample(batch_size)
+        if done:
+            state, _ = env.reset()
+    logging.rank_zero_info("Populating buffer... DONE!")
 
-            # Run the JIT-compiled update step
-            q_params, opt_state, loss = train_step(
-                q_params, target_params, opt_state, batch, rngs
-            )
-            # print(loss)
-            loss_log.append(loss)
+    # The main training loop
+    logging.rank_zero_info("Training...")
+    for episode in range(flags.FLAGS.num_episodes):
+        state, _ = env.reset()
+        done = False
+        episode_losses = []
 
-            # Update target network periodically
-            if total_steps % target_update_freq == 0:
-                target_params = copy.deepcopy(q_params)
+        # done marks the end of each episode
+        while not done:
+            sample_step_rng = jax.random.fold_in(sample_rng, train_state.step)
 
-    print(f"Episode {episode + 1}, Episode Reward: {episode_reward}")
+            # Epsilon-greedy action selection
+            if jax.random.uniform(key=sample_step_rng) < epsilon:
+                # Exploration: random action
+                action = env.action_space.sample()
+            else:
+                # Exploitation: select best action based on Q-values
+                q_values = agent.forward(q_params, jnp.array(state[None, :]))
+                action = int(jnp.argmax(q_values))
 
-# When the trainning is done, save the serialized model parameters to a file
-with open("dqn_model_params.msgpack", "wb") as f:
-    f.write(flax.serialization.to_bytes(q_params))
+            # Take action in the environment
+            next_state, reward, terminated, truncated, _ = env.step(action)
+            done = (
+                terminated or truncated
+            )  # NOTE: why need both terminated and truncated?
 
-# Close the environment
-env.close()
+            # Store experience in replay buffer
+            replay_buffer.add(state, action, reward, next_state, done)
+            state = next_state
 
-# Plot the loss curve
-plt.plot(loss_log)
-plt.xlabel("Training Steps")
-plt.ylabel("Loss")
-plt.title("DQN Training Loss Curve")
-plt.savefig("dqn_loss_curve.png")
-# plt.show()
-print("Training loss curve saved as dqn_loss_curve.png")
+            # Sample a batch of experiences from the replay buffer and train the agent
+            if len(replay_buffer.buffer) >= buffer_capacity:
+                batch = replay_buffer.sample(flags.FLAGS.batch_size)
 
-##################################################################
-# Test the trained agent: initialize a new environment
-env = gym.make("CartPole-v1")
-dummy_state = jnp.zeros((1, env.observation_space.shape[0]))
-dummy_params, _ = agent.init(rngs, dummy_state)
+                # Run the JIT-compiled update step
+                train_state, loss = p_train_step(
+                    state=train_state,
+                    agent=agent,
+                    target_params=target_params,
+                    batch=batch,
+                )
+                loss_log.append(loss)
+                episode_losses.append(loss)
 
-# Load the model parameters and test the trained agent
-with open("dqn_model_params.msgpack", "rb") as f:
-    loaded_params = flax.serialization.from_bytes(dummy_params, f.read())
+                # Update target network periodically
+                if train_state.step % target_update_freq == 0:
+                    target_params = copy.deepcopy(train_state.params)
 
-# Run the testing loop
-num_test_episodes = 5
+        logging.rank_zero_info(
+            "Episode %d | Episode Loss: %.6f",
+            episode + 1,
+            sum(episode_losses) / len(episode_losses),
+        )
 
-for episode in range(num_test_episodes):
-    state, _ = env.reset()
-    done = False
-    total_reward = 0
+    # When the trainning is done, save the serialized model parameters to a file
+    with open("dqn_model_params.msgpack", "wb") as f:
+        f.write(serialization.to_bytes(train_state.params))
 
-    while not done:
-        # Forward pass (Note: pure exploitation)
-        # Add batch dimension [None, :] because the model expects (batch, features)
-        q_values = agent.forward(loaded_params, jnp.array(state[None, :]))
+    # Close the environment
+    env.close()
 
-        # Select the best action
-        action = int(jnp.argmax(q_values))
+    # Plot the loss curve
+    plt.plot(loss_log)
+    plt.xlabel("Training Steps")
+    plt.ylabel("Loss")
+    plt.title("DQN Training Loss Curve")
+    plt.savefig(os.path.join(flags.FLAGS.work_dir, "dqn_loss_curve.png"))
+    # plt.show()
+    print("Training loss curve saved as dqn_loss_curve.png")
 
-        # Step
-        state, reward, terminated, truncated, _ = env.step(action)
-        done = terminated or truncated
-        total_reward += reward
+    ##################################################################
+    # Test the trained agent: initialize a new environment
+    env = gym.make("CartPole-v1")
+    dummy_state = jnp.zeros((1, env.observation_space.shape[0]))
+    dummy_params, _ = agent.init(rngs, dummy_state)
 
-    print(f"Test Episode {episode + 1}: Reward = {total_reward}")
+    # Load the model parameters and test the trained agent
+    with open("dqn_model_params.msgpack", "rb") as f:
+        loaded_params = serialization.from_bytes(dummy_params, f.read())
 
-env.close()
+    # Run the testing loop
+    num_test_episodes = 5
+
+    for episode in range(num_test_episodes):
+        state, _ = env.reset()
+        done = False
+        total_reward = 0
+
+        while not done:
+            # Forward pass (Note: pure exploitation)
+            # Add batch dimension [None, :] because the model expects (batch, features)
+            q_values = agent.forward(loaded_params, jnp.array(state[None, :]))
+
+            # Select the best action
+            action = int(jnp.argmax(q_values))
+
+            # Step
+            state, reward, terminated, truncated, _ = env.step(action)
+            done = terminated or truncated
+            total_reward += reward
+
+        print(f"Test Episode {episode + 1}: Reward = {total_reward}")
+
+    env.close()
+
+    return 0
+
+
+if __name__ == "__main__":
+    jax.config.config_with_absl()
+    app.run(main=main)
