@@ -6,4 +6,4 @@ cd ~/Desktop/research
 export PYTHONPATH=$PYTHONPATH:.
 
 # Run the DQN script with the required work_dir flag
-python src/projects/rl/dqn.py --work_dir=./logs
+python src/projects/rl/dqn.py --work_dir=./logs --num_episodes=10000 --batch_size=512

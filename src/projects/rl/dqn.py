@@ -1,12 +1,13 @@
 # file created on Jan. 27, 2026
-# Yaguang: used for rl learning (DQN)
+# The purpose of this file is for rl learning (DQN)
 ################################################
-# environment: gym CartPole-v1
 # framework: jax + flax linen
-# Modifications to original algorithm:
-# 1. Use Huber loss instead of MSE loss for more stable training.
+# environment: gym CartPole-v1
+# reference: https://arxiv.org/pdf/1312.5602
 ################################################
-# qustion: why not recommend using nnx?
+# NOTE: the performance is not good (and the loss is not decreasing). The testing rewards are approxmately 80-200 (max reward is 500).
+# NOTE: will DQN encounters overfitting problem if trainning for too long?
+# NOTE: usually 2x batch size we do 2x learning rate, and buffer capacity is 10x of the batch size.
 
 import collections
 import copy
@@ -42,7 +43,7 @@ flags.DEFINE_integer(
 )
 flags.DEFINE_integer(
     name="num_episodes",
-    default=20_000,
+    default=10_000,
     required=False,
     help="Total number of episodes for training.",
 )
@@ -80,7 +81,8 @@ class StepTuple:
 
 # Define the MLP policy network using Flax Linen (fully connected layers)
 # this is a sckeleton architecture, we need another implementation for DQN model
-class MlpPolicy(nn.Module):  # NOTE: why no init for this class?
+# NOTE: sometimes the outputs are actions, but for DQN, the outputs are Q-values for all actions.
+class MlpPolicy(nn.Module):  
     r"""Multi-layer Perceptron Policy Network.
 
     Attributes:
@@ -101,7 +103,7 @@ class MlpPolicy(nn.Module):  # NOTE: why no init for this class?
             inputs (jax.Array): Input state array of shape `(*, D)`
 
         Returns:
-            Action index of shape `(*, 1)`.
+            Raw Q-values for all actions, with shape `(*, out_features)`
         """
         out = inputs.astype(self.dtype)
         for i in range(self.num_layers):
@@ -174,6 +176,9 @@ class DQNModel(_model.Model):
         """
         del kwargs
         q_params = self.network.init(rngs, batch.state)
+        
+        # We may need to print the model summary for analysis. 
+        # Note that each layer has its own kernel matrix and bias vector (if use_bias=True)
         _tabulate_fn = nn.summary.tabulate(
             self.network,
             rngs,
@@ -266,8 +271,6 @@ class DQNModel(_model.Model):
         )
 
         # Compute loss as mean squared error
-        # loss = jnp.mean((TD_target - q_action) ** 2)
-        # NOTE: use Huber loss for more faster and stable training
         loss = jnp.mean(optax.squared_error(q_values, TD_target))
         step_outputs = _model.StepOutputs(scalars={"loss": loss})
 
@@ -376,7 +379,11 @@ def main(_: typing.List[str]) -> int:
     # Define Hyperparameters
     learning_rate = 1e-3
     buffer_capacity = 30000
-    epsilon = 0.95  # for epsilon-greedy policy
+    # use annealing epsilon for better performance.
+    epsilon_start = 1.0
+    epsilon_end = 0.01
+    epsilon_decay_episodes = 5000
+    
     target_update_freq = 1000  # target network update frequency (in steps)
     gamma = 0.99  # discount factor
 
@@ -392,8 +399,6 @@ def main(_: typing.List[str]) -> int:
     # Create an instance of the MlpPolicy (inside the DQNModel).
     # For `jax.nn`, we need to initialize the parameters first.
     agent = DQNModel(action_space_dim=env.action_space.n, gamma=gamma)
-
-    # We may need to print the model summary for analysis. Note that each layer has its own kernel matrix and bias vector (if use_bias=True)
 
     # Initialize agent parameters
     rngs, init_rng = jax.random.split(rngs, num=2)
@@ -429,7 +434,7 @@ def main(_: typing.List[str]) -> int:
         next_state, reward, terminated, truncated, _ = env.step(action)
         done = (
             terminated or truncated
-        )  # NOTE: why need both terminated and truncated?
+        )
 
         # Store experience in replay buffer
         replay_buffer.add(state, action, reward, next_state, done)
@@ -448,9 +453,11 @@ def main(_: typing.List[str]) -> int:
 
         # done marks the end of each episode
         while not done:
+            # Epsilon-greedy action selection
+            progress = min(1.0, episode / epsilon_decay_episodes)
+            epsilon = epsilon_start + progress * (epsilon_end - epsilon_start)
             sample_step_rng = jax.random.fold_in(sample_rng, train_state.step)
 
-            # Epsilon-greedy action selection
             if jax.random.uniform(key=sample_step_rng) < epsilon:
                 # Exploration: random action
                 action = env.action_space.sample()
@@ -466,7 +473,7 @@ def main(_: typing.List[str]) -> int:
             next_state, reward, terminated, truncated, _ = env.step(action)
             done = (
                 terminated or truncated
-            )  # NOTE: why need both terminated and truncated?
+            )
 
             # Store experience in replay buffer
             replay_buffer.add(state, action, reward, next_state, done)
@@ -514,7 +521,8 @@ def main(_: typing.List[str]) -> int:
     print("Training loss curve saved as dqn_loss_curve.png")
 
     ##################################################################
-    # Test the trained agent: initialize a new environment
+    # Test the trained agent
+    ##################################################################
     env = gym.make("CartPole-v1")
 
     # Load the model parameters and test the trained agent
