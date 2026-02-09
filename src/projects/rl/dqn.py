@@ -33,6 +33,9 @@ import typing_extensions
 from src.core import model as _model
 from src.core import train_state as _train_state
 from src.utilities import logging
+from src.projects.rl.StepTuple import StepTuple
+from src.projects.rl.MlpNetwork import MlpPolicy
+from src.projects.rl.ReplayBuffer import ReplayBuffer
 
 # Running flags
 flags.DEFINE_integer(
@@ -53,84 +56,6 @@ flags.DEFINE_string(
     required=True,
     help="Working directory",
 )
-
-
-@chex.dataclass
-class StepTuple:
-    r"""Samples of a step in the environment ``(s,a,r,s')``.
-
-    Attributes:
-        state (Optional[jax.Array], optional): The current state array.
-            Default is ``None``.
-        action (Optional[jax.Array], optional): The action taken.
-            Default is ``None``.
-        reward (Optional[jax.Array], optional): Reward from taking the action.
-            Default is ``None``.
-        next_state (Optional[jax.Array], optional): Next state resulted from
-            taking the action. Default is ``None``.
-        done (Optional[jax.Array], optional): Whether the next state is a
-            terminal state. Default is ``None``.
-    """
-
-    state: typing.Optional[jax.Array] = None
-    action: typing.Optional[jax.Array] = None
-    reward: typing.Optional[jax.Array] = None
-    next_state: typing.Optional[jax.Array] = None
-    done: typing.Optional[jax.Array] = None
-
-
-# Define the MLP policy network using Flax Linen (fully connected layers)
-# this is a sckeleton architecture, we need another implementation for DQN model
-# NOTE: sometimes the outputs are actions, but for DQN, the outputs are Q-values for all actions.
-class MlpPolicy(nn.Module):  
-    r"""Multi-layer Perceptron Policy Network.
-
-    Attributes:
-        features (int): Dimensionality of the hidden features.
-    """
-
-    features: int
-    out_features: int
-    num_layers: int
-    dtype: typing.Any = None
-    param_dtype: typing.Any = None
-
-    @nn.compact
-    def __call__(self, inputs: jax.Array) -> jax.Array:
-        r"""Forward pass the policy network `\pi(a|s;\theta)`
-
-        Args:
-            inputs (jax.Array): Input state array of shape `(*, D)`
-
-        Returns:
-            Raw Q-values for all actions, with shape `(*, out_features)`
-        """
-        out = inputs.astype(self.dtype)
-        for i in range(self.num_layers):
-            fc = nn.Dense(
-                features=(
-                    self.features
-                    if i != self.num_layers - 1
-                    else self.out_features
-                ),
-                kernel_init=jax.nn.initializers.variance_scaling(
-                    scale=1.0,
-                    mode="fan_avg",  # fan_avg means average of fan_in and fan_out, fan_in means input dim, fan_out means output dim
-                    distribution="uniform",  # uniform means uniform distribution
-                ),
-                use_bias=True,  # use bias term
-                bias_init=jax.nn.initializers.zeros,
-                dtype=self.dtype,
-                param_dtype=self.param_dtype,
-                name=f"fc_{i+1:d}",
-            )
-            out = fc(out)
-            if i != self.num_layers - 1:
-                out = jax.nn.relu(
-                    out
-                )  # apply relu activation function for hidden layers
-
-        return out
 
 
 # Define the DQNModel class by extending the base Model class
@@ -275,62 +200,6 @@ class DQNModel(_model.Model):
         step_outputs = _model.StepOutputs(scalars={"loss": loss})
 
         return loss, step_outputs
-
-
-# Create a replay buffer class to store experiences
-class ReplayBuffer:
-    def __init__(self, capacity=10000) -> None:
-        r"""Initializes the replay buffer.
-
-        Args:
-            capacity (int): Maximum number of experiences to store.
-
-        Returns:
-            None.
-        """
-        self.buffer = collections.deque(
-            maxlen=capacity
-        )  # deque is a double-ended queue.
-
-    def add(self, s, a, r, s_next, d) -> None:
-        r"""Adds a new experience to the replay buffer. The buffer stores tuples of (s, a, r,
-        s_next, d). Each element of the queue is a tuple.
-
-        Args:
-            s: state
-            a: action
-            r: reward
-            s_next: next state
-            d: done flag
-
-        Returns:
-            None.
-        """
-        if d is None:
-            d = False
-        self.buffer.append((s, a, r, s_next, d))
-
-    def sample(self, batch_size) -> StepTuple:
-        r"""Samples a batch of experiences from the replay buffer.
-
-        Args:
-            batch_size (int): Number of experiences to sample.
-
-        Returns:
-            A tuple of (states, actions, rewards, next_states, dones).
-        """
-        batch = random.sample(
-            self.buffer, batch_size
-        )  # randomly sample batch_size number of experiences from the buffer
-        s, a, r, s_next, d = zip(*batch)  # unzip the batch into separate lists
-
-        return StepTuple(
-            state=jnp.array(s),
-            action=jnp.array(a),
-            reward=jnp.array(r),
-            next_state=jnp.array(s_next),
-            done=jnp.array(d),
-        )
 
 
 # the training step function
