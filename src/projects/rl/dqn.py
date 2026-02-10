@@ -17,7 +17,8 @@ from src.projects.rl import structure
 class DQNModel(_model.Model):
     r"""Deep Q-learning model."""
 
-    def __init__(self, action_space_dim: int, gamma: float) -> None:
+    def __init__(self, use_double: bool, action_space_dim: int, gamma: float) \
+        -> None:
         r"""Instantiates a DQN model.
 
         Args:
@@ -27,10 +28,11 @@ class DQNModel(_model.Model):
         self._action_space_dim = action_space_dim
         self._gamma = gamma
         self._network = policy.MlpPolicy(
-            features=128,
+            features=256,
             out_features=action_space_dim,
             num_layers=3,
         )
+        self.use_double = use_double
 
     @property
     @typing_extensions.override
@@ -138,8 +140,23 @@ class DQNModel(_model.Model):
         )
         assert isinstance(next_q_values, jax.Array)
 
-        # Simply max over action dimension, which is the drawback of DQN
-        max_next_q = jnp.max(next_q_values, axis=1)
+        if self.use_double:
+            # use Double DQN
+            next_q_values_online = self.network.apply(
+                params,
+                batch.next_state,
+                rngs=rngs,
+            )
+            max_next_action = jnp.argmax(next_q_values_online, axis=1)
+
+            max_next_q = jnp.take_along_axis(
+                next_q_values,
+                max_next_action[:, None],
+                axis=1,
+            ).astype(jnp.float32).squeeze(axis=1)
+        else:
+            # traditional DQN: simply max over action dimension
+            max_next_q = jnp.max(next_q_values, axis=1)
 
         # Compute TD-target using the Bellman equation
         if batch.done is None:

@@ -1,4 +1,4 @@
-# How to run dqn:
+# How to run DQN:
 
 # Navigate to the root directory (research)
 
