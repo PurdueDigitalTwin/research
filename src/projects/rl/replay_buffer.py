@@ -1,11 +1,9 @@
 import collections
 import random
-import typing
 
-import jax
 import jax.numpy as jnp
 
-from src.projects.rl.StepTuple import StepTuple
+from src.projects.rl import structure
 
 
 # Create a replay buffer class to store experiences
@@ -41,7 +39,7 @@ class ReplayBuffer:
             d = False
         self.buffer.append((s, a, r, s_next, d))
 
-    def sample(self, batch_size) -> StepTuple:
+    def sample(self, batch_size) -> structure.StepTuple:
         r"""Samples a batch of experiences from the replay buffer.
 
         Args:
@@ -55,7 +53,7 @@ class ReplayBuffer:
         )  # randomly sample batch_size number of experiences from the buffer
         s, a, r, s_next, d = zip(*batch)  # unzip the batch into separate lists
 
-        return StepTuple(
+        return structure.StepTuple(
             state=jnp.array(s),
             action=jnp.array(a),
             reward=jnp.array(r),
