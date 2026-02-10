@@ -6,9 +6,9 @@ import jax
 
 # Define the MLP policy network using Flax Linen (fully connected layers)
 # this is a sckeleton architecture, we need another implementation for DQN model
-# NOTE: sometimes the outputs are actions, but for DQN, the outputs are Q-values 
+# NOTE: sometimes the outputs are actions, but for DQN, the outputs are Q-values
 # for all actions.
-class MlpPolicy(nn.Module):  
+class MlpPolicy(nn.Module):
     r"""Multi-layer Perceptron Policy Network.
 
     Attributes:
@@ -43,7 +43,7 @@ class MlpPolicy(nn.Module):
                     scale=1.0,
                     mode="fan_avg",  # fan_avg means average of fan_in and fan_out
                     # fan_in means input dim, fan_out means output dim
-                    distribution="uniform", # uniform means uniform distribution
+                    distribution="uniform",  # uniform means uniform distribution
                 ),
                 use_bias=True,  # use bias term
                 bias_init=jax.nn.initializers.zeros,
