@@ -5,9 +5,11 @@
 # environment: gym CartPole-v1
 # reference: https://arxiv.org/pdf/1312.5602
 ################################################
-# NOTE: the performance is not good (and the loss is not decreasing). The testing rewards are approxmately 80-200 (max reward is 500).
+# NOTE: the performance is not good (and the loss is not decreasing). The 
+# testing rewards are approxmately 80-200 (max reward is 500).
 # NOTE: will DQN encounters overfitting problem if trainning for too long?
-# NOTE: usually 2x batch size we do 2x learning rate, and buffer capacity is 10x of the batch size.
+# NOTE: usually 2x batch size we do 2x learning rate, and buffer capacity is 
+# 10x of the batch size.
 
 
 import copy
@@ -199,7 +201,8 @@ def main(_: typing.List[str]) -> int:
             replay_buffer.add(state, action, reward, next_state, done)
             state = next_state
 
-            # Sample a batch of experiences from the replay buffer and train the agent
+            # Sample a batch of experiences from the replay buffer and train 
+            # the agent
             if len(replay_buffer.buffer) >= buffer_capacity:
                 batch = replay_buffer.sample(flags.FLAGS.batch_size)
 
@@ -259,7 +262,8 @@ def main(_: typing.List[str]) -> int:
 
         while not done:
             # Forward pass (Note: pure exploitation)
-            # Add batch dimension [None, :] because the model expects (batch, features)
+            # Add batch dimension [None, :] because the model expects (batch, 
+            # features)
             q_values = p_eval_step(
                 batch=StepTuple(state=jnp.array(state[None, :])),
                 params=loaded_params,

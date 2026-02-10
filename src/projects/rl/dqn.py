@@ -58,7 +58,8 @@ class DQNModel(_model.Model):
         q_params = self.network.init(rngs, batch.state)
         
         # We may need to print the model summary for analysis. 
-        # Note that each layer has its own kernel matrix and bias vector (if use_bias=True)
+        # Note that each layer has its own kernel matrix and bias vector (if 
+        # use_bias=True)
         _tabulate_fn = nn.summary.tabulate(
             self.network,
             rngs,
