@@ -1,4 +1,4 @@
-# How to run dqn.py:
+# How to run dqn:
 # Navigate to the root directory (research)
 cd ~/Desktop/research
 
@@ -6,4 +6,4 @@ cd ~/Desktop/research
 export PYTHONPATH=$PYTHONPATH:.
 
 # Run the DQN script with the required work_dir flag
-python src/projects/rl/dqn.py --work_dir=./logs --num_episodes=10000 --batch_size=512
+python src/projects/rl/main.py --work_dir=./logs --num_episodes=5000 --batch_size=512

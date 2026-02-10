@@ -2,7 +2,6 @@ import typing
 
 import flax.linen as nn
 import jax
-import jax.numpy as jnp
 
 
 # Define the MLP policy network using Flax Linen (fully connected layers)

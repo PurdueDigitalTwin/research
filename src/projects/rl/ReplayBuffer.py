@@ -4,7 +4,6 @@ import typing
 
 import jax
 import jax.numpy as jnp
-import chex
 
 from src.projects.rl.StepTuple import StepTuple
 
