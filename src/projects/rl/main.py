@@ -5,10 +5,10 @@
 # environment: gym CartPole-v1
 # reference: https://arxiv.org/pdf/1312.5602
 ################################################
-# NOTE: the performance is not good (and the loss is not decreasing). The 
-# testing rewards are approxmately 80-200 (max reward is 500).
+# NOTE: the performance is not good (and the loss is not decreasing). The
+# testing rewards are approximately 80-200 (max reward is 500).
 # NOTE: will DQN encounters overfitting problem if trainning for too long?
-# NOTE: usually 2x batch size we do 2x learning rate, and buffer capacity is 
+# NOTE: usually 2x batch size we do 2x learning rate, and buffer capacity is
 # 10x of the batch size.
 
 
@@ -28,11 +28,10 @@ import optax
 
 from src.core import model as _model
 from src.core import train_state as _train_state
+from src.projects.rl import dqn as _dqn
+from src.projects.rl import replay_buffer as _buffer
+from src.projects.rl import structure as _struct
 from src.utilities import logging
-from src.projects.rl.dqn import DQNModel
-from src.projects.rl.StepTuple import StepTuple
-from src.projects.rl.ReplayBuffer import ReplayBuffer
-
 
 # Running flags
 flags.DEFINE_integer(
@@ -40,6 +39,12 @@ flags.DEFINE_integer(
     default=512,
     required=False,
     help="Batch size for training and evaluation",
+)
+flags.DEFINE_integer(
+    name="eval_every_n_episodes",
+    default=5,
+    required=False,
+    help="Evaluation frequency (in episodes) during training.",
 )
 flags.DEFINE_integer(
     name="num_episodes",
@@ -61,7 +66,7 @@ def train_step(
     state: _train_state.TrainState,
     agent: _model.Model,
     target_params: jax.Array,
-    batch: StepTuple,
+    batch: _struct.StepTuple,
 ) -> typing.Tuple[_train_state.TrainState, _model.StepOutputs]:
     r"""Performs a single training step.
 
@@ -105,7 +110,7 @@ def main(_: typing.List[str]) -> int:
     epsilon_start = 1.0
     epsilon_end = 0.01
     epsilon_decay_episodes = 5000
-    
+
     target_update_freq = 1000  # target network update frequency (in steps)
     gamma = 0.99  # discount factor
 
@@ -113,19 +118,19 @@ def main(_: typing.List[str]) -> int:
     rngs = jax.random.PRNGKey(0)
 
     # Create replay buffer
-    replay_buffer = ReplayBuffer(capacity=buffer_capacity)
+    replay_buffer = _buffer.ReplayBuffer(capacity=buffer_capacity)
 
     # Create Gym cartpole environment
     env = gym.make("CartPole-v1")
 
     # Create an instance of the MlpPolicy (inside the DQNModel).
     # For `jax.nn`, we need to initialize the parameters first.
-    agent = DQNModel(action_space_dim=env.action_space.n, gamma=gamma)
+    agent = _dqn.DQNModel(action_space_dim=env.action_space.n, gamma=gamma)
 
     # Initialize agent parameters
     rngs, init_rng = jax.random.split(rngs, num=2)
     q_params = agent.init(
-        batch=StepTuple(
+        batch=_struct.StepTuple(
             state=jnp.zeros((1, env.observation_space.shape[0])),
         ),
         rngs=init_rng,
@@ -154,9 +159,7 @@ def main(_: typing.List[str]) -> int:
         sample_step_rng = jax.random.fold_in(buffer_rng, step)
         action = env.action_space.sample()
         next_state, reward, terminated, truncated, _ = env.step(action)
-        done = (
-            terminated or truncated
-        )
+        done = terminated or truncated
 
         # Store experience in replay buffer
         replay_buffer.add(state, action, reward, next_state, done)
@@ -186,22 +189,20 @@ def main(_: typing.List[str]) -> int:
             else:
                 # Exploitation: select best action based on Q-values
                 q_values = p_eval_step(
-                    batch=StepTuple(state=jnp.array(state[None, :])),
+                    batch=_struct.StepTuple(state=jnp.array(state[None, :])),
                     params=train_state.params,
                 ).output
                 action = jnp.argmax(q_values, axis=-1).item()
 
             # Take action in the environment
             next_state, reward, terminated, truncated, _ = env.step(action)
-            done = (
-                terminated or truncated
-            )
+            done = terminated or truncated
 
             # Store experience in replay buffer
             replay_buffer.add(state, action, reward, next_state, done)
             state = next_state
 
-            # Sample a batch of experiences from the replay buffer and train 
+            # Sample a batch of experiences from the replay buffer and train
             # the agent
             if len(replay_buffer.buffer) >= buffer_capacity:
                 batch = replay_buffer.sample(flags.FLAGS.batch_size)
@@ -220,6 +221,50 @@ def main(_: typing.List[str]) -> int:
                 if train_state.step % target_update_freq == 0:
                     target_params = copy.deepcopy(train_state.params)
                     logging.rank_zero_info("Target network synced!")
+
+            if episode % flags.FLAGS.eval_every_n_episodes == 0:
+                eval_env = gym.make("CartPole-v1")
+                eval_reward, eval_episode = [], 0
+                while eval_episode < 5:
+                    state, _ = eval_env.reset()
+                    done = False
+                    total_reward = 0
+
+                    while not done:
+                        # Forward pass (Note: pure exploitation)
+                        # Add batch dimension [None, :] because the model expects (batch,
+                        # features)
+                        q_values = p_eval_step(
+                            batch=_struct.StepTuple(
+                                state=jnp.array(state[None, :]),
+                            ),
+                            params=train_state.params,
+                        ).output
+
+                        # Select the best action
+                        action = jnp.argmax(q_values, axis=-1).item()
+
+                        # Step
+                        (
+                            state,
+                            reward,
+                            terminated,
+                            truncated,
+                            _,
+                        ) = eval_env.step(action)
+                        done = terminated or truncated
+                        total_reward += reward
+
+                    eval_reward.append(total_reward)
+                    eval_episode += 1
+
+                logging.rank_zero_info(
+                    f"Eval at episode {eval_episode + 1:d} | "
+                    f"Average Reward = {sum(eval_reward) / len(eval_reward)} | "
+                    f"Max Reward = {max(eval_reward)} | "
+                    f"Min Reward = {min(eval_reward)}."
+                )
+                eval_env.close()
 
         logging.rank_zero_info(
             "Episode %d | Episode Loss: %.6f",
@@ -242,44 +287,6 @@ def main(_: typing.List[str]) -> int:
     plt.savefig(os.path.join(flags.FLAGS.work_dir, "dqn_loss_curve.png"))
     # plt.show()
     print("Training loss curve saved as dqn_loss_curve.png")
-
-    ##################################################################
-    # Test the trained agent
-    ##################################################################
-    env = gym.make("CartPole-v1")
-
-    # Load the model parameters and test the trained agent
-    with open("dqn_model_params.msgpack", "rb") as f:
-        loaded_params = serialization.msgpack_restore(f.read())
-
-    # Run the testing loop
-    num_test_episodes = 5
-
-    for episode in range(num_test_episodes):
-        state, _ = env.reset()
-        done = False
-        total_reward = 0
-
-        while not done:
-            # Forward pass (Note: pure exploitation)
-            # Add batch dimension [None, :] because the model expects (batch, 
-            # features)
-            q_values = p_eval_step(
-                batch=StepTuple(state=jnp.array(state[None, :])),
-                params=loaded_params,
-            ).output
-
-            # Select the best action
-            action = jnp.argmax(q_values, axis=-1).item()
-
-            # Step
-            state, reward, terminated, truncated, _ = env.step(action)
-            done = terminated or truncated
-            total_reward += reward
-
-        print(f"Test Episode {episode + 1}: Reward = {total_reward}")
-
-    env.close()
 
     return 0
 

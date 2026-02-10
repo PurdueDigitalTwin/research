@@ -9,8 +9,8 @@ import optax
 import typing_extensions
 
 from src.core import model as _model
-from src.projects.rl.StepTuple import StepTuple
-from src.projects.rl.MlpNetwork import MlpPolicy
+from src.projects.rl import policy
+from src.projects.rl import structure
 
 
 # Define the DQNModel class by extending the base Model class
@@ -26,7 +26,7 @@ class DQNModel(_model.Model):
         """
         self._action_space_dim = action_space_dim
         self._gamma = gamma
-        self._network = MlpPolicy(
+        self._network = policy.MlpPolicy(
             features=128,
             out_features=action_space_dim,
             num_layers=3,
@@ -34,14 +34,14 @@ class DQNModel(_model.Model):
 
     @property
     @typing_extensions.override
-    def network(self) -> MlpPolicy:
+    def network(self) -> policy.MlpPolicy:
         return self._network
 
     @typing_extensions.override
     def init(
         self,
         *,
-        batch: StepTuple,
+        batch: structure.StepTuple,
         rngs: typing.Any,
         **kwargs,
     ) -> jaxtyping.PyTree:
@@ -56,9 +56,9 @@ class DQNModel(_model.Model):
         """
         del kwargs
         q_params = self.network.init(rngs, batch.state)
-        
-        # We may need to print the model summary for analysis. 
-        # Note that each layer has its own kernel matrix and bias vector (if 
+
+        # We may need to print the model summary for analysis.
+        # Note that each layer has its own kernel matrix and bias vector (if
         # use_bias=True)
         _tabulate_fn = nn.summary.tabulate(
             self.network,
@@ -73,7 +73,7 @@ class DQNModel(_model.Model):
     def forward(
         self,
         *,
-        batch: StepTuple,
+        batch: structure.StepTuple,
         params: jaxtyping.PyTree,
         rngs: typing.Any = None,
         deterministic: bool = True,
@@ -107,7 +107,7 @@ class DQNModel(_model.Model):
     def compute_loss(
         self,
         *,
-        batch: StepTuple,
+        batch: structure.StepTuple,
         params: typing.Any,
         target_params: typing.Any,
         rngs: typing.Any,
