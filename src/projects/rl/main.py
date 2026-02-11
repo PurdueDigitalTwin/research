@@ -35,12 +35,6 @@ from src.projects.rl import structure as _struct
 from src.utilities import logging
 
 # Running flags
-flags.DEFINE_bool(
-    name="use_double",
-    default=True,
-    required=False,
-    help="Whether to use Double DQN",
-)
 flags.DEFINE_integer(
     name="batch_size",
     default=512,
@@ -64,6 +58,12 @@ flags.DEFINE_string(
     default=None,
     required=True,
     help="Working directory",
+)
+flags.DEFINE_bool(
+    name="use_double",
+    default=False,
+    required=False,
+    help="Whether to use Double DQN",
 )
 
 
@@ -110,6 +110,7 @@ def main(_: typing.List[str]) -> int:
     del _  # NOTE: unused arguments
 
     # Example usage of the DQNModel class:
+    # TODO (yaguang): Move arguments to experiment configs
     # Define Hyperparameters
     learning_rate = 1e-4
     buffer_capacity = 30000
@@ -124,24 +125,36 @@ def main(_: typing.List[str]) -> int:
     # Random keys for JAX
     rngs = jax.random.PRNGKey(0)
 
-    # Create replay buffer
-    replay_buffer = _buffer.ReplayBuffer(capacity=buffer_capacity)
-
     # Create Gym cartpole environment
     env = gym.make("CartPole-v1")
+    state_size = env.observation_space.shape or (1,)
+    action_size = env.action_space.shape or (1,)
+    logging.rank_zero_info(
+        "Initialized environment %s with state size %r and action size %r.",
+        env.__class__.__name__,
+        state_size,
+        action_size,
+    )
+
+    # Create replay buffer
+    replay_buffer = _buffer.ReplayBuffer(
+        capacity=buffer_capacity,
+        state_size=state_size,
+        action_size=action_size,
+    )
 
     # Create an instance of the MlpPolicy (inside the DQNModel).
     # For `jax.nn`, we need to initialize the parameters first.
-    agent = _dqn.DQNModel(flags.FLAGS.use_double, 
-                          action_space_dim=env.action_space.n, 
-                          gamma=gamma)
+    agent = _dqn.DQNModel(
+        action_space_dim=env.action_space.n,  # type: ignore
+        gamma=gamma,
+        use_double=flags.FLAGS.use_double,
+    )
 
     # Initialize agent parameters
     rngs, init_rng = jax.random.split(rngs, num=2)
     q_params = agent.init(
-        batch=_struct.StepTuple(
-            state=jnp.zeros((1, env.observation_space.shape[0])),
-        ),
+        batch=_struct.StepTuple(state=jnp.zeros((1, *state_size))),
         rngs=init_rng,
     )
     target_params = copy.deepcopy(q_params)
@@ -166,11 +179,11 @@ def main(_: typing.List[str]) -> int:
 
     # Populates the replay buffer
     logging.rank_zero_info("Populating buffer...")
-    state, _ = env.reset()
+    state, info = env.reset()
     for step in range(buffer_capacity):
         sample_step_rng = jax.random.fold_in(buffer_rng, step)
         action = env.action_space.sample()
-        next_state, reward, terminated, truncated, _ = env.step(action)
+        next_state, reward, terminated, truncated, info = env.step(action)
         done = terminated or truncated
 
         # Store experience in replay buffer
@@ -178,13 +191,13 @@ def main(_: typing.List[str]) -> int:
         state = next_state
 
         if done:
-            state, _ = env.reset()
+            state, info = env.reset()
     logging.rank_zero_info("Populating buffer... DONE!")
 
     # The main training loop
     logging.rank_zero_info("Training...")
     for episode in range(flags.FLAGS.num_episodes + 1):
-        state, _ = env.reset()
+        state, info = env.reset()
         done = False
         episode_losses = []
         episode_reward = 0
@@ -208,18 +221,22 @@ def main(_: typing.List[str]) -> int:
                 action = jnp.argmax(q_values, axis=-1).item()
 
             # Take action in the environment
-            next_state, reward, terminated, truncated, _ = env.step(action)
+            next_state, reward, terminated, truncated, info = env.step(action)
             done = terminated or truncated
 
             # Store experience in replay buffer
             replay_buffer.add(state, action, reward, next_state, done)
             state = next_state
-            episode_reward += reward
+            episode_reward += float(reward)
 
             # Sample a batch of experiences from the replay buffer and train
             # the agent
-            if len(replay_buffer.buffer) >= buffer_capacity:
-                batch = replay_buffer.sample(flags.FLAGS.batch_size)
+            if len(replay_buffer) >= buffer_capacity:
+                sample_key = jax.random.fold_in(sample_rng, train_state.step)
+                batch = replay_buffer.sample(
+                    key=sample_key,
+                    batch_size=flags.FLAGS.batch_size,
+                )
 
                 # Run the JIT-compiled update step
                 train_state, loss = p_train_step(
@@ -240,7 +257,7 @@ def main(_: typing.List[str]) -> int:
             eval_env = gym.make("CartPole-v1")
             eval_reward, eval_episode = [], 0
             while eval_episode < 5:
-                state, _ = eval_env.reset()
+                state = eval_env.reset()[0]
                 done = False
                 total_reward = 0
 
@@ -264,10 +281,10 @@ def main(_: typing.List[str]) -> int:
                         reward,
                         terminated,
                         truncated,
-                        _,
+                        info,
                     ) = eval_env.step(action)
                     done = terminated or truncated
-                    total_reward += reward
+                    total_reward += float(reward)
 
                 eval_reward.append(total_reward)
                 eval_episode += 1
@@ -310,24 +327,23 @@ def main(_: typing.List[str]) -> int:
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
 
     # Plot 1: Loss Curve
-    ax1.plot(loss_log, color='tab:blue', alpha=0.7)
+    ax1.plot(loss_log, color="tab:blue", alpha=0.7)
     ax1.set_xlabel("Training Steps")
     ax1.set_ylabel("Loss")
     ax1.set_title("DQN Training Loss")
-    ax1.grid(True, linestyle='--', alpha=0.6)
+    ax1.grid(True, linestyle="--", alpha=0.6)
 
     # Plot 2: Reward Curve
-    ax2.plot(reward_log, color='tab:orange', linewidth=2)
+    ax2.plot(reward_log, color="tab:orange", linewidth=2)
     ax2.set_xlabel("Episode")
     ax2.set_ylabel("Total Reward")
     ax2.set_title("Episode Reward")
-    ax2.grid(True, linestyle='--', alpha=0.6)
+    ax2.grid(True, linestyle="--", alpha=0.6)
 
     # Adjust layout to prevent overlap
-    plt.tight_layout()
-    plt.savefig(os.path.join(flags.FLAGS.work_dir, "dqn_loss_curve.png"))
-    # plt.show()
-    print("Training loss curve saved as dqn_loss_curve.png")
+    fig.tight_layout()
+    fig.savefig(os.path.join(flags.FLAGS.work_dir, "dqn_loss_curve.png"))
+    logging.rank_zero_info("Training loss curve saved as dqn_loss_curve.png")
 
     return 0
 

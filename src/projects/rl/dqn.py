@@ -142,8 +142,11 @@ class DQNModel(_model.Model):
         assert isinstance(q_values, jax.Array)
 
         # Select Q-values for the action actually taken
+        if batch.action is None:
+            raise ValueError("Action is required for Q-learning.")
         one_hot_action = jax.nn.one_hot(
-            batch.action,
+            # NOTE: enusure DQN takes in discrete action indexes
+            batch.action[..., 0].astype(jnp.int32),
             num_classes=q_values.shape[-1],
         )
         q_values = jnp.sum(q_values * lax.stop_gradient(one_hot_action), -1)
@@ -164,7 +167,7 @@ class DQNModel(_model.Model):
                 rngs=rngs,
             )
             assert isinstance(next_q_values_online, jax.Array)
-            max_next_action = jnp.argmax(next_q_values_online, axis=1)
+            max_next_action = jnp.argmax(next_q_values_online, axis=-1)
             max_next_q = (
                 jnp.take_along_axis(
                     next_q_values,
@@ -172,21 +175,23 @@ class DQNModel(_model.Model):
                     axis=1,
                 )
                 .astype(jnp.float32)
-                .squeeze(axis=1)
+                .squeeze(axis=-1)
             )
         else:
             # traditional DQN: simply max over action dimension
-            max_next_q = jnp.max(next_q_values, axis=1)
+            max_next_q = jnp.max(next_q_values, axis=-1)
 
         # Compute TD-target using the Bellman equation
         if batch.done is None:
-            done = jnp.zeros_like(max_next_q)
+            d = jnp.zeros_like(max_next_q)
         else:
-            done = batch.done
+            d = batch.done.astype(max_next_q.dtype)
 
-        q_target = lax.stop_gradient(
-            batch.reward + self._gamma * max_next_q * (1.0 - done)
-        )
+        if batch.reward is None:
+            r = jnp.zeros_like(max_next_q)
+        else:
+            r = batch.reward.astype(max_next_q.dtype)
+        q_target = lax.stop_gradient(r + self._gamma * max_next_q * (1.0 - d))
 
         # Compute loss as mean squared error
         loss = jnp.mean(optax.squared_error(q_values, q_target))

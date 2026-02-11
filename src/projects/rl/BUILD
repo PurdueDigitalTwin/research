@@ -33,6 +33,7 @@ ml_py_library(
     srcs = ["replay_buffer.py"],
     deps = [
         "jax",
+        "numpy",
         ":structure",
     ],
 )
