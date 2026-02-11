@@ -17,13 +17,19 @@ from src.projects.rl import structure
 class DQNModel(_model.Model):
     r"""Deep Q-learning model."""
 
-    def __init__(self, use_double: bool, action_space_dim: int, gamma: float) \
-        -> None:
+    def __init__(
+        self,
+        action_space_dim: int,
+        gamma: float,
+        use_double: bool = False,
+    ) -> None:
         r"""Instantiates a DQN model.
 
         Args:
             action_space_dim (int): Dimension of the action space.
             gamma (float): Discount factor for future rewards.
+            use_double (bool, optional): Whether to train the DQN model with
+                double Q-learning. See ``https://arxiv.org/abs/1509.06461``.
         """
         self._action_space_dim = action_space_dim
         self._gamma = gamma
@@ -32,7 +38,7 @@ class DQNModel(_model.Model):
             out_features=action_space_dim,
             num_layers=3,
         )
-        self.use_double = use_double
+        self._use_double = use_double
 
     @property
     @typing_extensions.override
@@ -115,10 +121,20 @@ class DQNModel(_model.Model):
         rngs: typing.Any,
         deterministic: bool = False,
         **kwargs,
-    ) -> typing.Tuple[
-        jax.Array, _model.StepOutputs
-    ]:  # NOTE: why we need another stepoutputs here?
-        r"""Computes the DQN loss using the Bellman equation."""
+    ) -> typing.Tuple[jax.Array, _model.StepOutputs]:
+        r"""Computes the Q-learning loss using the Bellman equation.
+
+        Args:
+            batch (StepTuple): A batch of transition tuples ``(s, a, s', r)``.
+            params (Any): State-action value neetwork parameters.
+            target_params (Any): Target state-action network parameters.
+            rngs (Any): Random key for reproducibility.
+            deterministic (bool, optional): Whether to forward pass the network
+                in deterministic mode. Not used in this function.
+
+        Returns:
+            A tuple of ``(loss, outputs)`` with scalar loss and other outputs.
+        """
         del deterministic, kwargs
 
         # Compute Q-values for current states
@@ -140,20 +156,24 @@ class DQNModel(_model.Model):
         )
         assert isinstance(next_q_values, jax.Array)
 
-        if self.use_double:
+        if self._use_double:
             # use Double DQN
             next_q_values_online = self.network.apply(
                 params,
                 batch.next_state,
                 rngs=rngs,
             )
+            assert isinstance(next_q_values_online, jax.Array)
             max_next_action = jnp.argmax(next_q_values_online, axis=1)
-
-            max_next_q = jnp.take_along_axis(
-                next_q_values,
-                max_next_action[:, None],
-                axis=1,
-            ).astype(jnp.float32).squeeze(axis=1)
+            max_next_q = (
+                jnp.take_along_axis(
+                    next_q_values,
+                    max_next_action[:, None],
+                    axis=1,
+                )
+                .astype(jnp.float32)
+                .squeeze(axis=1)
+            )
         else:
             # traditional DQN: simply max over action dimension
             max_next_q = jnp.max(next_q_values, axis=1)
@@ -164,12 +184,12 @@ class DQNModel(_model.Model):
         else:
             done = batch.done
 
-        TD_target = lax.stop_gradient(
+        q_target = lax.stop_gradient(
             batch.reward + self._gamma * max_next_q * (1.0 - done)
         )
 
         # Compute loss as mean squared error
-        loss = jnp.mean(optax.squared_error(q_values, TD_target))
+        loss = jnp.mean(optax.squared_error(q_values, q_target))
         step_outputs = _model.StepOutputs(scalars={"loss": loss})
 
         return loss, step_outputs
