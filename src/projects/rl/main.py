@@ -6,9 +6,9 @@
 # reference: https://arxiv.org/pdf/1312.5602
 # Double DQN: https://arxiv.org/pdf/1509.06461s
 ################################################
-# NOTE: the performance is not good (and the loss is not decreasing). The
-# testing rewards are approximately 80-200 (max reward is 500).
-# NOTE: will DQN encounters overfitting problem if trainning for too long?
+# NOTE: the performance is not stable due to the biased nature of the Q-learning. 
+# The reward curve can fluctuate a lot during training, and it can be hard to 
+# determine when the model is converged.
 # NOTE: usually 2x batch size we do 2x learning rate, and buffer capacity is
 # 10x of the batch size.
 
@@ -34,7 +34,8 @@ from src.projects.rl import replay_buffer as _buffer
 from src.projects.rl import structure as _struct
 from src.utilities import logging
 
-# Running flags
+
+# Running hyperparameters
 flags.DEFINE_integer(
     name="batch_size",
     default=512,
@@ -65,7 +66,48 @@ flags.DEFINE_bool(
     required=False,
     help="Whether to use Double DQN",
 )
-
+flags.DEFINE_float(
+    name="learning_rate",
+    default=1e-4,
+    required=False,
+    help="learning rate for training the DQN agent",
+)
+flags.DEFINE_integer(
+    name="buffer_capacity",
+    default=30000,
+    required=False,
+    help="Capacity of the replay buffer",
+)
+flags.DEFINE_float(
+    name="epsilon_start",
+    default=1.0, 
+    required=False,
+    help="Starting value of epsilon for epsilon-greedy policy",
+)
+flags.DEFINE_float(
+    name="epsilon_end",
+    default=0.01,
+    required=False,
+    help="Ending value of epsilon for epsilon-greedy policy",
+)
+flags.DEFINE_integer(
+    name="epsilon_decay_episodes",
+    default=3000,
+    required=False,
+    help="Number of episodes over which epsilon is decayed",
+)
+flags.DEFINE_integer(
+    name="target_update_freq",
+    default=3000,
+    required=False,
+    help="Target network update frequency (in steps)",
+)
+flags.DEFINE_float(
+    name="gamma",
+    default=0.99,
+    required=False,
+    help="Discount factor for future rewards",
+)
 
 # the training step function
 def train_step(
@@ -108,20 +150,6 @@ def train_step(
 
 def main(_: typing.List[str]) -> int:
     del _  # NOTE: unused arguments
-
-    # Example usage of the DQNModel class:
-    # TODO (yaguang): Move arguments to experiment configs
-    # Define Hyperparameters
-    learning_rate = 1e-4
-    buffer_capacity = 30000
-    # use annealing epsilon for better performance.
-    epsilon_start = 1.0
-    epsilon_end = 0.01
-    epsilon_decay_episodes = 5000
-
-    target_update_freq = 3000  # target network update frequency (in steps)
-    gamma = 0.99  # discount factor
-
     # Random keys for JAX
     rngs = jax.random.PRNGKey(0)
 
@@ -138,7 +166,7 @@ def main(_: typing.List[str]) -> int:
 
     # Create replay buffer
     replay_buffer = _buffer.ReplayBuffer(
-        capacity=buffer_capacity,
+        capacity=flags.FLAGS.buffer_capacity,
         state_size=state_size,
         action_size=action_size,
     )
@@ -147,7 +175,7 @@ def main(_: typing.List[str]) -> int:
     # For `jax.nn`, we need to initialize the parameters first.
     agent = _dqn.DQNModel(
         action_space_dim=env.action_space.n,  # type: ignore
-        gamma=gamma,
+        gamma=flags.FLAGS.gamma,
         use_double=flags.FLAGS.use_double,
     )
 
@@ -162,7 +190,7 @@ def main(_: typing.List[str]) -> int:
     # Create train state instance
     train_state = _train_state.TrainState.create(
         params=q_params,
-        tx=optax.adam(learning_rate=learning_rate),
+        tx=optax.adam(learning_rate=flags.FLAGS.learning_rate),
     )
 
     # log loss for analysis
@@ -180,7 +208,7 @@ def main(_: typing.List[str]) -> int:
     # Populates the replay buffer
     logging.rank_zero_info("Populating buffer...")
     state, info = env.reset()
-    for step in range(buffer_capacity):
+    for step in range(flags.FLAGS.buffer_capacity):
         sample_step_rng = jax.random.fold_in(buffer_rng, step)
         action = env.action_space.sample()
         next_state, reward, terminated, truncated, info = env.step(action)
@@ -205,8 +233,9 @@ def main(_: typing.List[str]) -> int:
         # done marks the end of each episode
         while not done:
             # Epsilon-greedy action selection
-            progress = min(1.0, episode / epsilon_decay_episodes)
-            epsilon = epsilon_start + progress * (epsilon_end - epsilon_start)
+            progress = min(1.0, episode / flags.FLAGS.epsilon_decay_episodes)
+            epsilon = flags.FLAGS.epsilon_start + progress * \
+                (flags.FLAGS.epsilon_end - flags.FLAGS.epsilon_start)
             sample_step_rng = jax.random.fold_in(sample_rng, train_state.step)
 
             if jax.random.uniform(key=sample_step_rng) < epsilon:
@@ -231,7 +260,7 @@ def main(_: typing.List[str]) -> int:
 
             # Sample a batch of experiences from the replay buffer and train
             # the agent
-            if len(replay_buffer) >= buffer_capacity:
+            if len(replay_buffer) >= flags.FLAGS.buffer_capacity:
                 sample_key = jax.random.fold_in(sample_rng, train_state.step)
                 batch = replay_buffer.sample(
                     key=sample_key,
@@ -249,7 +278,7 @@ def main(_: typing.List[str]) -> int:
                 episode_losses.append(loss)
 
                 # Update target network periodically
-                if train_state.step % target_update_freq == 0:
+                if train_state.step % flags.FLAGS.target_update_freq == 0:
                     target_params = copy.deepcopy(train_state.params)
                     logging.rank_zero_info("Target network synced!")
 
@@ -308,16 +337,18 @@ def main(_: typing.List[str]) -> int:
 
         # Log episode reward
         reward_log.append(episode_reward)
-        # logging.rank_zero_info(
-        #     "Episode %d | Episode Reward: %.2f | Episode Loss: %.4f | Epsilon: %.3f",
-        #     episode + 1,
-        #     episode_reward,
-        #     sum(episode_losses) / len(episode_losses) if episode_losses else 0.0,
-        #     epsilon,
-        # )
+        logging.rank_zero_info(
+            "Episode %d | Episode Reward: %.2f | Episode Loss: %.4f | "
+            "Epsilon: %.3f",
+            episode + 1,
+            episode_reward,
+            sum(episode_losses) / len(episode_losses) if episode_losses else 0.0,
+            epsilon,
+        )
 
     # When the trainning is done, save the serialized model parameters to a file
-    with open("dqn_model_params.msgpack", "wb") as f:
+    with open(os.path.join(flags.FLAGS.work_dir, "dqn_model_params.msgpack"), 
+              "wb") as f:
         f.write(serialization.msgpack_serialize(train_state.params))
 
     # Close the environment
