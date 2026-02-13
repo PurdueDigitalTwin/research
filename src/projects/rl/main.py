@@ -360,18 +360,14 @@ def main(argv: typing.List[str]) -> int:
 
         # Log episode reward
         reward_log.append(episode_reward)
-        logging.rank_zero_info(
-            "Episode %d | Episode Reward: %.2f | Episode Loss: %.4f | "
-            "Epsilon: %.3f",
-            episode + 1,
-            episode_reward,
-            (
-                sum(episode_losses) / len(episode_losses)
-                if episode_losses
-                else 0.0
-            ),
-            epsilon,
-        )
+        # logging.rank_zero_info(
+        #     "Episode %d | Episode Reward: %.2f | Episode Loss: %.4f | "
+        #     "Epsilon: %.3f",
+        #     episode + 1,
+        #     episode_reward,
+        #     sum(episode_losses) / len(episode_losses) if episode_losses else 0.0,
+        #     epsilon,
+        # )
 
     train_state = jax_utils.unreplicate(train_state)
     # When the trainning is done, save the serialized model parameters to a file
