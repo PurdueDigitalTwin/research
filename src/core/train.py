@@ -57,7 +57,6 @@ def run(
         typing.Callable[..., EVAL_STEP_OUTPUT]
     ] = None,
     log_every_n_steps: int = 50,
-    eval_every_n_steps: int = 1_000,
 ) -> int:
     r"""Runs training and evaluation loop with given model and dataloaders.
 
@@ -71,7 +70,6 @@ def run(
         evaluation_step (Optional[Callable]): Optional evaluation step function.
         evaluation_fn (Optional[Callable]): Optional evaluation function.
         log_every_n_steps (int): Frequency of logging. Default is `50`.
-        eval_every_n_steps (int): Frequency of evaluation. Default is `1000`.
 
     Returns:
         Integer status code.
@@ -111,8 +109,11 @@ def run(
         while step < num_train_steps:
             train_metrics = collections.defaultdict(list)
             for train_batch in datamodule.train_dataloader():
-                # evaluation and sanity check running
-                if step % eval_every_n_steps == 0 or step == num_train_steps:
+                # evaluation and checkpointing
+                if (
+                    step % checkpoint_every_n_steps == 0
+                    or step == num_train_steps
+                ):
                     logging.rank_zero_info("Running evaluation...")
                     eval_metrics = collections.defaultdict(list)
                     if p_evaluation_step is not None:
@@ -149,6 +150,41 @@ def run(
                         )
                         outputs = None
                     logging.rank_zero_info("Evaluation done.")
+
+                    logging.rank_zero_info("Checkpointing...")
+                    with jax.profiler.StepTraceAnnotation(
+                        name="checkpoint",
+                        step_num=step,
+                    ):
+                        state_to_save = jax.tree_util.tree_map(
+                            ocp_utils.fully_replicated_host_local_array_to_global_array,
+                            state,
+                        )
+
+                        if hasattr(state_to_save, "ema_params"):
+                            params = state_to_save.ema_params
+                            state_to_save = dataclasses.replace(
+                                state_to_save,
+                                ema_params={},
+                            )
+                        else:
+                            params = state_to_save.params
+                            state_to_save = dataclasses.replace(
+                                state_to_save,
+                                params={},
+                            )
+                        checkpoint_manager.save(
+                            step=state_to_save.step,
+                            items={"state": state_to_save, "params": params},
+                            metrics=eval_metrics,
+                            custom_metadata={
+                                "wandb_run_id": (
+                                    wandb.run.id
+                                    if wandb.run is not None
+                                    else None
+                                )
+                            },
+                        )
 
                     if isinstance(outputs, _model.StepOutputs):
                         if outputs.scalars is not None:
@@ -233,38 +269,6 @@ def run(
                 step += 1
                 if pbar is not None:
                     pbar.update(1)
-
-                # checkpointing
-                if (
-                    step % checkpoint_every_n_steps == 0
-                    or step >= num_train_steps
-                ):
-                    logging.rank_zero_info("Checkpointing...")
-                    with jax.profiler.StepTraceAnnotation(
-                        name="checkpoint",
-                        step_num=step,
-                    ):
-                        state_to_save = jax.tree_util.tree_map(
-                            ocp_utils.fully_replicated_host_local_array_to_global_array,
-                            state,
-                        )
-
-                        if hasattr(state_to_save, "ema_params"):
-                            params = state_to_save.ema_params
-                            state_to_save = dataclasses.replace(
-                                state_to_save,
-                                ema_params={},
-                            )
-                        else:
-                            params = state_to_save.params
-                            state_to_save = dataclasses.replace(
-                                state_to_save,
-                                params={},
-                            )
-                        checkpoint_manager.save(
-                            step=state_to_save.step,
-                            items={"state": state_to_save, "params": params},
-                        )
 
                 # break outer loop if reach max steps
                 if step >= num_train_steps:
