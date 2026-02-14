@@ -309,9 +309,12 @@ def train_and_evaluate(
         },
         options=ocp.CheckpointManagerOptions(
             max_to_keep=exp_config.trainer.max_checkpoints_to_keep,
-            create=True,
+            create=False,
             enable_async_checkpointing=False,
             cleanup_tmp_directories=True,
+            best_fn=lambda metric: metric["fid"],
+            best_mode="min",
+            multiprocessing_options=ocp.options.MultiprocessingOptions(),
         ),
     )
     if exp_config.trainer.checkpoint_every_n_steps is not None:
@@ -352,7 +355,6 @@ def train_and_evaluate(
             checkpoint_every_n_steps=checkpoint_every_n_steps,
             rng=rng,
             log_every_n_steps=exp_config.trainer.log_every_n_steps,
-            eval_every_n_steps=exp_config.trainer.eval_every_n_steps,
         )
     elif exp_config.mode == "evaluate":
         logging.rank_zero_error("Evaluation mode not implemented.")

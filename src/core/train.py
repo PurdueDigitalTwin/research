@@ -176,7 +176,10 @@ def run(
                         checkpoint_manager.save(
                             step=state_to_save.step,
                             items={"state": state_to_save, "params": params},
-                            metrics=eval_metrics,
+                            metrics={
+                                key: sum(value) / len(value)
+                                for key, value in eval_metrics.items()
+                            },
                             custom_metadata={
                                 "wandb_run_id": (
                                     wandb.run.id
