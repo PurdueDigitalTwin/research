@@ -13,11 +13,21 @@ class MlpPolicy(nn.Module):
 
     Attributes:
         features (int): Dimensionality of the hidden features.
+        out_features (int): Dimensionality of the output layer, typically 
+            equal to the action space dimension.
+        num_layers (int): Number of fully connected layers in the network.
+        activation_fn (typing.Callable): Activation function to apply after each
+            hidden layer.
+        dtype (Optional[typing.Any], optional): Data type for the network
+            computations. 
+        param_dtype (Optional[typing.Any], optional): Data type for the network
+            parameters.
     """
 
     features: int
     out_features: int
     num_layers: int
+    activation_fn: typing.Callable
     dtype: typing.Any = None
     param_dtype: typing.Any = None
 
@@ -29,7 +39,9 @@ class MlpPolicy(nn.Module):
             inputs (jax.Array): Input state array of shape `(*, D)`
 
         Returns:
-            Raw Q-values for all actions, with shape `(*, out_features)`
+            For DQN: Raw Q-values for all actions, with shape `(*, out_features)`
+            For PPO: Action probabilities for all actions, with shape 
+                `(*, out_features)`.
         """
         out = inputs.astype(self.dtype)
         for i in range(self.num_layers):
@@ -53,8 +65,7 @@ class MlpPolicy(nn.Module):
             )
             out = fc(out)
             if i != self.num_layers - 1:
-                out = jax.nn.relu(
-                    out
-                )  # apply relu activation function for hidden layers
+                # apply activation function for hidden layers
+                out = self.activation_fn(out)
 
         return out

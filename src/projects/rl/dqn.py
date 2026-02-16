@@ -38,6 +38,7 @@ class DQNModel(_model.Model):
             features=256,
             out_features=action_space_dim,
             num_layers=3,
+            activation_fn=jax.nn.relu,
         )
         self._use_double = use_double
 
