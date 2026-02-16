@@ -142,9 +142,12 @@ def train_step(
             deterministic=False,
         )
 
-    # Get gradients
+    # compute loss and gradients using JAX's automatic differentiation
     grads_fn = jax.value_and_grad(loss_fn, has_aux=True)
     (loss, _), grads = grads_fn(state.params)
+
+    # similar to "theta_new = theta_old - learning_rate * grad" 
+    # in vanilla gradient descent
     new_state = state.apply_gradients(grads=grads)
 
     return new_state, loss
