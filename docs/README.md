@@ -9,6 +9,10 @@ A monolithic source code repository designed for multi-language, multi-platform,
 * Python 3.x
 * A compatible accelerator driver (CUDA for NVIDIA, or standard drivers for MPS/TPU)
 
+## Project Structure
+The repository structure is shown here:
+
+```text
 .
 ├── CODEOWNERS             # definition of code ownership and review gates
 ├── MODULE.bazel           # Bazel module definitions and dependency locking
@@ -23,3 +27,4 @@ A monolithic source code repository designed for multi-language, multi-platform,
     ├── requirements.in    # Base Python dependencies
     ├── requirements_*.in  # Hardware-specific dependencies (CUDA, MPS, TPU)
     └── defs.bzl           # Custom Bazel definitions for third-party tools
+```
