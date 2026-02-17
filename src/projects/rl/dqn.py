@@ -107,6 +107,7 @@ class DQNModel(_model.Model):
             Q-values for the given state.
         """
         del deterministic, kwargs, rngs
+        
         out = self.network.apply(params, batch.state)
         assert isinstance(out, jax.Array)
 

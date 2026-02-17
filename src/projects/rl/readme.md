@@ -1,6 +1,6 @@
 # How to run DQN:
 
-### Navigate to the root directory (research)
+### Navigate to the root directory
 
 cd ~/Desktop/research
 

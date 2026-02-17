@@ -11,12 +11,13 @@ import optax
 import typing_extensions
 
 from src.core import model as _model
+from src.utilities import logging
 from src.projects.rl import policy
 from src.projects.rl import structure as _structure
 
 
 # create a PPO model calss by extending the base Model class
-class PPO(_model.Model):
+class PPOModel(_model.Model):
     r"""PPO model class."""
 
     @typing_extensions.override
@@ -24,10 +25,10 @@ class PPO(_model.Model):
         self,
         action_space_dim: int,
         gamma: float,
-        lambda_gae: float = 0.95,
-        clip_epsilon: float = 0.2,
-        value_coeff: float = 0.5,
-        entropy_coeff: float = 0.0,
+        lambda_gae: float,
+        clip_epsilon: float,
+        value_coeff: float,
+        entropy_coeff: float,
     ) -> None:
         r""" Instantiates a PPO model.
         
@@ -52,7 +53,7 @@ class PPO(_model.Model):
 
         # according to the original paper, the policy has two hidden layers with 
         # 64 units each and tanh activation function.
-        self._network = policy.MlpPolicy(
+        self._network = policy.ActorCriticPolicy(
             features=64,
             out_features=action_space_dim,
             num_layers=2,
@@ -63,13 +64,13 @@ class PPO(_model.Model):
 
     @property
     @typing_extensions.override
-    def network(self) -> policy.MlpPolicy:
+    def network(self) -> policy.ActorCriticPolicy:
         r"""Returns the policy network instance.
 
         Args:
             None.
         Returns:
-            policy.MlpPolicy: The policy network instance.
+            policy.ActorCriticPolicy: The policy network instance.
         """
 
         return self._network
@@ -108,13 +109,42 @@ class PPO(_model.Model):
         return params
     
     @typing_extensions.override
-    def loss_fn(
+    def forward(
+        self,
+        *,
+        batch: _structure.StepTuple,
+        params: jaxtyping.PyTree,
+        rngs: typing.Any = None,
+        **kwargs,
+    ) -> jax.Array:
+        r"""Computes action probabilities for the given state.
+        
+        Args:
+            batch (StepTuple): State transition observation.
+            params (PyTree): Current parameters of the policy network.
+            rngs (jax.random.PRNGKey, optional): Random number generator key for
+                stochastic operations. Default is ``None``.
+            **kwargs: Keyword arguments consumed by the model.
+
+        Returns:
+            Action probabilities for the given state.
+        """
+        del kwargs
+        
+        logits, values = self._network.apply(params, batch.state, rngs=rngs)
+        assert isinstance(logits, jax.Array)
+
+        return logits, values
+    
+    @typing_extensions.override
+    def compute_loss(
         self,
         params: jaxtyping.PyTree,
         batch: _structure.StepTuple,
-        old_action_probs: jax.Array,
+        log_old_act_probs: jax.Array,
         advantages: jax.Array,
-        deterministic: bool = False,
+        value_targets: jax.Array,
+        rngs: typing.Any,
         **kwargs,
     ) -> jax.Array:
         r"""Computes the PPO surrogate loss.
@@ -122,33 +152,43 @@ class PPO(_model.Model):
         Args:
             params (PyTree): Current parameters of the policy network.
             batch (StepTuple): A batch of state transitions for loss computation.
-            old_action_probs (jax.Array): Action probabilities of the old policy.
+            log_old_act_probs (jax.Array): Log action probabilities of the old 
+                policy.
             advantages (jax.Array): Computed advantages for each transition in 
                 the batch.
+            rngs (jax.random.PRNGKey): Random number generator key for stochastic
+                operations.
             deterministic (bool, optional): Whether to compute loss in 
                 deterministic mode (i.e., no sampling from the policy).
 
         Returns:
             jax.Array: The computed PPO surrogate loss.
         """
-        del deterministic, kwargs
+        del kwargs
 
         # Compute the current policy's action probabilities
-        action_probs = self._network.apply(params, batch.state)
+        logits, values = self._network.apply(params, batch.state, rngs=rngs)
 
-        # Compute the probability of the taken actions under the current policy
-        action_indices = jnp.arange(batch.action.shape[0]), \
-            batch.action.astype(jnp.int32)
-        current_action_probs = action_probs[action_indices]
+        # Apply log softmax to get action probabilities
+        # dimension: (batch_size, action_space_dim)
+        curr_log_probs = jax.nn.log_softmax(logits)
+
+        # Gather the log probabilities of the actions taken in the batch
+        # dimension: (batch_size,)
+        log_prob_taken = jnp.take_along_axis(
+            curr_log_probs, batch.action.astype(jnp.int32)[..., None], axis=-1
+        ).squeeze(axis=-1)
+
+        log_old_prob_taken = jnp.take_along_axis(
+            log_old_act_probs, batch.action.astype(jnp.int32)[..., None], axis=-1
+        ).squeeze(axis=-1)
 
         # Compute the ratio of current to old action probabilities
-        assert old_action_probs.shape == current_action_probs.shape, \
-            "Shape of old_action_probs and current_action_probs must match."
-        old_action_probs = jnp.clip(old_action_probs, 1e-8, 1.0)  
-        ratios = current_action_probs / (old_action_probs + 1e-8)
+        ratios = jnp.exp(log_prob_taken - log_old_prob_taken)
 
-        # NOTE: clip the advantages for stability. Should I do this?
-        advantages = jnp.clip(advantages, -10.0, 10.0)
+        # Normalize the advantages (not mention by the reference)
+        advantages = (advantages - jnp.mean(advantages)) / \
+            (jnp.std(advantages) + 1e-8)
 
         # Compute the surrogate loss L^CLIP
         clip_epsilon = self._clip_epsilon
@@ -156,21 +196,23 @@ class PPO(_model.Model):
             ratios * advantages,
             jnp.clip(ratios, 1.0 - clip_epsilon, 1.0 + clip_epsilon) * advantages,
         )
-
-        # compute values of the current and next state
-        values = self._network.apply(params, batch.state)
-        next_values = self._network.apply(params, batch.next_state)
+        
+        # Average the surrogate loss over the batch data
+        surrogate_loss = jnp.mean(surrogate_loss)
 
         # Compute the Value Function loss L^VF
-        value_targets = lax.stop_gradient(batch.reward + self._gamma * \
-                                          next_values * (1.0 - batch.done))
+        # NOTE: when should I add stop_gradient
+        value_targets = lax.stop_gradient(value_targets)
+        
+        # Average the value loss over the batch data
         value_loss = jnp.mean(optax.squared_error(values, value_targets))
 
         # According to the original paper, they don't use an entropy bonus
         entropy_bonus = 0.0
 
-        # we need to maximize the surrogate total loss
-        # NOTE: should I mean the surrogate loss?
-        total_loss = -jnp.mean(surrogate_loss) + self._value_coeff * \
-            value_loss - self._entropy_coeff * entropy_bonus
+        # We want to minimize the surrogate total loss
+        total_loss = -surrogate_loss + self._value_coeff * value_loss - \
+            self._entropy_coeff * entropy_bonus
+        
+        assert isinstance(total_loss, jax.Array)
         return total_loss

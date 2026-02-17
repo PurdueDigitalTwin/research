@@ -6,10 +6,10 @@
 # reference: https://arxiv.org/pdf/1312.5602
 # Double DQN: https://arxiv.org/pdf/1509.06461s
 ################################################
-# NOTE: the performance is not stable due to the biased nature of the Q-learning. 
+# Note: the performance is not stable due to the biased nature of the Q-learning. 
 # The reward curve can fluctuate a lot during training, and it can be hard to 
 # determine when the model is converged.
-# NOTE: usually 2x batch size we do 2x learning rate, and buffer capacity is
+# Note: usually 2x batch size we do 2x learning rate, and buffer capacity is
 # 10x of the batch size.
 
 
@@ -120,10 +120,14 @@ def train_step(
     r"""Performs a single training step.
 
     Args:
-        params (jax.Array): Current agent parameters.
-        target_params (jax.Array): Target network parameters.
-        batch (StepTuple): Batch of experiences.
-        rngs (jax.random.PRNGKey): Random number generator key.
+        rngs (jax.Array): Random number generator keys for stochastic operations.
+        state (_train_state.TrainState): Current training state containing model
+            parameters and optimizer state.
+        agent (_model.Model): The DQN model instance to be trained.
+        target_params (jax.Array): Parameters of the target Q-network for
+            computing target Q-values.
+        batch (_struct.StepTuple): A batch of experience tuples containing states,
+            actions, rewards, next states, and done flags.
 
     Returns:
         A tuple of updated training state and loss value.
