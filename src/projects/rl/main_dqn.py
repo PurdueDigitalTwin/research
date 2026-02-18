@@ -271,9 +271,18 @@ def main(argv: typing.List[str]) -> int:
             train_step_cntr = int(jax.device_get(train_state.step)[0])
 
             # Epsilon-greedy action selection
+<<<<<<< HEAD
             progress = min(1.0, episode / epsilon_decay_episodes)
             epsilon = epsilon_start + progress * (epsilon_end - epsilon_start)
             sample_step_rng = jax.random.fold_in(sample_rng, train_step_cntr)
+=======
+            progress = min(1.0, episode / flags.FLAGS.epsilon_decay_episodes)
+            epsilon = flags.FLAGS.epsilon_start + progress * \
+                (flags.FLAGS.epsilon_end - flags.FLAGS.epsilon_start)
+            
+            # Sample a random number to decide whether to explore or exploit
+            sample_step_rng = jax.random.fold_in(sample_rng, train_state.step)
+>>>>>>> 9df9e51 (feat: add discrete ppo)
 
             if jax.random.uniform(key=sample_step_rng) < epsilon:
                 # Exploration: random action
