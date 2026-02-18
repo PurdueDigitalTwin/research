@@ -116,8 +116,8 @@ class PPOModel(_model.Model):
         params: jaxtyping.PyTree,
         rngs: typing.Any = None,
         **kwargs,
-    ) -> jax.Array:
-        r"""Computes action probabilities for the given state.
+    ) -> typing.Tuple[jax.Array, jax.Array]:
+        r"""Forward pass the policy network to compute action logits and state value.
         
         Args:
             state (jax.Array): Input state array of shape `(*, D)`.
@@ -127,12 +127,13 @@ class PPOModel(_model.Model):
             **kwargs: Keyword arguments consumed by the model.
 
         Returns:
-            Action probabilities for the given state.
+            Action logits and state values for the given state.
         """
         del kwargs
         
         logits, values = self._network.apply(params, rngs=rngs, inputs=state)
         assert isinstance(logits, jax.Array)
+        assert isinstance(values, jax.Array)
 
         return logits, values
     
@@ -148,7 +149,7 @@ class PPOModel(_model.Model):
         value_targets: jax.Array,
         rngs: typing.Any,
         **kwargs,
-    ) -> jax.Array:
+    ) -> typing.Tuple[jax.Array, _model.StepOutputs]:
         r"""Computes the PPO surrogate loss.
 
         Args:
@@ -172,6 +173,9 @@ class PPOModel(_model.Model):
 
         # Compute the current policy's action probabilities
         logits, values = self._network.apply(params, rngs=rngs, inputs=state)
+
+        assert isinstance(logits, jax.Array)
+        assert isinstance(values, jax.Array)
 
         # Squeeze values to match the shape of value_targets (rollout_steps,)
         # This prevents optax.squared_error from broadcasting into an N x N matrix
@@ -221,4 +225,7 @@ class PPOModel(_model.Model):
             self._entropy_coeff * entropy_bonus
         
         assert isinstance(total_loss, jax.Array)
-        return total_loss
+
+        step_outputs = _model.StepOutputs(scalars={"loss": total_loss})
+
+        return total_loss, step_outputs

@@ -212,7 +212,7 @@ def train_step(
     local_rngs = jax.random.fold_in(rngs, train_state.step)
 
     # Compute the loss and gradients
-    def loss_fn(params: jaxtyping.PyTree) -> jax.Array:
+    def loss_fn(params: jaxtyping.PyTree) -> tuple[jax.Array, _model.StepOutputs]:
         return agent.compute_loss(
             state=state,
             action=action,
@@ -224,8 +224,8 @@ def train_step(
         )
 
     # Compute gradients of the loss with respect to the model parameters
-    grad_fn = jax.value_and_grad(loss_fn, has_aux=False)
-    loss, grads = grad_fn(train_state.params)
+    grads_fn = jax.value_and_grad(loss_fn, has_aux=False)
+    loss, grads = grads_fn(train_state.params)
 
     # similar to "theta_new = theta_old - learning_rate * grad" 
     # in vanilla gradient descent
@@ -233,13 +233,19 @@ def train_step(
     return new_train_state, loss
 
 
-def main(argv: typing.List[str]) -> None:
+def main(argv: typing.List[str]) -> int:
     r"""Main function to set up the environment, model, and training loop for PPO.
+    
+    Note: 
+        This function initializes the CartPole environment, sets up the PPO model,
+        and runs the main training loop where it collects rollouts, computes GAE, 
+        and updates the PPO model using the collected data. It also logs training
+        progress and saves the trained model parameters and loss curves at the end.
 
     Args:
         argv (List[str]): Command-line arguments (not used in this implementation).
     Returns:
-        None.
+        int: Exit code (0 for success).
     """
     del argv  # Unused.
 
@@ -249,7 +255,11 @@ def main(argv: typing.List[str]) -> None:
     # Create the CartPole environment
     env = gym.make("CartPole-v1")
     state_shape = env.observation_space.shape
+
+    # NOTE: For now we use a discrete action space
+    assert isinstance(env.action_space, gym.spaces.Discrete)
     action_shape = env.action_space.n
+
     logging.rank_zero_info(
         "Initialized environment %s with state size %r and action size %r.",
         env.__class__.__name__,
@@ -259,7 +269,7 @@ def main(argv: typing.List[str]) -> None:
 
     # Initialize the PPO policy network
     agent = ppo.PPOModel(
-        action_space_dim=action_shape,
+        action_space_dim=action_shape.astype(int),
         gamma=flags.FLAGS.gamma,
         clip_epsilon=flags.FLAGS.clip_epsilon,
         lambda_gae=flags.FLAGS.lambda_gae,
@@ -269,7 +279,7 @@ def main(argv: typing.List[str]) -> None:
 
     # Initialize agent parameters
     rngs, init_rng = jax.random.split(rngs)
-
+    assert state_shape is not None
     params = agent.init(
         state=jnp.zeros((1, *state_shape)),
         rngs=init_rng,
@@ -335,13 +345,21 @@ def main(argv: typing.List[str]) -> None:
             rollout_values.append(value)
             rollout_log_probs.append(log_prob)
 
-            current_ep_reward += reward
+            current_ep_reward += float(reward)
             state = next_state
 
             if done:
                 state, _ = env.reset()
                 episode_rewards.append(current_ep_reward)
                 current_ep_reward = 0.0
+
+        # Convert lists to JAX arrays
+        states_arr = jnp.array(rollout_states)
+        actions_arr = jnp.array(rollout_actions)
+        rewards_arr = jnp.array(rollout_rewards)
+        dones_arr = jnp.array(rollout_dones)
+        values_arr = jnp.array(rollout_values)
+        log_probs_arr = jnp.array(rollout_log_probs)
 
         # GAE: compute advantages and value targets for the collected rollout data
         # logging.rank_zero_info("Computing GAE for episode %d", episode)
@@ -353,14 +371,6 @@ def main(argv: typing.List[str]) -> None:
             params=train_state.params,
             rngs=eval_rng,
         )
-
-        # Convert lists to JAX arrays
-        states_arr = jnp.array(rollout_states)
-        actions_arr = jnp.array(rollout_actions)
-        rewards_arr = jnp.array(rollout_rewards)
-        dones_arr = jnp.array(rollout_dones)
-        values_arr = jnp.array(rollout_values)
-        log_probs_arr = jnp.array(rollout_log_probs)
 
         # Compute advantages and value targets
         advantages, value_targets = compute_gae(
