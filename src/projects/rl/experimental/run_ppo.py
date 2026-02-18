@@ -141,38 +141,31 @@ def compute_gae(
     dones = jnp.squeeze(dones)
     next_value = jnp.squeeze(next_value)
 
-    # -------------------------------------------------------------------------
-    # Equation 12: \delta_t = r_t + \gamma V(s_{t+1}) - V(s_t)
-    # -------------------------------------------------------------------------
-    # Shift values by 1 to represent V(s_{t+1}) and append the final next_value
+    # Append the next_value to our array of values so we can access V(s_{t+1})
     next_values = jnp.append(values[1:], next_value)
     
-    # Calculate delta for the whole batch. 
-    # We multiply by (1.0 - dones) so V(s_{t+1}) is 0 if the episode ended.
-    deltas = rewards + gamma * next_values * (1.0 - dones) - values
-
-    # -------------------------------------------------------------------------
-    # Equation 11: \hat{A}_t = \delta_t + (\gamma \lambda)\delta_{t+1} + ...
-    # -------------------------------------------------------------------------
-    # This sum can be computed efficiently as a backward recurrence:
-    # \hat{A}_t = \delta_t + (\gamma \lambda) * \hat{A}_{t+1}
-    def scan_fn(gae_carry: jax.Array, transition: typing.Tuple) -> typing.Tuple[jax.Array, jax.Array]:
-        delta, done = transition
+    # We scan backwards through the trajectory
+    def scan_fn(gae_carry: jax.Array, transition: typing.Tuple) -> \
+        typing.Tuple[jax.Array, jax.Array]:
+        reward, value, next_val, done = transition
         
-        # If the episode ended (done=1.0), the advantage chain breaks (carry becomes 0)
+        # Temporal Difference Error: delta = r + gamma * V(s') * (1 - done) - V(s)
+        delta = reward + gamma * next_val * (1.0 - done) - value
+        
+        # GAE: A = delta + gamma * lambda * (1 - done) * A_{t+1}
         gae = delta + gamma * lambda_gae * (1.0 - done) * gae_carry
         return gae, gae
 
-    # Initialize the carry strictly as a float32 scalar
+    transitions = (rewards, values, next_values, dones)
+    
+    # Initialize the carry strictly as a float32 scalar to match the squeezed logic
     init_carry = jnp.array(0.0, dtype=jnp.float32)
     
-    # Run jax.lax.scan backward through the deltas
-    _, advantages = lax.scan(scan_fn, init_carry, (deltas, dones), reverse=True)
+    # Run lax.scan in reverse
+    _, advantages = lax.scan(scan_fn, init_carry, transitions, reverse=True)
     
-    # -------------------------------------------------------------------------
-    # Compute Value Targets (Returns)
-    # -------------------------------------------------------------------------
-    # V_{target} = Advantage + V(s_t)
+    # By definition the advangate is the difference between the value target 
+    # and the value estimate
     value_targets = advantages + values
     
     return advantages, value_targets
@@ -224,8 +217,8 @@ def train_step(
         )
 
     # Compute gradients of the loss with respect to the model parameters
-    grads_fn = jax.value_and_grad(loss_fn, has_aux=False)
-    loss, grads = grads_fn(train_state.params)
+    grads_fn = jax.value_and_grad(loss_fn, has_aux=True)
+    (loss, _), grads = grads_fn(train_state.params)
 
     # similar to "theta_new = theta_old - learning_rate * grad" 
     # in vanilla gradient descent
@@ -292,7 +285,8 @@ def main(argv: typing.List[str]) -> int:
     )
 
     # Log loss and rewards during training
-    loss_log, reward_log = [], []
+    loss_log = []
+    reward_log = []
 
     # Create two independent random keys for and training and sampling
     rngs, train_rng, sample_rng, eval_rng = jax.random.split(rngs, num=4)
@@ -308,9 +302,6 @@ def main(argv: typing.List[str]) -> int:
         state, _ = env.reset()
         done = False
 
-        episode_rewards = []
-        current_ep_reward = 0.0
-
         # Rollout: collect experience by interacting with the environment 
         # using the current policy
         # logging.rank_zero_info("Collecting rollout data for episode %d", episode)
@@ -318,7 +309,7 @@ def main(argv: typing.List[str]) -> int:
         rollout_states, rollout_actions, rollout_rewards = [], [], []
         rollout_dones, rollout_values, rollout_log_probs = [], [], []
 
-        for step in range(flags.FLAGS.rollout_steps):
+        for _ in range(flags.FLAGS.rollout_steps):
 
             # Evaluate current policy
             logits, value = p_eval_step(
@@ -345,13 +336,10 @@ def main(argv: typing.List[str]) -> int:
             rollout_values.append(value)
             rollout_log_probs.append(log_prob)
 
-            current_ep_reward += float(reward)
             state = next_state
 
             if done:
                 state, _ = env.reset()
-                episode_rewards.append(current_ep_reward)
-                current_ep_reward = 0.0
 
         # Convert lists to JAX arrays
         states_arr = jnp.array(rollout_states)
@@ -365,7 +353,6 @@ def main(argv: typing.List[str]) -> int:
         # logging.rank_zero_info("Computing GAE for episode %d", episode)
 
         # Get value of the state that follows the rollout
-        # TODO: check this logic
         _, next_value = p_eval_step(
             state=state,
             params=train_state.params,
@@ -386,6 +373,7 @@ def main(argv: typing.List[str]) -> int:
         # computed advantages
         # logging.rank_zero_info("Updating PPO model for episode %d", episode)
         # Train on the collected rollout data
+        # TODO: train for K epochs with mini-batches M <= NT
         train_state, loss = p_train_step(
             rngs=train_rng,
             train_state=train_state,
@@ -399,15 +387,34 @@ def main(argv: typing.List[str]) -> int:
 
         # Logging
         loss_log.append(float(loss))
-        mean_reward = jnp.mean(jnp.array(episode_rewards))
-        reward_log.append(mean_reward)
 
         if episode % 10 == 0:
+            eval_env = gym.make("CartPole-v1")
+
+            for _ in range(5):
+                state, _ = eval_env.reset()
+                done = False
+                episode_reward = 0.0
+
+                while not done:
+                    logits, _ = p_eval_step(
+                        state=state,
+                        params=train_state.params,
+                        rngs=eval_rng,
+                    )
+                    action = jnp.argmax(logits)
+                    state, reward, terminated, truncated, _ = \
+                        eval_env.step(int(action))
+                    done = terminated or truncated
+                    episode_reward += float(reward)
+
+                reward_log.append(episode_reward)
+
             logging.rank_zero_info(
-                "Episode %d: Loss = %.4f, Mean Episode Reward = %.2f",
+                "Episode %d: Loss = %.4f, Eval Reward = %.2f",
                 episode,
                 loss,
-                mean_reward,
+                float(jnp.mean(jnp.array(reward_log))) if reward_log else 0.0,
             )
     
     # When the trainning is done, save the serialized model parameters to a file
