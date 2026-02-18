@@ -79,14 +79,14 @@ class PPOModel(_model.Model):
     def init(
         self,
         *,
-        batch: _structure.StepTuple,
+        state: jax.Array,
         rngs: typing.Any,
         **kwargs,
     ) -> jaxtyping.PyTree:
         r"""Initializes policy network parameters.
 
         Args:
-            batch (StepTuple): A sample of state transition for initialization.
+            state (jax.Array): A sample state input for initialization.
             rngs (jax.random.PRNGKey): Random number generator key.
 
         Returns:
@@ -94,7 +94,7 @@ class PPOModel(_model.Model):
         """
         del kwargs
 
-        params = self._network.init(rngs, batch.state)
+        params = self.network.init(rngs, state)
 
         # We may need to print the model summary for analysis.
         # Note that each layer has its own kernel matrix and bias vector (if
@@ -104,7 +104,7 @@ class PPOModel(_model.Model):
             rngs,
             console_kwargs=dict(width=120),
         )
-        print(_tabulate_fn(batch.state))
+        print(_tabulate_fn(state))
 
         return params
     
@@ -112,7 +112,7 @@ class PPOModel(_model.Model):
     def forward(
         self,
         *,
-        batch: _structure.StepTuple,
+        state: jax.Array,
         params: jaxtyping.PyTree,
         rngs: typing.Any = None,
         **kwargs,
@@ -120,7 +120,7 @@ class PPOModel(_model.Model):
         r"""Computes action probabilities for the given state.
         
         Args:
-            batch (StepTuple): State transition observation.
+            state (jax.Array): Input state array of shape `(*, D)`.
             params (PyTree): Current parameters of the policy network.
             rngs (jax.random.PRNGKey, optional): Random number generator key for
                 stochastic operations. Default is ``None``.
@@ -131,7 +131,7 @@ class PPOModel(_model.Model):
         """
         del kwargs
         
-        logits, values = self._network.apply(params, batch.state, rngs=rngs)
+        logits, values = self._network.apply(params, rngs=rngs, inputs=state)
         assert isinstance(logits, jax.Array)
 
         return logits, values
@@ -139,8 +139,10 @@ class PPOModel(_model.Model):
     @typing_extensions.override
     def compute_loss(
         self,
+        *,
+        state: jax.Array,
+        action: jax.Array,
         params: jaxtyping.PyTree,
-        batch: _structure.StepTuple,
         log_old_act_probs: jax.Array,
         advantages: jax.Array,
         value_targets: jax.Array,
@@ -150,12 +152,14 @@ class PPOModel(_model.Model):
         r"""Computes the PPO surrogate loss.
 
         Args:
+            state (jax.Array): Input state array of shape `(*, D)`.
+            action (jax.Array): Actions taken in the rollout, with shape `(*,)` 
+                where each entry is an integer representing the action index.
             params (PyTree): Current parameters of the policy network.
-            batch (StepTuple): A batch of state transitions for loss computation.
             log_old_act_probs (jax.Array): Log action probabilities of the old 
                 policy.
             advantages (jax.Array): Computed advantages for each transition in 
-                the batch.
+                the rollout.
             rngs (jax.random.PRNGKey): Random number generator key for stochastic
                 operations.
             deterministic (bool, optional): Whether to compute loss in 
@@ -167,24 +171,26 @@ class PPOModel(_model.Model):
         del kwargs
 
         # Compute the current policy's action probabilities
-        logits, values = self._network.apply(params, batch.state, rngs=rngs)
+        logits, values = self._network.apply(params, rngs=rngs, inputs=state)
+
+        # Squeeze values to match the shape of value_targets (rollout_steps,)
+        # This prevents optax.squared_error from broadcasting into an N x N matrix
+        values = values.squeeze(axis=-1)
 
         # Apply log softmax to get action probabilities
-        # dimension: (batch_size, action_space_dim)
+        # dimension: (rollout_steps, action_space_dim)
         curr_log_probs = jax.nn.log_softmax(logits)
 
-        # Gather the log probabilities of the actions taken in the batch
-        # dimension: (batch_size,)
-        log_prob_taken = jnp.take_along_axis(
-            curr_log_probs, batch.action.astype(jnp.int32)[..., None], axis=-1
-        ).squeeze(axis=-1)
-
-        log_old_prob_taken = jnp.take_along_axis(
-            log_old_act_probs, batch.action.astype(jnp.int32)[..., None], axis=-1
+        # Gather the log probabilities of the actions taken in the rollout
+        # dimension: (rollout_steps,)
+        log_act_probs = jnp.take_along_axis(
+            curr_log_probs, 
+            action.astype(jnp.int32)[..., None],
+            axis=-1
         ).squeeze(axis=-1)
 
         # Compute the ratio of current to old action probabilities
-        ratios = jnp.exp(log_prob_taken - log_old_prob_taken)
+        ratios = jnp.exp(log_act_probs - log_old_act_probs)
 
         # Normalize the advantages (not mention by the reference)
         advantages = (advantages - jnp.mean(advantages)) / \
@@ -197,14 +203,14 @@ class PPOModel(_model.Model):
             jnp.clip(ratios, 1.0 - clip_epsilon, 1.0 + clip_epsilon) * advantages,
         )
         
-        # Average the surrogate loss over the batch data
+        # Average the surrogate loss over the rollout steps
         surrogate_loss = jnp.mean(surrogate_loss)
 
         # Compute the Value Function loss L^VF
         # NOTE: when should I add stop_gradient
         value_targets = lax.stop_gradient(value_targets)
         
-        # Average the value loss over the batch data
+        # Average the value loss over the rollout steps
         value_loss = jnp.mean(optax.squared_error(values, value_targets))
 
         # According to the original paper, they don't use an entropy bonus

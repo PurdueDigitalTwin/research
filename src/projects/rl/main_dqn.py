@@ -243,6 +243,8 @@ def main(_: typing.List[str]) -> int:
             progress = min(1.0, episode / flags.FLAGS.epsilon_decay_episodes)
             epsilon = flags.FLAGS.epsilon_start + progress * \
                 (flags.FLAGS.epsilon_end - flags.FLAGS.epsilon_start)
+            
+            # Sample a random number to decide whether to explore or exploit
             sample_step_rng = jax.random.fold_in(sample_rng, train_state.step)
 
             if jax.random.uniform(key=sample_step_rng) < epsilon:
