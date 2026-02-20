@@ -208,14 +208,18 @@ class PPOModel(_model.Model):
         )
         
         # Average the surrogate loss over the rollout steps
-        surrogate_loss = jnp.mean(surrogate_loss)
+        surrogate_loss = -jnp.mean(surrogate_loss)
 
         # Compute the Value Function loss L^VF
         # NOTE: when should I add stop_gradient
         value_targets = lax.stop_gradient(value_targets)
+
+        logging.rank_zero_info(f"values shape, value_targets shape: \
+                               {values.shape}, {value_targets.shape}")
         
         # Average the value loss over the rollout steps
         value_loss = jnp.mean(optax.squared_error(values, value_targets))
+        value_loss = self._value_coeff * value_loss
 
         # According to the original paper, they don't use an entropy bonus
         # entropy_bonus = jnp.mean(-jnp.sum(jnp.exp(curr_log_probs) * \
@@ -223,11 +227,19 @@ class PPOModel(_model.Model):
         entropy_bonus = 0.0
 
         # We want to minimize the surrogate total loss
-        total_loss = -surrogate_loss + self._value_coeff * value_loss - \
-            self._entropy_coeff * entropy_bonus
-        
-        assert isinstance(total_loss, jax.Array)
+        # total_loss = -surrogate_loss + value_loss
 
-        step_outputs = _model.StepOutputs(scalars={"loss": total_loss})
+        assert isinstance(surrogate_loss, jax.Array)
+        assert isinstance(value_loss, jax.Array)
+
+        total_loss = surrogate_loss + value_loss
+
+        step_outputs = _model.StepOutputs(
+            scalars=dict(
+                loss=total_loss.mean(),
+                surrogate_loss=surrogate_loss.mean(),
+                value_loss=value_loss.mean(),
+            )
+        )
 
         return total_loss, step_outputs
