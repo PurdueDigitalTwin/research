@@ -56,7 +56,7 @@ flags.DEFINE_integer(
 )
 flags.DEFINE_integer(
     name="rollout_steps",
-    default=128,
+    default=2048,
     required=False,
     help="Number of steps to collect in each rollout phase before updating the " \
     "PPO model.",
@@ -130,6 +130,7 @@ def compute_gae(
 
     # Squeeze all inputs to ensure they are strictly 1D arrays (T,)
     # This prevents shape broadcasting errors inside lax.scan
+    # NOTE: check the value target. Is it TD target?
     rewards = jnp.squeeze(rewards)
     values = jnp.squeeze(values)
     dones = jnp.squeeze(dones)
@@ -163,7 +164,16 @@ def compute_gae(
     
     # By definition the advangate is the difference between the value target 
     # and the value estimate
-    value_targets = advantages + values
+    def scan_value_target_fn(value_target_carry: jax.Array, transition: \
+                             typing.Tuple) -> typing.Tuple[jax.Array, jax.Array]:
+        reward, _, _, done = transition
+
+        value_target = reward + gamma * (1 - done) * value_target_carry
+        return value_target_carry, value_target
+    
+    init_carry = rewards[-1]
+    _, value_targets = lax.scan(scan_value_target_fn, init_carry, transitions, 
+                                reverse=True)
     
     return advantages, value_targets
 
@@ -215,12 +225,12 @@ def train_step(
 
     # Compute gradients of the loss with respect to the model parameters
     grads_fn = jax.value_and_grad(loss_fn, has_aux=True)
-    (loss, _), grads = grads_fn(train_state.params)
+    (_, step_outputs), grads = grads_fn(train_state.params)
 
     # similar to "theta_new = theta_old - learning_rate * grad" 
     # in vanilla gradient descent
     new_train_state = train_state.apply_gradients(grads=grads)
-    return new_train_state, loss
+    return new_train_state, step_outputs    
 
 
 def main(argv: typing.List[str]) -> int:
@@ -283,6 +293,8 @@ def main(argv: typing.List[str]) -> int:
     )
 
     # Log loss and rewards during training
+    surrogate_loss_log = []
+    value_loss_log = []
     loss_log = []
     reward_log = []
 
@@ -372,11 +384,13 @@ def main(argv: typing.List[str]) -> int:
         # computed advantages
         # logging.rank_zero_info("Updating PPO model for episode %d", episode)
         
+        episode_surrogate_loss = []
+        episode_value_loss = []
         episode_loss = []
         
         # TODO: sample mini-batches M <= NT
         for k in range(5):
-            train_state, loss = p_train_step(
+            train_state, step_outputs = p_train_step(
                 rngs=train_rng,
                 train_state=train_state,
                 agent=agent,
@@ -386,10 +400,17 @@ def main(argv: typing.List[str]) -> int:
                 value_targets=value_targets,
                 advantages=advantages,
             )
-            episode_loss.append(loss)
+            episode_surrogate_loss.append(float(step_outputs.scalars["surrogate_loss"]))
+            episode_value_loss.append(float(step_outputs.scalars["value_loss"]))
+            episode_loss.append(step_outputs.scalars["loss"])
 
         # Logging
+        mean_episode_surrogate_loss = jnp.mean(jnp.array(episode_surrogate_loss))
+        mean_episode_value_loss = jnp.mean(jnp.array(episode_value_loss))
         mean_episode_loss = jnp.mean(jnp.array(episode_loss))
+
+        surrogate_loss_log.append(float(mean_episode_surrogate_loss))
+        value_loss_log.append(float(mean_episode_value_loss))
         loss_log.append(float(mean_episode_loss))
 
         # Evaluate the current policy every 10 episodes by running it in the 
@@ -422,8 +443,11 @@ def main(argv: typing.List[str]) -> int:
             reward_log.append(float(mean_eval_reward))
 
             logging.rank_zero_info(
-                "Episode %d: Loss = %.4f, Eval Reward = %.2f",
+                "Episode %d: surrogate loss: %.4f, value loss: %.4f, Loss = %.4f, \
+                    Eval Reward = %.2f",
                 episode,
+                float(mean_episode_surrogate_loss),
+                float(mean_episode_value_loss),
                 float(mean_episode_loss),
                 float(mean_eval_reward),
             )
