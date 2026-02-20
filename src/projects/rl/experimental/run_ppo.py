@@ -56,16 +56,10 @@ flags.DEFINE_integer(
 )
 flags.DEFINE_integer(
     name="rollout_steps",
-    default=2048,
+    default=128,
     required=False,
     help="Number of steps to collect in each rollout phase before updating the " \
     "PPO model.",
-)
-flags.DEFINE_integer(
-    name="Buffer_capacity",
-    default=30000,
-    required=False,
-    help="Maximum size of the replay buffer to store experience tuples.",
 )
 flags.DEFINE_float(
     name="gamma",
@@ -99,7 +93,7 @@ flags.DEFINE_float(
 )
 flags.DEFINE_float(
     name="entropy_coeff",
-    default=0.0,
+    default=0.01,
     required=False,
     help="Coefficient for the entropy bonus in the total PPO loss.",
 )
@@ -158,11 +152,14 @@ def compute_gae(
 
     transitions = (rewards, values, next_values, dones)
     
-    # Initialize the carry strictly as a float32 scalar to match the squeezed logic
+    # Initialize the carry strictly as a float32 scalar to match the squeezed 
+    # logic
     init_carry = jnp.array(0.0, dtype=jnp.float32)
     
     # Run lax.scan in reverse
     _, advantages = lax.scan(scan_fn, init_carry, transitions, reverse=True)
+    
+    # advantages = jax.lax.stop_gradient(advantages)
     
     # By definition the advangate is the difference between the value target 
     # and the value estimate
@@ -289,7 +286,7 @@ def main(argv: typing.List[str]) -> int:
     reward_log = []
 
     # Create two independent random keys for and training and sampling
-    rngs, train_rng, sample_rng, eval_rng = jax.random.split(rngs, num=4)
+    rngs, train_rng, sample_rng = jax.random.split(rngs, num=3)
 
     # JIT-compile the training step and evaluation step for efficiency.
     p_train_step = functools.partial(train_step, rngs=train_rng)
@@ -309,17 +306,17 @@ def main(argv: typing.List[str]) -> int:
         rollout_states, rollout_actions, rollout_rewards = [], [], []
         rollout_dones, rollout_values, rollout_log_probs = [], [], []
 
-        for _ in range(flags.FLAGS.rollout_steps):
+        for rollout_step in range(flags.FLAGS.rollout_steps):
 
             # Evaluate current policy
             logits, value = p_eval_step(
                 params=train_state.params,
-                rngs=eval_rng,
                 state=state,
             )
 
             # Sample action from logits
-            action = jax.random.categorical(sample_rng, logits)
+            sample_key = jax.random.fold_in(sample_rng, rollout_step)
+            action = jax.random.categorical(sample_key, jnp.squeeze(logits))
             
             # Get log prob of taken action
             log_prob = jax.nn.log_softmax(logits)[action]
@@ -356,7 +353,6 @@ def main(argv: typing.List[str]) -> int:
         _, next_value = p_eval_step(
             state=state,
             params=train_state.params,
-            rngs=eval_rng,
         )
 
         # Compute advantages and value targets
@@ -372,25 +368,35 @@ def main(argv: typing.List[str]) -> int:
         # Update the PPO model using the collected rollout data and 
         # computed advantages
         # logging.rank_zero_info("Updating PPO model for episode %d", episode)
-        # Train on the collected rollout data
+        
+        episode_loss = []
+        
         # TODO: train for K epochs with mini-batches M <= NT
-        train_state, loss = p_train_step(
-            rngs=train_rng,
-            train_state=train_state,
-            agent=agent,
-            state=states_arr,
-            action=actions_arr,
-            log_old_act_probs=log_probs_arr,
-            value_targets=value_targets,
-            advantages=advantages,
-        )
+        for k in range(5):
+            train_state, loss = p_train_step(
+                rngs=train_rng,
+                train_state=train_state,
+                agent=agent,
+                state=states_arr,
+                action=actions_arr,
+                log_old_act_probs=log_probs_arr,
+                value_targets=value_targets,
+                advantages=advantages,
+            )
+            episode_loss.append(loss)
 
         # Logging
-        loss_log.append(float(loss))
+        mean_episode_loss = jnp.mean(jnp.array(episode_loss))
+        loss_log.append(float(mean_episode_loss))
 
+        # Evaluate the current policy every 10 episodes by running it in the 
+        # environment.
         if episode % 10 == 0:
             eval_env = gym.make("CartPole-v1")
+            eval_reward = []
 
+            # Run 5 evaluation episodes and average the total reward to get a more
+            # stable estimate of the policy's performance.
             for _ in range(5):
                 state, _ = eval_env.reset()
                 done = False
@@ -400,7 +406,6 @@ def main(argv: typing.List[str]) -> int:
                     logits, _ = p_eval_step(
                         state=state,
                         params=train_state.params,
-                        rngs=eval_rng,
                     )
                     action = jnp.argmax(logits)
                     state, reward, terminated, truncated, _ = \
@@ -408,13 +413,16 @@ def main(argv: typing.List[str]) -> int:
                     done = terminated or truncated
                     episode_reward += float(reward)
 
-                reward_log.append(episode_reward)
+                eval_reward.append(episode_reward)
+                
+            mean_eval_reward = jnp.mean(jnp.array(eval_reward))
+            reward_log.append(float(mean_eval_reward))
 
             logging.rank_zero_info(
                 "Episode %d: Loss = %.4f, Eval Reward = %.2f",
                 episode,
-                loss,
-                float(jnp.mean(jnp.array(reward_log))) if reward_log else 0.0,
+                float(mean_episode_loss),
+                float(mean_eval_reward),
             )
     
     # When the trainning is done, save the serialized model parameters to a file
