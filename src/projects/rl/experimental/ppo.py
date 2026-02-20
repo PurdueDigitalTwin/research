@@ -129,9 +129,9 @@ class PPOModel(_model.Model):
         Returns:
             Action logits and state values for the given state.
         """
-        del kwargs
+        del rngs, kwargs
         
-        logits, values = self._network.apply(params, rngs=rngs, inputs=state)
+        logits, values = self._network.apply(params, inputs=state)
         assert isinstance(logits, jax.Array)
         assert isinstance(values, jax.Array)
 
@@ -218,6 +218,8 @@ class PPOModel(_model.Model):
         value_loss = jnp.mean(optax.squared_error(values, value_targets))
 
         # According to the original paper, they don't use an entropy bonus
+        # entropy_bonus = jnp.mean(-jnp.sum(jnp.exp(curr_log_probs) * \
+        #     curr_log_probs, axis=-1))
         entropy_bonus = 0.0
 
         # We want to minimize the surrogate total loss
