@@ -243,6 +243,7 @@ def main(argv: typing.List[str]) -> int:
     rngs = jax.random.PRNGKey(0)
 
     # Create the CartPole environment
+    # NOTE: do I need to spawn multiple envs?
     env = gym.make("CartPole-v1")
     state_shape = env.observation_space.shape
 
@@ -298,6 +299,8 @@ def main(argv: typing.List[str]) -> int:
 
         state, _ = env.reset()
         done = False
+        
+        # TODO: run N actors in parallel to collect more data per episode.
 
         # Rollout: collect experience by interacting with the environment 
         # using the current policy
@@ -329,7 +332,7 @@ def main(argv: typing.List[str]) -> int:
             rollout_states.append(state)
             rollout_actions.append(action)
             rollout_rewards.append(reward)
-            rollout_dones.append(1.0 if done else 0.0)
+            rollout_dones.append(done)
             rollout_values.append(value)
             rollout_log_probs.append(log_prob)
 
@@ -371,7 +374,7 @@ def main(argv: typing.List[str]) -> int:
         
         episode_loss = []
         
-        # TODO: train for K epochs with mini-batches M <= NT
+        # TODO: sample mini-batches M <= NT
         for k in range(5):
             train_state, loss = p_train_step(
                 rngs=train_rng,
