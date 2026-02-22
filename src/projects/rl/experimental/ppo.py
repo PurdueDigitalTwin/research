@@ -194,6 +194,7 @@ class PPOModel(_model.Model):
         ).squeeze(axis=-1)
 
         # Compute the ratio of current to old action probabilities
+        # the shape of ratios is (rollout_steps,)
         ratios = jnp.exp(log_act_probs - log_old_act_probs)
 
         # Normalize the advantages (not mention by the reference)
@@ -224,7 +225,7 @@ class PPOModel(_model.Model):
         # According to the original paper, they don't use an entropy bonus
         # entropy_bonus = jnp.mean(-jnp.sum(jnp.exp(curr_log_probs) * \
         #     curr_log_probs, axis=-1))
-        entropy_bonus = 0.0
+        # entropy_bonus = 0.0
 
         # We want to minimize the surrogate total loss
         # total_loss = -surrogate_loss + value_loss

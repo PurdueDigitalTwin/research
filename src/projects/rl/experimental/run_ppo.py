@@ -162,8 +162,7 @@ def compute_gae(
     
     # advantages = jax.lax.stop_gradient(advantages)
     
-    # By definition the advangate is the difference between the value target 
-    # and the value estimate
+    # Compute value targets.
     def scan_value_target_fn(value_target_carry: jax.Array, transition: \
                              typing.Tuple) -> typing.Tuple[jax.Array, jax.Array]:
         reward, _, _, done = transition
@@ -389,7 +388,7 @@ def main(argv: typing.List[str]) -> int:
         episode_loss = []
         
         # TODO: sample mini-batches M <= NT
-        for k in range(5):
+        for k in range(10):
             train_state, step_outputs = p_train_step(
                 rngs=train_rng,
                 train_state=train_state,
@@ -400,7 +399,8 @@ def main(argv: typing.List[str]) -> int:
                 value_targets=value_targets,
                 advantages=advantages,
             )
-            episode_surrogate_loss.append(float(step_outputs.scalars["surrogate_loss"]))
+            episode_surrogate_loss.append(float\
+                                          (step_outputs.scalars["surrogate_loss"]))
             episode_value_loss.append(float(step_outputs.scalars["value_loss"]))
             episode_loss.append(step_outputs.scalars["loss"])
 
@@ -461,21 +461,36 @@ def main(argv: typing.List[str]) -> int:
     env.close()
 
     # Create a figure with two subplots side-by-side
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    (ax1, ax2, ax3, ax4) = axes.flatten()
 
-    # Plot 1: Loss Curve
+    # Plot 1: Total Loss (Surrogate Loss + Value Loss)
     ax1.plot(loss_log, color="tab:blue", alpha=0.7)
     ax1.set_xlabel("Training Steps")
     ax1.set_ylabel("Loss")
-    ax1.set_title("PPO Training Loss")
+    ax1.set_title("PPO Total Loss")
     ax1.grid(True, linestyle="--", alpha=0.6)
 
-    # Plot 2: Reward Curve
+    # Plot 2: Evaluation Reward
     ax2.plot(reward_log, color="tab:orange", linewidth=2)
     ax2.set_xlabel("Episode")
     ax2.set_ylabel("Total Reward")
-    ax2.set_title("Episode Reward")
+    ax2.set_title("Evaluation Reward")
     ax2.grid(True, linestyle="--", alpha=0.6)
+
+    # Plot 3: Surrogate Loss
+    ax3.plot(surrogate_loss_log, color="tab:green", alpha=0.7)
+    ax3.set_xlabel("Training Steps")
+    ax3.set_ylabel("Surrogate Loss")
+    ax3.set_title("PPO Surrogate Loss (L^CLIP)")
+    ax3.grid(True, linestyle="--", alpha=0.6)
+
+    # Plot 4: Value Loss
+    ax4.plot(value_loss_log, color="tab:red", alpha=0.7)
+    ax4.set_xlabel("Training Steps")
+    ax4.set_ylabel("Value Loss")
+    ax4.set_title("PPO Value Loss (L^VF)")
+    ax4.grid(True, linestyle="--", alpha=0.6)
 
     # Adjust layout to prevent overlap
     fig.tight_layout()
