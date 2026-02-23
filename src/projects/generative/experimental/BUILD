@@ -22,6 +22,7 @@ ml_py_library(
         "jax",
         "jaxtyping",
         "optax",
+        "tqdm",
         "//src/core:model",
         "//src/core:train_state",
         "//src/data:huggingface",

@@ -19,6 +19,12 @@ flags.DEFINE_integer(
     help="Per-device batch size for training.",
 )
 flags.DEFINE_integer(
+    name="max_training_steps",
+    default=400_000,
+    required=False,
+    help="Maximum number of training steps to run.",
+)
+flags.DEFINE_integer(
     name="seed",
     default=42,
     required=False,
@@ -43,6 +49,7 @@ def main(_: typing.List[str]) -> int:
 
     status = run_ua_flow.train(
         batch_size=int(flags.FLAGS.batch_size),
+        max_training_steps=int(flags.FLAGS.max_training_steps),
         seed=int(flags.FLAGS.seed),
     )
 

@@ -1,13 +1,16 @@
 import functools
 import platform
+import traceback
 import typing
 
+from flax import jax_utils
 from flax import linen as nn
 from flax import traverse_util
 import jax
 from jax import numpy as jnp
 import jaxtyping
 import optax
+from tqdm import auto as tqdm
 
 from src.core import model as _model
 from src.core import train_state as _train_state
@@ -75,6 +78,28 @@ def _make_weight_decay_mask(params: jaxtyping.PyTree) -> jaxtyping.PyTree:
     return traverse_util.unflatten_dict(mask)
 
 
+def _shard(tree: jaxtyping.PyTree) -> jaxtyping.PyTree:
+    r"""Helper function for `jax.pmap` to shard a pytree onto local devices.
+
+    Args:
+        tree (PyTree): The pytree to shard.
+
+    Returns:
+        A `PyTree` with an added leading dimension for local devices.
+    """
+    _shape_prefix = (jax.local_device_count(), -1)
+    return jax.tree_util.tree_map(
+        lambda x: (
+            x.reshape(_shape_prefix + x.shape[1:])
+            if hasattr(x, "reshape")
+            else x
+        ),
+        tree=tree,
+    )
+
+
+################################################################################
+# Modules
 class UAFlowUNetModule(nn.Module):
     r"""ADM U-Net architecture for UA-Flow model.
 
@@ -325,7 +350,6 @@ class UAFlowUNetModel:
         *,
         state: _train_state.TrainState,
         batch: jaxtyping.PyTree,
-        deterministic: bool,
         rngs: jax.Array,
         with_variance: bool = False,
         **kwargs,
@@ -372,9 +396,9 @@ class UAFlowUNetModel:
             shape=batch_dims,
             minval=0.0,
             maxval=1.0,
-            dtype=self._dtype,
-        ).reshape(-1, 1)
-        t_expanded = t[..., None, None, :]
+            dtype=jnp.int32,
+        ).reshape(-1)
+        t_expanded = t[..., None, None, None].astype(self._dtype)
 
         # construct the cfm target
         e = jax.random.normal(key=e_key, shape=image.shape, dtype=self._dtype)
@@ -393,8 +417,8 @@ class UAFlowUNetModel:
             v_pred, _ = self._network.apply(
                 variables={"params": params},
                 inputs=x_t,
-                timestep=t,
-                deterministic=deterministic,
+                timestep=t.astype(self._dtype),
+                deterministic=False,
                 rngs={"dropout": dropout_key},
             )
             if not isinstance(v_pred, jax.Array):
@@ -454,8 +478,11 @@ class UAFlowUNetModel:
 
 ################################################################################
 # Entry points
-def train(batch_size: int, seed: int) -> int:
+def train(batch_size: int, max_training_steps: int, seed: int) -> int:
+    r"""Training UAFlow UNet on CIFAR-10 dataset."""
+
     rng = jax.random.PRNGKey(seed=seed)
+    status = 0
 
     # Log the current platform
     _logging.rank_zero_info("Running on platform: %s", platform.node())
@@ -525,7 +552,69 @@ def train(batch_size: int, seed: int) -> int:
     jax.block_until_ready(state)
     _logging.rank_zero_info("Successfully built train state.")
 
-    return 1
+    rng, train_key = jax.random.split(rng, num=2)
+    p_training_step = functools.partial(model.training_step, rngs=train_key)
+    p_training_step = jax.pmap(p_training_step, axis_name="batch")
+
+    state = jax_utils.replicate(state)
+    step = int(jax.device_get(state.step)[0])
+    if jax.process_index() == 0:
+        pbar = tqdm.tqdm(
+            total=max_training_steps - step,
+            desc="Training",
+            unit="step",
+            dynamic_ncols=True,
+        )
+    else:
+        pbar = None
+
+    try:
+        while step < max_training_steps:
+            for train_batch in dm.train_dataloader():
+                # fetch the learning rate for logging
+                lr_step = lr_scheduler(state.step)
+                if isinstance(lr_step, jax.Array):
+                    lr_step = jax.device_get(lr_step).mean().item()
+                else:
+                    lr_step = float(lr_step)
+
+                # train step
+                train_batch = _shard(train_batch)
+                with jax.profiler.StepTraceAnnotation("train", step_num=step):
+                    state, train_outputs = p_training_step(
+                        state=state,
+                        batch=train_batch,
+                    )
+                if not isinstance(train_outputs, _model.StepOutputs):
+                    raise TypeError(
+                        f"Expected training step outputs to be of type "
+                        f"{_model.StepOutputs}, but got {type(train_outputs)}."
+                    )
+                if train_outputs.scalars is not None:
+                    scalars = {
+                        f"train/{k}_step": sum(v) / len(v)
+                        for k, v in train_outputs.scalars.items()
+                    }
+                    scalars["opt_state/lr_step"] = lr_step
+                    if pbar is not None:
+                        pbar.set_postfix({**scalars}, refresh=True)
+
+                step += 1
+                if pbar is not None:
+                    pbar.update(1)
+
+    except Exception as e:
+        _logging.rank_zero_error("Training failed with error: %s", str(e))
+        err_trace = traceback.format_exc()
+        _logging.rank_zero_error(err_trace)
+        status = 1
+    finally:
+        state = jax_utils.unreplicate(state)
+        if pbar is not None:
+            pbar.close()
+        _logging.rank_zero_info("Finished training with status: %d", status)
+
+    return status
 
 
 __all__ = [
