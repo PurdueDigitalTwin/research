@@ -12,6 +12,18 @@ flags.DEFINE_boolean(
     help="Whether to enable multi-host distributed training in JAX.",
     required=False,
 )
+flags.DEFINE_integer(
+    name="batch_size",
+    default=128,
+    required=False,
+    help="Per-device batch size for training.",
+)
+flags.DEFINE_integer(
+    name="seed",
+    default=42,
+    required=False,
+    help="Random seed for experiment reproducibility.",
+)
 flags.DEFINE_string(
     name="work_dir",
     default=None,
@@ -27,9 +39,16 @@ def main(_: typing.List[str]) -> int:
     if flags.FLAGS.distributed:
         _distributed.setup_jax_distributed()
 
+    from src.projects.generative.experimental import run_ua_flow
+
+    status = run_ua_flow.train(
+        batch_size=int(flags.FLAGS.batch_size),
+        seed=int(flags.FLAGS.seed),
+    )
+
     jax.distributed.shutdown()
 
-    return 0
+    return status
 
 
 if __name__ == "__main__":

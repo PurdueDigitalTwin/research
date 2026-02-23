@@ -24,6 +24,9 @@ ml_py_library(
         "optax",
         "//src/core:model",
         "//src/core:train_state",
+        "//src/data:huggingface",
+        "//src/data:preprocess",
         "//src/projects/generative/model:unet",
+        "//src/utilities:logging",
     ],
 )

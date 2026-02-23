@@ -1,7 +1,9 @@
 import functools
+import platform
 import typing
 
 from flax import linen as nn
+from flax import traverse_util
 import jax
 from jax import numpy as jnp
 import jaxtyping
@@ -9,7 +11,10 @@ import optax
 
 from src.core import model as _model
 from src.core import train_state as _train_state
+from src.data import huggingface as _hf_dataset
+from src.data import preprocess as _preprocess
 from src.projects.generative.model import unet as _unet
+from src.utilities import logging as _logging
 
 
 # ==============================================================================
@@ -39,6 +44,35 @@ def sinusoidal_embedding(timesteps: jax.Array, features: int) -> jax.Array:
         emb = jnp.pad(emb, pad_width=((0, 0), (0, 1)), mode="constant")
     emb = jnp.reshape(emb, batch_dims + (features,))
     return emb
+
+
+def _make_weight_decay_mask(params: jaxtyping.PyTree) -> jaxtyping.PyTree:
+    r"""Exclude biases and normalization layer parameters from weight decay.
+
+    Args:
+        params (PyTree): A tree of model parameters.
+
+    Returns:
+        A tree with the same structure as `params`, where each leaf is a boolean
+        indicating whether to apply weight decay to the corresponding parameter.
+    """
+    flat_params = traverse_util.flatten_dict(params)
+
+    def should_decay(path):
+        # exclude biases
+        if path[-1] == "bias":
+            return False
+        # exclude LayerNorm scale and bias
+        if path[-1] == "scale":
+            return False
+        # exclude embedding parameters
+        if "embedding" in path[-1]:
+            return False
+        # by default, apply weight decay
+        return True
+
+    mask = {path: should_decay(path) for path in flat_params}
+    return traverse_util.unflatten_dict(mask)
 
 
 class UAFlowUNetModule(nn.Module):
@@ -242,6 +276,50 @@ class UAFlowUNetModel:
         r"""UAFlowUNetModule: The UNet architecture for the UAFlow model."""
         return self._network
 
+    def init(
+        self,
+        *,
+        batch: jaxtyping.PyTree,
+        rngs: typing.Any,
+        **kwargs,
+    ) -> jaxtyping.PyTree:
+        del batch, kwargs  # unused
+
+        variables = self._network.init(
+            rngs,
+            inputs=jnp.zeros(
+                (1, self._image_size, self._image_size, self._in_channels),
+                dtype=self._dtype,
+            ),
+            timestep=jnp.zeros((1,), dtype=self._dtype),
+            deterministic=True,
+        )
+
+        if jax.process_index() == 0:
+            tabulate_fn = nn.summary.tabulate(
+                self.network,
+                depth=3,
+                rngs=rngs,
+                console_kwargs={"width": 120},
+            )
+            print(
+                tabulate_fn(
+                    inputs=jnp.zeros(
+                        (
+                            1,
+                            self._image_size,
+                            self._image_size,
+                            self._in_channels,
+                        ),
+                        dtype=self._dtype,
+                    ),
+                    timestep=jnp.zeros((1,), dtype=self._dtype),
+                    deterministic=True,
+                )
+            )
+
+        return variables["params"]
+
     def training_step(
         self,
         *,
@@ -376,7 +454,77 @@ class UAFlowUNetModel:
 
 ################################################################################
 # Entry points
-def train() -> int:
+def train(batch_size: int, seed: int) -> int:
+    rng = jax.random.PRNGKey(seed=seed)
+
+    # Log the current platform
+    _logging.rank_zero_info("Running on platform: %s", platform.node())
+    _logging.rank_zero_info(
+        "Running on JAX backend: %s", jax.default_backend()
+    )
+    _logging.rank_zero_info(
+        "Running on JAX process: %d / %d",
+        jax.process_index() + 1,
+        jax.process_count(),
+    )
+    _logging.rank_zero_info("Running on JAX devices: %r", jax.devices())
+
+    # build dataset
+    _logging.rank_zero_info("Building dataset...")
+    rng, data_key = jax.random.split(rng, num=2)
+    _local_batch_size = batch_size * jax.local_device_count()
+    dm = _hf_dataset.CIFAR10DataModule(
+        batch_size=_local_batch_size,
+        drop_remainder=True,
+        shuffle_buffer_size=50_000,
+        transform=_preprocess.chain(
+            functools.partial(
+                _preprocess.filter_keys,
+                keys=["image", "label"],
+            ),
+            functools.partial(
+                _preprocess.normalize,
+                mean=(0.0, 0.0, 0.0),
+                std=(1.0, 1.0, 1.0),
+            ),
+        ),
+        rng=data_key,
+        use_cache=True,
+    )
+    _logging.rank_zero_info("Successfully built %s", dm.__class__.__name__)
+
+    # build model
+    _logging.rank_zero_info("Building model...")
+    rng, model_key = jax.random.split(rng, num=2)
+    model = UAFlowUNetModel(
+        in_channels=3,
+        image_size=32,
+        features=128,
+        ch_mults=(1, 2, 2, 2),
+        attn_resolutions=(16,),
+        num_res_blocks=4,
+        dropout_rate=0.3,
+    )
+    params = model.init(batch=None, rngs=model_key)
+    _logging.rank_zero_info("Successfully built %s", model.__class__.__name__)
+
+    _logging.rank_zero_info("Building train state...")
+    lr_scheduler = optax.constant_schedule(1e-4)
+    optimizer = optax.adamw(
+        learning_rate=lr_scheduler,
+        b1=0.9,
+        b2=0.95,
+        weight_decay=0.01,
+        mask=_make_weight_decay_mask,
+    )
+    state = _train_state.TrainState.create(
+        params=params,
+        tx=optimizer,
+        ema_rate=0.999,
+    )
+    jax.block_until_ready(state)
+    _logging.rank_zero_info("Successfully built train state.")
+
     return 1
 
 
