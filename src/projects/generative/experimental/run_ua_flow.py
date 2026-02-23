@@ -17,6 +17,7 @@ from src.core import train_state as _train_state
 from src.data import huggingface as _hf_dataset
 from src.data import preprocess as _preprocess
 from src.projects.generative.model import unet as _unet
+from src.projects.generative.pipeline import augment as _augment
 from src.utilities import logging as _logging
 
 
@@ -141,6 +142,7 @@ class UAFlowUNetModule(nn.Module):
         self,
         inputs: jax.Array,
         timestep: jax.Array,
+        edm_cond: typing.Optional[jax.Array] = None,
         deterministic: typing.Optional[bool] = None,
         **kwargs,
     ) -> typing.Tuple[jax.Array, jax.Array]:
@@ -149,6 +151,8 @@ class UAFlowUNetModule(nn.Module):
         Args:
             inputs (jax.Array): Input data of shape `(*, H, W, C)`.
             timestep (jax.Array): Time step array of shape `(*)`.
+            edm_cond (jax.Array, optional): Additional conditioning from EDM
+                data augmentations. Default is `None`.
             deterministic (typing.Optional[bool]): Whether to apply dropout.
                 Merges with the module level attribute `deterministic`.
 
@@ -165,6 +169,22 @@ class UAFlowUNetModule(nn.Module):
 
         # encode timestep embedding
         t_emb = sinusoidal_embedding(timestep, self.features)
+        if edm_cond is not None:
+            edm_embed = nn.Dense(
+                features=self.features,
+                kernel_init=jax.nn.initializers.variance_scaling(
+                    scale=1.0,
+                    mode="fan_avg",
+                    distribution="uniform",
+                ),
+                use_bias=True,
+                bias_init=jax.nn.initializers.zeros,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                precision=self.precision,
+                name="edm_fc",
+            )(edm_cond)
+            t_emb = t_emb + edm_embed
         cond_in = nn.Dense(
             features=self.features * 4,
             kernel_init=jax.nn.initializers.variance_scaling(
@@ -296,6 +316,18 @@ class UAFlowUNetModel:
             name="unet",
         )
 
+        # construct the EDM sampling pipeline
+        self._augment = _augment.EDMAugmentor(
+            image_size=(image_size, image_size),
+            p=0.12,
+            xflip=1e8,
+            yflip=0,
+            scale=1,
+            rotate_frac=0,
+            aniso=1,
+            translate_frac=1,
+        )
+
     @property
     def network(self) -> UAFlowUNetModule:
         r"""UAFlowUNetModule: The UNet architecture for the UAFlow model."""
@@ -317,6 +349,7 @@ class UAFlowUNetModel:
                 dtype=self._dtype,
             ),
             timestep=jnp.zeros((1,), dtype=self._dtype),
+            edm_cond=jnp.zeros((1, 6), dtype=self._dtype),
             deterministic=True,
         )
 
@@ -371,9 +404,9 @@ class UAFlowUNetModel:
                 containing the computed loss and other outputs.
         """
 
-        local_rng = jax.random.fold_in(rngs, jax.lax.axis_index("batch"))
-        local_rng = jax.random.fold_in(local_rng, state.step)
-        flip_key, t_key, e_key, dropout_key = jax.random.split(local_rng, 4)
+        rngs = jax.random.fold_in(rngs, jax.lax.axis_index("batch"))
+        rngs = jax.random.fold_in(rngs, state.step)
+        f_key, a_key, t_key, e_key, dropout_key = jax.random.split(rngs, 5)
 
         # pre-processing
         image = batch.get("image")
@@ -382,11 +415,16 @@ class UAFlowUNetModel:
         *batch_dims, height, width, channels = image.shape
         image = image.astype(self._dtype).reshape(-1, height, width, channels)
         image = image * 2.0 - 1.0  # NOTE: scale to [-1, 1]
-        mask = jax.random.uniform(key=flip_key, shape=image.shape[0:1]) < 0.5
+        mask = jax.random.uniform(key=f_key, shape=image.shape[0:1]) < 0.5
         image = jnp.where(
             mask[:, None, None, None],
             jnp.flip(image, axis=-2),
             image,
+        )
+        image, edm_cond = self._augment.apply(
+            variables={},
+            images=image,
+            rngs={"augment": a_key},
         )
 
         # sample random time steps
@@ -418,6 +456,7 @@ class UAFlowUNetModel:
                 variables={"params": params},
                 inputs=x_t,
                 timestep=t.astype(self._dtype),
+                edm_cond=edm_cond,
                 deterministic=False,
                 rngs={"dropout": dropout_key},
             )

@@ -28,6 +28,7 @@ ml_py_library(
         "//src/data:huggingface",
         "//src/data:preprocess",
         "//src/projects/generative/model:unet",
+        "//src/projects/generative/pipeline:augment",
         "//src/utilities:logging",
     ],
 )
