@@ -117,7 +117,8 @@ class PPOModel(_model.Model):
         rngs: typing.Any = None,
         **kwargs,
     ) -> typing.Tuple[jax.Array, jax.Array]:
-        r"""Forward pass the policy network to compute action logits and state value.
+        r"""Forward pass the policy network to compute action logits and state 
+        value.
         
         Args:
             state (jax.Array): Input state array of shape `(*, D)`.
@@ -223,9 +224,10 @@ class PPOModel(_model.Model):
         value_loss = self._value_coeff * value_loss
 
         # According to the original paper, they don't use an entropy bonus
-        # entropy_bonus = jnp.mean(-jnp.sum(jnp.exp(curr_log_probs) * \
+        # entropy_loss = jnp.mean(jnp.sum(jnp.exp(curr_log_probs) * \
         #     curr_log_probs, axis=-1))
-        # entropy_bonus = 0.0
+        # entropy_loss = self._entropy_coeff * entropy_loss
+        entropy_loss = 0.0
 
         # We want to minimize the surrogate total loss
         # total_loss = -surrogate_loss + value_loss
@@ -233,7 +235,7 @@ class PPOModel(_model.Model):
         assert isinstance(surrogate_loss, jax.Array)
         assert isinstance(value_loss, jax.Array)
 
-        total_loss = surrogate_loss + value_loss
+        total_loss = surrogate_loss + value_loss + entropy_loss
 
         step_outputs = _model.StepOutputs(
             scalars=dict(
@@ -244,3 +246,4 @@ class PPOModel(_model.Model):
         )
 
         return total_loss, step_outputs
+    

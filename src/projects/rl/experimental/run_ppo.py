@@ -69,7 +69,7 @@ flags.DEFINE_float(
 )
 flags.DEFINE_float(
     name="learning_rate",
-    default=3e-4,
+    default=1e-3,
     required=False,
     help="Learning rate for the PPO optimizer.",
 )
@@ -96,6 +96,18 @@ flags.DEFINE_float(
     default=0.01,
     required=False,
     help="Coefficient for the entropy bonus in the total PPO loss.",
+)
+flags.DEFINE_integer(
+    name="minibatch",
+    default=64,
+    required=False,
+    help="Size of minibatches for PPO updates.",
+)
+flags.DEFINE_integer(
+    name="training_epochs",
+    default=5,
+    required=False,
+    help="Number of epochs to train on each rollout batch.",
 )
 
 
@@ -130,7 +142,6 @@ def compute_gae(
 
     # Squeeze all inputs to ensure they are strictly 1D arrays (T,)
     # This prevents shape broadcasting errors inside lax.scan
-    # NOTE: check the value target. Is it TD target?
     rewards = jnp.squeeze(rewards)
     values = jnp.squeeze(values)
     dones = jnp.squeeze(dones)
@@ -285,10 +296,19 @@ def main(argv: typing.List[str]) -> int:
         rngs=init_rng,
     )
 
+    # Optional: use annealing learning rate to stablize training
+    lr_schedule = optax.linear_schedule(
+        init_value=flags.FLAGS.learning_rate,
+        end_value=0.0,
+        transition_steps=flags.FLAGS.num_episodes * \
+            flags.FLAGS.training_epochs * \
+            (flags.FLAGS.rollout_steps // flags.FLAGS.minibatch),
+    )
+
     # Create a training state instance with adam optimizer
     train_state = _train_state.TrainState.create(
         params=params,
-        tx=optax.adam(learning_rate=flags.FLAGS.learning_rate),
+        tx=optax.adam(learning_rate=lr_schedule),
     )
 
     # Log loss and rewards during training
@@ -360,7 +380,8 @@ def main(argv: typing.List[str]) -> int:
         values_arr = jnp.array(rollout_values)
         log_probs_arr = jnp.array(rollout_log_probs)
 
-        # GAE: compute advantages and value targets for the collected rollout data
+        # GAE: compute advantages and value targets for the collected rollout 
+        # data
         # logging.rank_zero_info("Computing GAE for episode %d", episode)
 
         # Get value of the state that follows the rollout
@@ -382,27 +403,50 @@ def main(argv: typing.List[str]) -> int:
         # Update the PPO model using the collected rollout data and 
         # computed advantages
         # logging.rank_zero_info("Updating PPO model for episode %d", episode)
+        # Update the PPO model using minibatches
+        batch_size = flags.FLAGS.minibatch
+        num_steps = flags.FLAGS.rollout_steps
+        # Ensure the batch size divides the total rollout steps
+        assert num_steps % batch_size == 0
         
         episode_surrogate_loss = []
         episode_value_loss = []
         episode_loss = []
         
-        # TODO: sample mini-batches M <= NT
-        for k in range(10):
-            train_state, step_outputs = p_train_step(
-                rngs=train_rng,
-                train_state=train_state,
-                agent=agent,
-                state=states_arr,
-                action=actions_arr,
-                log_old_act_probs=log_probs_arr,
-                value_targets=value_targets,
-                advantages=advantages,
-            )
-            episode_surrogate_loss.append(float\
-                                          (step_outputs.scalars["surrogate_loss"]))
-            episode_value_loss.append(float(step_outputs.scalars["value_loss"]))
-            episode_loss.append(step_outputs.scalars["loss"])
+        # sample mini-batches M <= NT
+        for _ in range(flags.FLAGS.training_epochs): # train for k epochs
+            # 1. Shuffle the indices at the start of each epoch
+            rngs, shuffle_rng = jax.random.split(rngs)
+            permutation = jax.random.permutation(shuffle_rng, num_steps)
+            
+            # 2. Iterate through the buffer in minibatches
+            for i in range(0, num_steps, batch_size):
+                indices = permutation[i : i + batch_size]
+                
+                # Slice the data for this minibatch
+                mb_states = states_arr[indices]
+                mb_actions = actions_arr[indices]
+                mb_log_probs = log_probs_arr[indices]
+                mb_advantages = advantages[indices]
+                mb_value_targets = value_targets[indices]
+
+                # Update the model using the minibatch
+                train_state, step_outputs = p_train_step(
+                    rngs=train_rng,
+                    train_state=train_state,
+                    agent=agent,
+                    state=mb_states,
+                    action=mb_actions,
+                    log_old_act_probs=mb_log_probs,
+                    value_targets=mb_value_targets,
+                    advantages=mb_advantages,
+                )
+                
+                # Track metrics
+                episode_surrogate_loss.append(float(step_outputs.
+                                                    scalars["surrogate_loss"]))
+                episode_value_loss.append(float(step_outputs.scalars["value_loss"]))
+                episode_loss.append(step_outputs.scalars["loss"])
 
         # Logging
         mean_episode_surrogate_loss = jnp.mean(jnp.array(episode_surrogate_loss))
@@ -419,8 +463,8 @@ def main(argv: typing.List[str]) -> int:
             eval_env = gym.make("CartPole-v1")
             eval_reward = []
 
-            # Run 5 evaluation episodes and average the total reward to get a more
-            # stable estimate of the policy's performance.
+            # Run 5 evaluation episodes and average the total reward to get a 
+            # more stable estimate of the policy's performance.
             for _ in range(5):
                 state, _ = eval_env.reset()
                 done = False
@@ -482,14 +526,14 @@ def main(argv: typing.List[str]) -> int:
     ax3.plot(surrogate_loss_log, color="tab:green", alpha=0.7)
     ax3.set_xlabel("Training Steps")
     ax3.set_ylabel("Surrogate Loss")
-    ax3.set_title("PPO Surrogate Loss (L^CLIP)")
+    ax3.set_title("Surrogate Loss (L_CLIP)")
     ax3.grid(True, linestyle="--", alpha=0.6)
 
     # Plot 4: Value Loss
     ax4.plot(value_loss_log, color="tab:red", alpha=0.7)
     ax4.set_xlabel("Training Steps")
     ax4.set_ylabel("Value Loss")
-    ax4.set_title("PPO Value Loss (L^VF)")
+    ax4.set_title("Value Loss (L_VF)")
     ax4.grid(True, linestyle="--", alpha=0.6)
 
     # Adjust layout to prevent overlap
