@@ -18,8 +18,12 @@ ml_py_library(
     name = "run_ua_flow",
     srcs = ["run_ua_flow.py"],
     deps = [
+        "flax",
         "jax",
         "jaxtyping",
+        "optax",
+        "//src/core:model",
+        "//src/core:train_state",
         "//src/projects/generative/model:unet",
     ],
 )
