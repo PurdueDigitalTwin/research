@@ -816,6 +816,7 @@ class HoNetwork(nn.Module):
         inputs: jax.Array,
         cond: jax.Array,
         deterministic: typing.Optional[bool] = None,
+        with_head: bool = True,
     ) -> jax.Array:
         r"""Forward pass of the `HoNetwork` architecture.
 
@@ -824,6 +825,8 @@ class HoNetwork(nn.Module):
             cond (jax.Array): Conditioning array of shape `(*, C_cond)`.
             deterministic (bool, optional): If true, the model is run in
                 deterministic mode (e.g., no dropout). Defaults to `None`.
+            with_head (bool, optional): If `True`, applies a final
+                convolutional layer to map to `out_features`. Default is `True`.
 
         Returns:
             Output array of shape `(*, H, W, C_out)`, where `C_out` is the
@@ -994,30 +997,29 @@ class HoNetwork(nn.Module):
             param_dtype=self.param_dtype,
             name="norm_out",
         )
-        conv_out = nn.Conv(
-            features=(
+        if with_head:
+            out_features = (
                 self.out_features
-                if isinstance(
-                    self.out_features,
-                    int,
-                )
+                if isinstance(self.out_features, int)
                 else inputs.shape[-1]
-            ),
-            kernel_size=(3, 3),
-            strides=(1, 1),
-            padding="SAME",
-            kernel_init=jax.nn.initializers.variance_scaling(
-                scale=1e-10,
-                mode="fan_avg",
-                distribution="uniform",
-            ),
-            bias_init=jax.nn.initializers.zeros,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="conv_out",
-        )
-        out = conv_out(jax.nn.silu(norm_out(out)))
-        chex.assert_shape(out, (*batch_dims, *dims["HWC"]))
+            )
+            conv_out = nn.Conv(
+                features=out_features,
+                kernel_size=(3, 3),
+                strides=(1, 1),
+                padding="SAME",
+                kernel_init=jax.nn.initializers.variance_scaling(
+                    scale=1e-10,
+                    mode="fan_avg",
+                    distribution="uniform",
+                ),
+                bias_init=jax.nn.initializers.zeros,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                name="conv_out",
+            )
+            out = conv_out(jax.nn.silu(norm_out(out)))
+            chex.assert_shape(out, (*batch_dims, *dims["HW"], out_features))
 
         return out
 
