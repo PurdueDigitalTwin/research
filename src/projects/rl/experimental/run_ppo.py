@@ -156,9 +156,23 @@ def compute_gae(
         [values[1:], jnp.expand_dims(next_value, axis=0)], 
         axis=0
     )
+
+    transitions = (rewards, values, next_values, dones)
+
+    # Compute value targets.
+    def scan_value_target_fn(value_target_carry: jax.Array, transition: \
+                             typing.Tuple) -> typing.Tuple[jax.Array, jax.Array]:
+        reward, _, _, done = transition
+
+        value_target = reward + gamma * (1 - done) * value_target_carry
+        return value_target_carry, value_target
+    
+    value_init_carry = rewards[-1]
+    _, value_targets = lax.scan(scan_value_target_fn, value_init_carry, 
+                                transitions, reverse=True)
     
     # We scan backwards through the trajectory
-    def scan_fn(gae_carry: jax.Array, transition: typing.Tuple) -> \
+    def scan_surrogate_fn(gae_carry: jax.Array, transition: typing.Tuple) -> \
         typing.Tuple[jax.Array, jax.Array]:
         reward, value, next_val, done = transition
         
@@ -168,28 +182,15 @@ def compute_gae(
         # GAE: A = delta + gamma * lambda * (1 - done) * A_{t+1}
         gae = delta + gamma * lambda_gae * (1.0 - done) * gae_carry
         return gae, gae
-
-    transitions = (rewards, values, next_values, dones)
     
     # Initialize the carry to be all zeros
-    init_carry = jnp.zeros_like(next_value, dtype=jnp.float32)
+    surrogate_init_carry = jnp.zeros_like(next_value, dtype=jnp.float32)
     
     # Run lax.scan in reverse
-    _, advantages = lax.scan(scan_fn, init_carry, transitions, reverse=True)
+    _, advantages = lax.scan(scan_surrogate_fn, surrogate_init_carry, 
+                             transitions, reverse=True)
     
     # advantages = jax.lax.stop_gradient(advantages)
-    
-    # Compute value targets.
-    def scan_value_target_fn(value_target_carry: jax.Array, transition: \
-                             typing.Tuple) -> typing.Tuple[jax.Array, jax.Array]:
-        reward, _, _, done = transition
-
-        value_target = reward + gamma * (1 - done) * value_target_carry
-        return value_target_carry, value_target
-    
-    init_carry = rewards[-1]
-    _, value_targets = lax.scan(scan_value_target_fn, init_carry, transitions, 
-                                reverse=True)
     
     return advantages, value_targets
 
@@ -365,20 +366,21 @@ def main(argv: typing.List[str]) -> int:
             sample_key = jax.random.fold_in(sample_rng, rollout_step)
             # action shape: (num_envs,) where each entry is an integer representing
             # the action index for each environment in the vectorized environment.
-            action = jax.random.categorical(sample_key, jnp.squeeze(logits))
+            action = jax.random.categorical(sample_key, logits)
             
             # Get log prob of taken action
             curr_log_prob = jax.nn.log_softmax(logits)
             log_prob = jnp.take_along_axis(
                 curr_log_prob,
-                action[:, None],
+                action[..., None],
                 axis=-1,
             ).squeeze(axis=-1)
 
             # Step the environment
             # each has the shape (num_envs, *)
+            # NOTE: can I do this via jnp?
             next_state, reward, terminated, truncated, _ = \
-                env.step(jnp.asarray(action))
+                env.step(np.asarray(action))
             done = terminated | truncated
 
             # Store transition
@@ -391,9 +393,8 @@ def main(argv: typing.List[str]) -> int:
 
             state = next_state
 
-            # vectorized env has automatic reset
-            # if done:
-            #     state, _ = env.reset()
+            # vectorized env has automatic reset so we don't need to manually reset
+            # the environment when done is True.
 
         # Convert lists to JAX arrays
         # each has shape (rollout_steps, num_envs, *)
@@ -404,8 +405,7 @@ def main(argv: typing.List[str]) -> int:
         values_arr = jnp.array(rollout_values)
         log_probs_arr = jnp.array(rollout_log_probs)
 
-        # GAE: compute advantages and value targets for the collected rollout 
-        # data
+        # GAE: compute advantages and value targets for the collected rollout data
         # logging.rank_zero_info("Computing GAE for episode %d", episode)
 
         # Get value of the state that follows the rollout
