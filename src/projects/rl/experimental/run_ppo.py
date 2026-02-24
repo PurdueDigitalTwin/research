@@ -13,12 +13,15 @@
 # Note: policy-based methods can learn stochastic policies where there isn't a 
 # single best action, and they can also learn deterministic policies.
 # Note: policy-based methods encourages exploration by nature.
+# NOTE: why using advantage instead of value target?
+# NOTE: why KL equals second order direvative
 
 
 import copy
 import functools
 import os
 import typing
+import numpy as np
 
 from absl import app
 from absl import flags
@@ -109,6 +112,12 @@ flags.DEFINE_integer(
     required=False,
     help="Number of epochs to train on each rollout batch.",
 )
+flags.DEFINE_integer(
+    name="num_envs",
+    default=10,
+    required=False,
+    help="Number of trajectories to collect for evaluation.",
+)
 
 
 def compute_gae(
@@ -119,7 +128,8 @@ def compute_gae(
     gamma: float,
     lambda_gae: float,
 ) -> typing.Tuple[jax.Array, jax.Array]:
-    r"""Computes Generalized Advantage Estimation (GAE) for
+    r"""Computes Generalized Advantage Estimation (GAE) and value targets for the
+        given rollout data.
 
     Args:
         rewards (jax.Array): Rewards collected during the rollout, with shape 
@@ -140,15 +150,12 @@ def compute_gae(
                 with shape `(rollout_steps,)`.
     """
 
-    # Squeeze all inputs to ensure they are strictly 1D arrays (T,)
-    # This prevents shape broadcasting errors inside lax.scan
-    rewards = jnp.squeeze(rewards)
-    values = jnp.squeeze(values)
-    dones = jnp.squeeze(dones)
-    next_value = jnp.squeeze(next_value)
-
     # Append the next_value to our array of values so we can access V(s_{t+1})
-    next_values = jnp.append(values[1:], next_value)
+    # next_value shape: (rollout_steps, num_envs)) which matches with others
+    next_values = jnp.concatenate(
+        [values[1:], jnp.expand_dims(next_value, axis=0)], 
+        axis=0
+    )
     
     # We scan backwards through the trajectory
     def scan_fn(gae_carry: jax.Array, transition: typing.Tuple) -> \
@@ -164,9 +171,8 @@ def compute_gae(
 
     transitions = (rewards, values, next_values, dones)
     
-    # Initialize the carry strictly as a float32 scalar to match the squeezed 
-    # logic
-    init_carry = jnp.array(0.0, dtype=jnp.float32)
+    # Initialize the carry to be all zeros
+    init_carry = jnp.zeros_like(next_value, dtype=jnp.float32)
     
     # Run lax.scan in reverse
     _, advantages = lax.scan(scan_fn, init_carry, transitions, reverse=True)
@@ -263,13 +269,18 @@ def main(argv: typing.List[str]) -> int:
     rngs = jax.random.PRNGKey(0)
 
     # Create the CartPole environment
-    # NOTE: do I need to spawn multiple envs?
-    env = gym.make("CartPole-v1")
-    state_shape = env.observation_space.shape
+    # Run N envs in parallel to collect N trajectories for each rollout
+    num_envs = flags.FLAGS.num_envs
+    env = gym.make_vec("CartPole-v1", num_envs=num_envs)
 
-    # NOTE: For now we use a discrete action space
-    assert isinstance(env.action_space, gym.spaces.Discrete)
-    action_shape = env.action_space.n
+    single_obs_space = env.single_observation_space
+    single_act_space = env.single_action_space
+
+    # NOTE: forr now we are using discrete action space
+    assert isinstance(single_act_space, gym.spaces.Discrete)
+
+    state_shape = single_obs_space.shape
+    action_shape = single_act_space.n
 
     logging.rank_zero_info(
         "Initialized environment %s with state size %r and action size %r.",
@@ -328,10 +339,9 @@ def main(argv: typing.List[str]) -> int:
     # The main training loop
     for episode in range(flags.FLAGS.num_episodes):
 
+        # state shape: (num_envs, state_dim)
         state, _ = env.reset()
         done = False
-        
-        # TODO: run N actors in parallel to collect more data per episode.
 
         # Rollout: collect experience by interacting with the environment 
         # using the current policy
@@ -348,16 +358,28 @@ def main(argv: typing.List[str]) -> int:
                 state=state,
             )
 
+            # squeeze value from shape (num_envs, 1) to (num_envs,)
+            value = value.squeeze(axis=-1)
+
             # Sample action from logits
             sample_key = jax.random.fold_in(sample_rng, rollout_step)
+            # action shape: (num_envs,) where each entry is an integer representing
+            # the action index for each environment in the vectorized environment.
             action = jax.random.categorical(sample_key, jnp.squeeze(logits))
             
             # Get log prob of taken action
-            log_prob = jax.nn.log_softmax(logits)[action]
+            curr_log_prob = jax.nn.log_softmax(logits)
+            log_prob = jnp.take_along_axis(
+                curr_log_prob,
+                action[:, None],
+                axis=-1,
+            ).squeeze(axis=-1)
 
             # Step the environment
-            next_state, reward, terminated, truncated, _ = env.step(int(action))
-            done = terminated or truncated
+            # each has the shape (num_envs, *)
+            next_state, reward, terminated, truncated, _ = \
+                env.step(jnp.asarray(action))
+            done = terminated | truncated
 
             # Store transition
             rollout_states.append(state)
@@ -369,10 +391,12 @@ def main(argv: typing.List[str]) -> int:
 
             state = next_state
 
-            if done:
-                state, _ = env.reset()
+            # vectorized env has automatic reset
+            # if done:
+            #     state, _ = env.reset()
 
         # Convert lists to JAX arrays
+        # each has shape (rollout_steps, num_envs, *)
         states_arr = jnp.array(rollout_states)
         actions_arr = jnp.array(rollout_actions)
         rewards_arr = jnp.array(rollout_rewards)
@@ -389,6 +413,7 @@ def main(argv: typing.List[str]) -> int:
             state=state,
             params=train_state.params,
         )
+        next_value = next_value.squeeze(axis=-1)
 
         # Compute advantages and value targets
         advantages, value_targets = compute_gae(
@@ -407,7 +432,7 @@ def main(argv: typing.List[str]) -> int:
         batch_size = flags.FLAGS.minibatch
         num_steps = flags.FLAGS.rollout_steps
         # Ensure the batch size divides the total rollout steps
-        assert num_steps % batch_size == 0
+        # assert num_steps % batch_size == 0
         
         episode_surrogate_loss = []
         episode_value_loss = []
@@ -415,11 +440,11 @@ def main(argv: typing.List[str]) -> int:
         
         # sample mini-batches M <= NT
         for _ in range(flags.FLAGS.training_epochs): # train for k epochs
-            # 1. Shuffle the indices at the start of each epoch
+            # Shuffle the indices at the start of each epoch
             rngs, shuffle_rng = jax.random.split(rngs)
             permutation = jax.random.permutation(shuffle_rng, num_steps)
             
-            # 2. Iterate through the buffer in minibatches
+            # Iterate through the buffer in minibatches
             for i in range(0, num_steps, batch_size):
                 indices = permutation[i : i + batch_size]
                 
