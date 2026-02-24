@@ -109,7 +109,7 @@ class PPOModel(_model.Model):
         return params
     
     @typing_extensions.override
-    def forward(
+    def forward( # type: ignore
         self,
         *,
         state: jax.Array,
