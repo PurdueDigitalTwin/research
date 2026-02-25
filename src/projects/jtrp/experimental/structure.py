@@ -2,8 +2,8 @@ import collections
 import dataclasses
 import typing
 
-import numpy as np
 from numpy import typing as npt
+import numpy as np
 
 
 @dataclasses.dataclass
@@ -34,7 +34,7 @@ class BoundingBox:
 
     @property
     def height(self) -> float:
-        r"""float: height of teh bounding box."""
+        r"""float: height of the bounding box."""
         return self.y2 - self.y1
 
     @property

@@ -1,9 +1,14 @@
+import os
 import sys
+import tempfile
 
 import numpy as np
 import pytest
 
 from src.projects.jtrp.experimental import structure
+
+# Constants
+TMP_DIR = tempfile.gettempdir()
 
 
 class TestBoundingBox:
@@ -158,7 +163,7 @@ class TestTrajectorySet:
 
     def _make_trajectory_set(self) -> structure.TrajectorySet:
         return structure.TrajectorySet(
-            source_video="/tmp/test.mp4",
+            source_video=os.path.join(TMP_DIR, "test.mp4"),
             frame_width=1920,
             frame_height=1080,
             fps=30.0,
@@ -192,7 +197,7 @@ class TestTrajectorySet:
 
     def test_metadata_preserved(self) -> None:
         tset = self._make_trajectory_set()
-        assert tset.source_video == "/tmp/test.mp4"
+        assert tset.source_video == os.path.join(TMP_DIR, "test.mp4")
         assert tset.frame_width == 1920
         assert tset.frame_height == 1080
         assert tset.fps == pytest.approx(30.0)
