@@ -211,7 +211,6 @@ cython_debug/
 .DS_Store
 /data/
 /logs/
-requirements_*.txt
 
 .specstory/
 
