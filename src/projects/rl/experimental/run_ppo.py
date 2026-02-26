@@ -17,7 +17,6 @@
 # NOTE: why KL equals second order direvative
 
 
-import copy
 import functools
 import os
 import typing
@@ -34,14 +33,11 @@ from jax import numpy as jnp
 import jaxtyping
 import matplotlib.pyplot as plt
 import optax
-import typing_extensions
 
 from src.core import model as _model
 from src.core import train_state as _train_state
 from src.utilities import logging
 from src.projects.rl.experimental import ppo
-from src.projects.rl import structure as _structure
-from src.projects.rl import policy
 
 
 # Running hyperparameters
@@ -209,9 +205,9 @@ def train_step(
             the training step.
     """
 
-    local_rngs = jax.random.fold_in(rngs, train_state.step)
+    policy_rngs = jax.random.fold_in(rngs, train_state.step)
 
-    # Compute the loss and gradients
+    # Compute policy loss and gradients
     def loss_fn(params: jaxtyping.PyTree) -> tuple[jax.Array, _model.StepOutputs]:
         return agent.compute_loss(
             state=state,
@@ -220,7 +216,7 @@ def train_step(
             log_old_act_probs=log_old_act_probs,
             advantages=advantages,
             value_targets=value_targets,
-            rngs=local_rngs,
+            rngs=policy_rngs,
         )
 
     # Compute gradients of the loss with respect to the model parameters
@@ -230,6 +226,29 @@ def train_step(
     # similar to "theta_new = theta_old - learning_rate * grad" 
     # in vanilla gradient descent
     new_train_state = train_state.apply_gradients(grads=grads)
+
+    # Compute value loss after policy loss to avoid interleaved gradient
+    value_rngs = jax.random.fold_in(rngs, train_state.step)
+
+    def value_loss_fn(params: jaxtyping.PyTree) -> jax.Array:
+        return agent.compute_value_loss(
+            state=state,
+            action=action,
+            params=params,
+            value_targets=value_targets,
+            rngs=value_rngs,
+        )
+    
+    value_grads_fn = jax.value_and_grad(value_loss_fn)
+    value_loss, value_grads = value_grads_fn(new_train_state.params)
+
+    new_train_state = new_train_state.apply_gradients(grads=value_grads)
+
+    # add value loss and total loss to the step outputs for logging
+    step_outputs.scalars["value_loss"] = value_loss
+    total_loss = step_outputs.scalars["surrogate_loss"] + value_loss
+    step_outputs.scalars["loss"] = total_loss
+
     return new_train_state, step_outputs    
 
 
