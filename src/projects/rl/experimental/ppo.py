@@ -138,7 +138,7 @@ class PPOModel(_model.Model):
 
         return logits, values
     
-    @typing_extensions.override
+    # @typing_extensions.override
     def compute_loss(
         self,
         *,
@@ -196,7 +196,13 @@ class PPOModel(_model.Model):
 
         # Compute the ratio of current to old action probabilities
         # the shape of ratios is (rollout_steps,)
-        ratios = jnp.exp(log_act_probs - log_old_act_probs)
+        # NOTE: do not use exp(log_act_probs - log_old_act_probs) to compute the 
+        # ratios, because it will be too small to represent in float32 and cause 
+        # numerical instability.
+        ratios = jnp.divide(
+            jnp.exp(log_act_probs),
+            jax.lax.stop_gradient(jnp.exp(log_old_act_probs))
+        )
 
         # Normalize the advantages (not mention by the reference)
         advantages = (advantages - jnp.mean(advantages)) / \
@@ -215,9 +221,6 @@ class PPOModel(_model.Model):
         # Compute the Value Function loss L^VF
         # NOTE: when should I add stop_gradient
         value_targets = lax.stop_gradient(value_targets)
-
-        logging.rank_zero_info(f"values shape, value_targets shape: \
-                               {values.shape}, {value_targets.shape}")
         
         # Average the value loss over the rollout steps
         value_loss = jnp.mean(optax.squared_error(values, value_targets))
@@ -242,6 +245,7 @@ class PPOModel(_model.Model):
                 loss=total_loss.mean(),
                 surrogate_loss=surrogate_loss.mean(),
                 value_loss=value_loss.mean(),
+                prob_ratio_mean=ratios.mean(),
             )
         )
 

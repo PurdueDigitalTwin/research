@@ -72,7 +72,7 @@ flags.DEFINE_float(
 )
 flags.DEFINE_float(
     name="learning_rate",
-    default=1e-3,
+    default=3e-4,
     required=False,
     help="Learning rate for the PPO optimizer.",
 )
@@ -90,7 +90,7 @@ flags.DEFINE_float(
 )
 flags.DEFINE_float(
     name="value_coeff",
-    default=0.5,
+    default=1.0,
     required=False,
     help="Coefficient for the value function loss in the total PPO loss.",
 )
@@ -120,56 +120,39 @@ flags.DEFINE_integer(
 )
 
 
+# NOTE: we need to use the updated values to compute GAE
+
+
 def compute_gae(
     rewards: jax.Array,
     dones: jax.Array,
     values: jax.Array,
-    next_value: jax.Array,
+    next_values: jax.Array,
     gamma: float,
     lambda_gae: float,
-) -> typing.Tuple[jax.Array, jax.Array]:
-    r"""Computes Generalized Advantage Estimation (GAE) and value targets for the
-        given rollout data.
+) -> jax.Array:
+    r"""Computes Generalized Advantage Estimation (GAE) for the given rollout data.
 
     Args:
         rewards (jax.Array): Rewards collected during the rollout, with shape 
-            `(rollout_steps,)`.
+            `(rollout_steps, num_envs)`.
         values (jax.Array): Value estimates for each state in the rollout, with
-            shape `(rollout_steps,)`.
+            shape `(rollout_steps, num_envs)`.
         dones (jax.Array): Binary indicators of episode termination for each step
-            in the rollout, with shape `(rollout_steps,)`.
-        next_value (jax.Array): Value estimate for the state following the last
-            step in the rollout, with shape `()`.
+            in the rollout, with shape `(rollout_steps, num_envs)`.
+        next_values (jax.Array): Value estimates for the state following each step
+            in the rollout, with shape `(rollout_steps, num_envs)`.
         gamma (float): Discount factor for future rewards.
         lambda_gae (float): GAE parameter controlling bias-variance trade-off.
     Returns:
-        Tuple[jax.Array, jax.Array]: A tuple containing:
-            - advantages: Computed advantages for each step in the rollout, with
-                shape `(rollout_steps,)`.
-            - value_targets: Computed value targets for each step in the rollout,
-                with shape `(rollout_steps,)`.
+        jax.Array: Computed advantages for each step in the rollout, with
+            shape `(rollout_steps, num_envs)`.
     """
-
-    # Append the next_value to our array of values so we can access V(s_{t+1})
-    # next_value shape: (rollout_steps, num_envs)) which matches with others
-    next_values = jnp.concatenate(
-        [values[1:], jnp.expand_dims(next_value, axis=0)], 
-        axis=0
-    )
 
     transitions = (rewards, values, next_values, dones)
 
-    # Compute value targets.
-    def scan_value_target_fn(value_target_carry: jax.Array, transition: \
-                             typing.Tuple) -> typing.Tuple[jax.Array, jax.Array]:
-        reward, _, _, done = transition
-
-        value_target = reward + gamma * (1 - done) * value_target_carry
-        return value_target_carry, value_target
-    
-    value_init_carry = rewards[-1]
-    _, value_targets = lax.scan(scan_value_target_fn, value_init_carry, 
-                                transitions, reverse=True)
+    # Experiment: decouple advantage and value target
+    # next_values = jnp.concatenate([values[1:], next_values[-1:]], axis=0)
     
     # We scan backwards through the trajectory
     def scan_surrogate_fn(gae_carry: jax.Array, transition: typing.Tuple) -> \
@@ -184,7 +167,7 @@ def compute_gae(
         return gae, gae
     
     # Initialize the carry to be all zeros
-    surrogate_init_carry = jnp.zeros_like(next_value, dtype=jnp.float32)
+    surrogate_init_carry = jnp.zeros_like(next_values[0], dtype=jnp.float32)
     
     # Run lax.scan in reverse
     _, advantages = lax.scan(scan_surrogate_fn, surrogate_init_carry, 
@@ -192,7 +175,7 @@ def compute_gae(
     
     # advantages = jax.lax.stop_gradient(advantages)
     
-    return advantages, value_targets
+    return advantages
 
 
 def train_step(
@@ -328,6 +311,7 @@ def main(argv: typing.List[str]) -> int:
     value_loss_log = []
     loss_log = []
     reward_log = []
+    prob_ratio_mean_log = []
 
     # Create two independent random keys for and training and sampling
     rngs, train_rng, sample_rng = jax.random.split(rngs, num=3)
@@ -350,6 +334,7 @@ def main(argv: typing.List[str]) -> int:
 
         rollout_states, rollout_actions, rollout_rewards = [], [], []
         rollout_dones, rollout_values, rollout_log_probs = [], [], []
+        rollout_next_states = []
 
         for rollout_step in range(flags.FLAGS.rollout_steps):
 
@@ -390,6 +375,7 @@ def main(argv: typing.List[str]) -> int:
             rollout_dones.append(done)
             rollout_values.append(value)
             rollout_log_probs.append(log_prob)
+            rollout_next_states.append(next_state)
 
             state = next_state
 
@@ -404,23 +390,31 @@ def main(argv: typing.List[str]) -> int:
         dones_arr = jnp.array(rollout_dones)
         values_arr = jnp.array(rollout_values)
         log_probs_arr = jnp.array(rollout_log_probs)
+        next_states_arr = jnp.array(rollout_next_states)
 
         # GAE: compute advantages and value targets for the collected rollout data
         # logging.rank_zero_info("Computing GAE for episode %d", episode)
 
         # Get value of the state that follows the rollout
-        _, next_value = p_eval_step(
-            state=state,
+        # NOTE: to obey bellman equation, the next value should be learned rather 
+        # than using the current rollout traj.
+        # next_values shape: (rollout_steps, num_envs)
+        _, next_values = p_eval_step(
             params=train_state.params,
+            state=next_states_arr,
         )
-        next_value = next_value.squeeze(axis=-1)
+        next_values = next_values.squeeze(axis=-1)
+
+        # Compute value targets.
+        value_targets = rewards_arr + flags.FLAGS.gamma * next_values * \
+            (1.0 - dones_arr)
 
         # Compute advantages and value targets
-        advantages, value_targets = compute_gae(
+        advantages = compute_gae(
             rewards=rewards_arr,
             dones=dones_arr,
             values=values_arr,
-            next_value=next_value,
+            next_values=next_values,
             gamma=flags.FLAGS.gamma,
             lambda_gae=flags.FLAGS.lambda_gae,
         )
@@ -429,23 +423,30 @@ def main(argv: typing.List[str]) -> int:
         # computed advantages
         # logging.rank_zero_info("Updating PPO model for episode %d", episode)
         # Update the PPO model using minibatches
+        # Flatten the arrays before minibatching
+        states_arr = states_arr.reshape(-1, *state_shape)
+        actions_arr = actions_arr.reshape(-1)
+        log_probs_arr = log_probs_arr.reshape(-1)
+        advantages = advantages.reshape(-1)
+        value_targets = value_targets.reshape(-1)
+
         batch_size = flags.FLAGS.minibatch
-        num_steps = flags.FLAGS.rollout_steps
-        # Ensure the batch size divides the total rollout steps
-        # assert num_steps % batch_size == 0
+        # Update num_steps to the total transition count
+        num_total_steps = flags.FLAGS.rollout_steps * num_envs
         
         episode_surrogate_loss = []
         episode_value_loss = []
         episode_loss = []
+        episode_prob_ratio_mean = []
         
         # sample mini-batches M <= NT
         for _ in range(flags.FLAGS.training_epochs): # train for k epochs
             # Shuffle the indices at the start of each epoch
             rngs, shuffle_rng = jax.random.split(rngs)
-            permutation = jax.random.permutation(shuffle_rng, num_steps)
+            permutation = jax.random.permutation(shuffle_rng, num_total_steps)
             
             # Iterate through the buffer in minibatches
-            for i in range(0, num_steps, batch_size):
+            for i in range(0, num_total_steps, batch_size):
                 indices = permutation[i : i + batch_size]
                 
                 # Slice the data for this minibatch
@@ -472,15 +473,20 @@ def main(argv: typing.List[str]) -> int:
                                                     scalars["surrogate_loss"]))
                 episode_value_loss.append(float(step_outputs.scalars["value_loss"]))
                 episode_loss.append(step_outputs.scalars["loss"])
+                episode_prob_ratio_mean.append(
+                    step_outputs.scalars["prob_ratio_mean"]
+                )
 
         # Logging
         mean_episode_surrogate_loss = jnp.mean(jnp.array(episode_surrogate_loss))
         mean_episode_value_loss = jnp.mean(jnp.array(episode_value_loss))
         mean_episode_loss = jnp.mean(jnp.array(episode_loss))
+        mean_episode_prob_ratio_mean = jnp.mean(jnp.array(episode_prob_ratio_mean))
 
         surrogate_loss_log.append(float(mean_episode_surrogate_loss))
         value_loss_log.append(float(mean_episode_value_loss))
         loss_log.append(float(mean_episode_loss))
+        prob_ratio_mean_log.append(float(mean_episode_prob_ratio_mean))
 
         # Evaluate the current policy every 10 episodes by running it in the 
         # environment.
@@ -513,12 +519,13 @@ def main(argv: typing.List[str]) -> int:
 
             logging.rank_zero_info(
                 "Episode %d: surrogate loss: %.4f, value loss: %.4f, Loss = %.4f, \
-                    Eval Reward = %.2f",
+                    Eval Reward = %.2f, Mean Prob Ratio = %.4f",
                 episode,
                 float(mean_episode_surrogate_loss),
                 float(mean_episode_value_loss),
                 float(mean_episode_loss),
                 float(mean_eval_reward),
+                float(mean_episode_prob_ratio_mean),
             )
     
     # When the trainning is done, save the serialized model parameters to a file
@@ -530,8 +537,8 @@ def main(argv: typing.List[str]) -> int:
     env.close()
 
     # Create a figure with two subplots side-by-side
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-    (ax1, ax2, ax3, ax4) = axes.flatten()
+    fig, axes = plt.subplots(2, 3, figsize=(14, 10))
+    (ax1, ax2, ax3, ax4, ax5, _) = axes.flatten()
 
     # Plot 1: Total Loss (Surrogate Loss + Value Loss)
     ax1.plot(loss_log, color="tab:blue", alpha=0.7)
@@ -560,6 +567,12 @@ def main(argv: typing.List[str]) -> int:
     ax4.set_ylabel("Value Loss")
     ax4.set_title("Value Loss (L_VF)")
     ax4.grid(True, linestyle="--", alpha=0.6)
+
+    ax5.plot(prob_ratio_mean_log, color="tab:orange", linewidth=2)
+    ax5.set_xlabel("Training Steps")
+    ax5.set_ylabel("Mean Probability Ratio")
+    ax5.set_title("Mean Probability Ratio Across Episodes")
+    ax5.grid(True, linestyle="--", alpha=0.6)
 
     # Adjust layout to prevent overlap
     fig.tight_layout()
