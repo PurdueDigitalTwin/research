@@ -1,6 +1,8 @@
 import typing
 
 import cv2
+from tqdm import auto as tqdm
+from tqdm.contrib import logging as tqdm_logging
 
 from src.projects.jtrp.experimental import structure
 from src.utilities import logging
@@ -79,71 +81,74 @@ def render_annotated_video(
     trail_history: typing.Dict[int, typing.List[typing.Tuple[int, int]]] = {}
 
     frame_idx = 0
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
+    pbar = tqdm.tqdm(
+        total=trajectory_set.total_frames,
+        desc="Rendering",
+        position=0,
+        leave=False,
+        unit="frames",
+    )
+    with tqdm_logging.logging_redirect_tqdm():
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
 
-        detections = frame_detections.get(frame_idx, [])
+            detections = frame_detections.get(frame_idx, [])
 
-        for det in detections:
-            color = _get_color(det.track_id)
-            cx, cy = det.bbox.center
-            cx_int, cy_int = int(cx), int(cy)
+            for det in detections:
+                color = _get_color(det.track_id)
+                cx, cy = det.bbox.center
+                cx_int, cy_int = int(cx), int(cy)
 
-            # Update trail history.
-            if det.track_id not in trail_history:
-                trail_history[det.track_id] = []
-            trail_history[det.track_id].append((cx_int, cy_int))
+                # Update trail history.
+                if det.track_id not in trail_history:
+                    trail_history[det.track_id] = []
+                trail_history[det.track_id].append((cx_int, cy_int))
 
-            # Draw bounding box.
-            if show_bbox:
-                pt1 = (int(det.bbox.x1), int(det.bbox.y1))
-                pt2 = (int(det.bbox.x2), int(det.bbox.y2))
-                cv2.rectangle(frame, pt1, pt2, color, 2)
+                # Draw bounding box.
+                if show_bbox:
+                    pt1 = (int(det.bbox.x1), int(det.bbox.y1))
+                    pt2 = (int(det.bbox.x2), int(det.bbox.y2))
+                    cv2.rectangle(frame, pt1, pt2, color, 2)
 
-            # Draw label.
-            if show_label:
-                label = (
-                    f"ID:{det.track_id} {det.class_name}"
-                    f" {det.confidence:.2f}"
-                )
-                label_pos = (int(det.bbox.x1), int(det.bbox.y1) - 10)
-                cv2.putText(
-                    frame,
-                    label,
-                    label_pos,
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.5,
-                    color,
-                    2,
-                )
-
-            # Draw trajectory trail.
-            if show_trail:
-                trail = trail_history[det.track_id]
-                trail_points = trail[-trail_length:]
-                for j in range(1, len(trail_points)):
-                    alpha = j / len(trail_points)
-                    thickness = max(1, int(2 * alpha))
-                    cv2.line(
+                # Draw label.
+                if show_label:
+                    label = (
+                        f"ID:{det.track_id} {det.class_name}"
+                        f" {det.confidence:.2f}"
+                    )
+                    label_pos = (int(det.bbox.x1), int(det.bbox.y1) - 10)
+                    cv2.putText(
                         frame,
-                        trail_points[j - 1],
-                        trail_points[j],
+                        label,
+                        label_pos,
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.5,
                         color,
-                        thickness,
+                        2,
                     )
 
-        writer.write(frame)
-        frame_idx += 1
+                # Draw trajectory trail.
+                if show_trail:
+                    trail = trail_history[det.track_id]
+                    trail_points = trail[-trail_length:]
+                    for j in range(1, len(trail_points)):
+                        alpha = j / len(trail_points)
+                        thickness = max(1, int(2 * alpha))
+                        cv2.line(
+                            frame,
+                            trail_points[j - 1],
+                            trail_points[j],
+                            color,
+                            thickness,
+                        )
 
-        if frame_idx % 500 == 0:
-            logging.rank_zero_info(
-                "Rendered %d / %d frames.",
-                frame_idx,
-                trajectory_set.total_frames,
-            )
+            writer.write(frame)
+            frame_idx += 1
+            pbar.update(1)
 
+    pbar.close()
     cap.release()
     writer.release()
     logging.rank_zero_info("Annotated video saved to %s", output_path)  #
