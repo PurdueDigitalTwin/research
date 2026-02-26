@@ -17,6 +17,7 @@
 # NOTE: why KL equals second order direvative
 
 
+import copy
 import functools
 import os
 import typing
@@ -33,11 +34,14 @@ from jax import numpy as jnp
 import jaxtyping
 import matplotlib.pyplot as plt
 import optax
+import typing_extensions
 
 from src.core import model as _model
 from src.core import train_state as _train_state
 from src.utilities import logging
 from src.projects.rl.experimental import ppo
+from src.projects.rl import structure as _structure
+from src.projects.rl import policy
 
 
 # Running hyperparameters
@@ -49,7 +53,7 @@ flags.DEFINE_string(
 )
 flags.DEFINE_integer(
     name="num_episodes",
-    default=1000,
+    default=50,
     required=False,
     help="Number of episodes to train the PPO model.",
 )
@@ -104,13 +108,13 @@ flags.DEFINE_integer(
 )
 flags.DEFINE_integer(
     name="training_epochs",
-    default=5,
+    default=1,
     required=False,
     help="Number of epochs to train on each rollout batch.",
 )
 flags.DEFINE_integer(
     name="num_envs",
-    default=10,
+    default=32,
     required=False,
     help="Number of trajectories to collect for evaluation.",
 )
@@ -205,9 +209,9 @@ def train_step(
             the training step.
     """
 
-    policy_rngs = jax.random.fold_in(rngs, train_state.step)
+    local_rngs = jax.random.fold_in(rngs, train_state.step)
 
-    # Compute policy loss and gradients
+    # Compute the loss and gradients
     def loss_fn(params: jaxtyping.PyTree) -> tuple[jax.Array, _model.StepOutputs]:
         return agent.compute_loss(
             state=state,
@@ -216,7 +220,7 @@ def train_step(
             log_old_act_probs=log_old_act_probs,
             advantages=advantages,
             value_targets=value_targets,
-            rngs=policy_rngs,
+            rngs=local_rngs,
         )
 
     # Compute gradients of the loss with respect to the model parameters
@@ -226,29 +230,6 @@ def train_step(
     # similar to "theta_new = theta_old - learning_rate * grad" 
     # in vanilla gradient descent
     new_train_state = train_state.apply_gradients(grads=grads)
-
-    # Compute value loss after policy loss to avoid interleaved gradient
-    value_rngs = jax.random.fold_in(rngs, train_state.step)
-
-    def value_loss_fn(params: jaxtyping.PyTree) -> jax.Array:
-        return agent.compute_value_loss(
-            state=state,
-            action=action,
-            params=params,
-            value_targets=value_targets,
-            rngs=value_rngs,
-        )
-    
-    value_grads_fn = jax.value_and_grad(value_loss_fn)
-    value_loss, value_grads = value_grads_fn(new_train_state.params)
-
-    new_train_state = new_train_state.apply_gradients(grads=value_grads)
-
-    # add value loss and total loss to the step outputs for logging
-    step_outputs.scalars["value_loss"] = value_loss
-    total_loss = step_outputs.scalars["surrogate_loss"] + value_loss
-    step_outputs.scalars["loss"] = total_loss
-
     return new_train_state, step_outputs    
 
 
@@ -311,18 +292,18 @@ def main(argv: typing.List[str]) -> int:
     )
 
     # Optional: use annealing learning rate to stablize training
-    lr_schedule = optax.linear_schedule(
-        init_value=flags.FLAGS.learning_rate,
-        end_value=0.0,
-        transition_steps=flags.FLAGS.num_episodes * \
-            flags.FLAGS.training_epochs * \
-            (flags.FLAGS.rollout_steps // flags.FLAGS.minibatch),
-    )
+    # lr_schedule = optax.linear_schedule(
+    #     init_value=flags.FLAGS.learning_rate,
+    #     end_value=0.0,
+    #     transition_steps=flags.FLAGS.num_episodes * \
+    #         flags.FLAGS.training_epochs * \
+    #         (flags.FLAGS.rollout_steps // flags.FLAGS.minibatch),
+    # )
 
     # Create a training state instance with adam optimizer
     train_state = _train_state.TrainState.create(
         params=params,
-        tx=optax.adam(learning_rate=lr_schedule),
+        tx=optax.adam(learning_rate=flags.FLAGS.learning_rate),
     )
 
     # Log loss and rewards during training
@@ -424,10 +405,6 @@ def main(argv: typing.List[str]) -> int:
         )
         next_values = next_values.squeeze(axis=-1)
 
-        # Compute value targets.
-        value_targets = rewards_arr + flags.FLAGS.gamma * next_values * \
-            (1.0 - dones_arr)
-
         # Compute advantages and value targets
         advantages = compute_gae(
             rewards=rewards_arr,
@@ -437,6 +414,13 @@ def main(argv: typing.List[str]) -> int:
             gamma=flags.FLAGS.gamma,
             lambda_gae=flags.FLAGS.lambda_gae,
         )
+
+        # Normalize the advantages (not mention by the reference)
+        advantages = (advantages - jnp.mean(advantages)) / \
+            (jnp.std(advantages) + 1e-8)
+        
+        # Compute value targets.
+        value_targets = advantages + values_arr
 
         # Update the PPO model using the collected rollout data and 
         # computed advantages
@@ -509,7 +493,7 @@ def main(argv: typing.List[str]) -> int:
 
         # Evaluate the current policy every 10 episodes by running it in the 
         # environment.
-        if episode % 10 == 0:
+        if episode % 1 == 0:
             eval_env = gym.make("CartPole-v1")
             eval_reward = []
 
