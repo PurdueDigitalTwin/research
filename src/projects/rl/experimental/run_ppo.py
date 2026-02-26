@@ -418,6 +418,8 @@ def main(argv: typing.List[str]) -> int:
         )
 
         # Normalize the advantages (not mention by the reference)
+        # NOTE: sinc the variance of the advantage is 1, L_VF should ideally 
+        # converge to 1.
         advantages = (advantages - jnp.mean(advantages)) / \
             (jnp.std(advantages) + 1e-8)
         
