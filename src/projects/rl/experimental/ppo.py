@@ -138,7 +138,7 @@ class PPOModel(_model.Model):
 
         return logits, values
     
-    # @typing_extensions.override
+    @typing_extensions.override
     def compute_loss(
         self,
         *,
@@ -147,7 +147,6 @@ class PPOModel(_model.Model):
         params: jaxtyping.PyTree,
         log_old_act_probs: jax.Array,
         advantages: jax.Array,
-        value_targets: jax.Array,
         rngs: typing.Any,
         **kwargs,
     ) -> typing.Tuple[jax.Array, _model.StepOutputs]:
@@ -164,8 +163,6 @@ class PPOModel(_model.Model):
                 the rollout.
             rngs (jax.random.PRNGKey): Random number generator key for stochastic
                 operations.
-            deterministic (bool, optional): Whether to compute loss in 
-                deterministic mode (i.e., no sampling from the policy).
 
         Returns:
             jax.Array: The computed PPO surrogate loss.
@@ -173,14 +170,9 @@ class PPOModel(_model.Model):
         del kwargs
 
         # Compute the current policy's action probabilities
-        logits, values = self._network.apply(params, rngs=rngs, inputs=state)
+        logits, _ = self._network.apply(params, rngs=rngs, inputs=state)
 
         assert isinstance(logits, jax.Array)
-        assert isinstance(values, jax.Array)
-
-        # Squeeze values to match the shape of value_targets (rollout_steps,)
-        # This prevents optax.squared_error from broadcasting into an N x N matrix
-        values = values.squeeze(axis=-1)
 
         # Apply log softmax to get action probabilities
         # dimension: (rollout_steps, action_space_dim)
@@ -218,36 +210,68 @@ class PPOModel(_model.Model):
         # Average the surrogate loss over the rollout steps
         surrogate_loss = -jnp.mean(surrogate_loss)
 
-        # Compute the Value Function loss L^VF
-        # NOTE: when should I add stop_gradient
-        value_targets = lax.stop_gradient(value_targets)
-        
-        # Average the value loss over the rollout steps
-        value_loss = jnp.mean(optax.squared_error(values, value_targets))
-        value_loss = self._value_coeff * value_loss
-
         # According to the original paper, they don't use an entropy bonus
         # entropy_loss = jnp.mean(jnp.sum(jnp.exp(curr_log_probs) * \
         #     curr_log_probs, axis=-1))
         # entropy_loss = self._entropy_coeff * entropy_loss
-        entropy_loss = 0.0
+        # entropy_loss = 0.0
 
         # We want to minimize the surrogate total loss
         # total_loss = -surrogate_loss + value_loss
 
         assert isinstance(surrogate_loss, jax.Array)
-        assert isinstance(value_loss, jax.Array)
-
-        total_loss = surrogate_loss + value_loss + entropy_loss
 
         step_outputs = _model.StepOutputs(
             scalars=dict(
-                loss=total_loss.mean(),
                 surrogate_loss=surrogate_loss.mean(),
-                value_loss=value_loss.mean(),
                 prob_ratio_mean=ratios.mean(),
             )
         )
 
-        return total_loss, step_outputs
+        return surrogate_loss, step_outputs
+    
+
+    def compute_value_loss(
+        self,
+        *,
+        state: jax.Array,
+        params: jaxtyping.PyTree,
+        value_targets: jax.Array,
+        rngs: typing.Any,
+        **kwargs,
+    ) -> jax.Array:
+        r"""Computes the value function loss.
+
+        Args:
+            state (jax.Array): Input state array of shape `(*, D)`.
+            params (PyTree): Current parameters of the policy network.
+            value_targets (jax.Array): Computed value targets for each transition
+                in the rollout.
+            rngs (jax.random.PRNGKey): Random number generator key for stochastic
+                operations.
+            **kwargs: Keyword arguments consumed by the model.
+
+        Returns:
+            jax.Array: The computed value function loss.
+        """
+        del kwargs
+
+        # Compute the current policy's state values
+        _, values = self._network.apply(params, rngs=rngs, inputs=state)
+
+        assert isinstance(values, jax.Array)
+
+        # Squeeze values to match the shape of value_targets (rollout_steps,)
+        values = values.squeeze(axis=-1)
+
+        # stop gradient for value targets to prevent backprop through them
+        value_targets = lax.stop_gradient(value_targets)
+
+        # Compute the Value Function loss L^VF
+        value_loss = jnp.mean(optax.squared_error(values, value_targets))
+
+        # moltiply the coefficient
+        value_loss = self._value_coeff * value_loss
+        
+        return value_loss
     
