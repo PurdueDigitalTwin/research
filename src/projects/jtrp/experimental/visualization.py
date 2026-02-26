@@ -91,6 +91,7 @@ def render_annotated_video(
     with tqdm_logging.logging_redirect_tqdm():
         while cap.isOpened():
             ret, frame = cap.read()
+            pbar.update(1)
             if not ret:
                 break
 
@@ -146,7 +147,6 @@ def render_annotated_video(
 
             writer.write(frame)
             frame_idx += 1
-            pbar.update(1)
 
     pbar.close()
     cap.release()
