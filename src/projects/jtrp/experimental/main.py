@@ -130,7 +130,7 @@ def main(argv: typing.List[str]) -> int:
 
     if FLAGS.output_format in ("csv", "both"):
         csv_path = os.path.join(
-            FLAGS.output_dir, f"{video_basename}_trajectories.csv"
+            FLAGS.output_dir, f"{model_name}_{video_basename}_trajectories.csv"
         )
         serialization.save_trajectories_csv(trajectory_set, csv_path)
 
