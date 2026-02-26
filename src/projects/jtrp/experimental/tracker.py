@@ -2,6 +2,8 @@ import typing
 
 import cv2
 import torch
+from tqdm import auto as tqdm
+from tqdm.contrib import logging as tqdm_logging
 import ultralytics
 
 from src.projects.jtrp.experimental import structure
@@ -112,44 +114,50 @@ def extract_trajectories(
         verbose=False,
     )
 
-    for frame_idx, result in enumerate(results):
-        if result.boxes is None or result.boxes.id is None:
-            continue
+    with tqdm_logging.logging_redirect_tqdm():
+        pbar = tqdm.tqdm(
+            total=total_frames,
+            desc="Processing Frames",
+            position=0,
+            leave=False,
+        )
+        for frame_idx, result in enumerate(results):
+            pbar.update(1)
+            if result.boxes is None or result.boxes.id is None:
+                continue
 
-        boxes = result.boxes
-        ids = boxes.id
-        assert isinstance(ids, torch.Tensor)
+            boxes = result.boxes
+            ids = boxes.id
+            assert isinstance(ids, torch.Tensor)
 
-        for i in range(len(boxes)):
-            track_id = int(ids[i].item())
-            xyxy = boxes.xyxy[i].cpu().numpy()
-            class_id = int(boxes.cls[i].item())
-            confidence = float(boxes.conf[i].item())
-            class_name = result.names[class_id]
+            for i in range(len(boxes)):
+                track_id = int(ids[i].item())
+                xyxy = boxes.xyxy[i].cpu().numpy()
+                class_id = int(boxes.cls[i].item())
+                confidence = float(boxes.conf[i].item())
+                class_name = result.names[class_id]
 
-            detection = structure.Detection(
-                frame_index=frame_idx,
-                track_id=track_id,
-                bbox=structure.BoundingBox(
-                    x1=float(xyxy[0]),
-                    y1=float(xyxy[1]),
-                    x2=float(xyxy[2]),
-                    y2=float(xyxy[3]),
-                ),
-                class_id=class_id,
-                class_name=class_name,
-                confidence=confidence,
+                detection = structure.Detection(
+                    frame_index=frame_idx,
+                    track_id=track_id,
+                    bbox=structure.BoundingBox(
+                        x1=float(xyxy[0]),
+                        y1=float(xyxy[1]),
+                        x2=float(xyxy[2]),
+                        y2=float(xyxy[3]),
+                    ),
+                    class_id=class_id,
+                    class_name=class_name,
+                    confidence=confidence,
+                )
+                trajectory_set.add_detection(detection)
+
+            pbar.set_postfix(
+                {"Num Trajectories": len(trajectory_set.trajectories)},
+                refresh=True,
             )
-            trajectory_set.add_detection(detection)
 
-        if (frame_idx + 1) % 500 == 0:
-            logging.rank_zero_info(
-                "Processed %d / %d frames (%d tracks so far).",
-                frame_idx + 1,
-                total_frames,
-                len(trajectory_set.trajectories),
-            )
-
+    pbar.close()
     logging.rank_zero_info(
         "Tracking complete: %d frames, %d unique tracks.",
         total_frames,
