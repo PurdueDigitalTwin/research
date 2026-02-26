@@ -72,7 +72,7 @@ flags.DEFINE_float(
 )
 flags.DEFINE_float(
     name="learning_rate",
-    default=3e-4,
+    default=1e-3,
     required=False,
     help="Learning rate for the PPO optimizer.",
 )
@@ -291,19 +291,21 @@ def main(argv: typing.List[str]) -> int:
         rngs=init_rng,
     )
 
-    # Optional: use annealing learning rate to stablize training
-    # lr_schedule = optax.linear_schedule(
-    #     init_value=flags.FLAGS.learning_rate,
-    #     end_value=0.0,
-    #     transition_steps=flags.FLAGS.num_episodes * \
-    #         flags.FLAGS.training_epochs * \
-    #         (flags.FLAGS.rollout_steps // flags.FLAGS.minibatch),
-    # )
+    # Optional: use annealing learning rate to prevent collapsing
+    # Each episode has (Rollout / Minibatch) updates * Training Epochs
+    updates_per_episode = (flags.FLAGS.rollout_steps // flags.FLAGS.minibatch) * flags.FLAGS.training_epochs
+    total_updates = flags.FLAGS.num_episodes * updates_per_episode
+
+    lr_schedule = optax.linear_schedule(
+        init_value=flags.FLAGS.learning_rate,
+        end_value=3e-7,  # Keep a small "learning floor"
+        transition_steps=total_updates 
+    )
 
     # Create a training state instance with adam optimizer
     train_state = _train_state.TrainState.create(
         params=params,
-        tx=optax.adam(learning_rate=flags.FLAGS.learning_rate),
+        tx=optax.adam(learning_rate=lr_schedule),
     )
 
     # Log loss and rewards during training
