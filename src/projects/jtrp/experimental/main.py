@@ -96,6 +96,7 @@ def main(argv: typing.List[str]) -> int:
         checkpoint_path=FLAGS.model_checkpoint,
         device=FLAGS.device,
     )
+    model_name = os.path.splitext(os.path.basename(FLAGS.model_checkpoint))[0]
 
     # Step 2: Run detection + tracking.
     logging.rank_zero_info("Processing video: %s", FLAGS.video_path)
@@ -135,7 +136,8 @@ def main(argv: typing.List[str]) -> int:
 
     if FLAGS.output_format in ("json", "both"):
         json_path = os.path.join(
-            FLAGS.output_dir, f"{video_basename}_trajectories.json"
+            FLAGS.output_dir,
+            f"{model_name}_{video_basename}_trajectories.json",
         )
         serialization.save_trajectories_json(trajectory_set, json_path)
 
@@ -143,7 +145,7 @@ def main(argv: typing.List[str]) -> int:
     if FLAGS.render_video:
         annotated_path = os.path.join(
             FLAGS.output_dir,
-            f"{video_basename}_annotated.mp4",
+            f"{model_name}_{video_basename}_annotated.mp4",
         )
         visualization.render_annotated_video(
             trajectory_set=trajectory_set,
