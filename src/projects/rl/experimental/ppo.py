@@ -138,7 +138,7 @@ class PPOModel(_model.Model):
 
         return logits, values
     
-    # @typing_extensions.override
+    @typing_extensions.override
     def compute_loss(
         self,
         *,
@@ -221,6 +221,7 @@ class PPOModel(_model.Model):
         # Average the value loss over the rollout steps
         value_loss = jnp.mean(optax.squared_error(values, value_targets))
         value_loss = self._value_coeff * value_loss
+        # value_loss = value_loss * 0.0
 
         # According to the original paper, they don't use an entropy bonus
         # entropy_loss = jnp.mean(jnp.sum(jnp.exp(curr_log_probs) * \
