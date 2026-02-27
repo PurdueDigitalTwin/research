@@ -293,7 +293,8 @@ def main(argv: typing.List[str]) -> int:
 
     # Optional: use annealing learning rate to prevent collapsing
     # Each episode has (Rollout / Minibatch) updates * Training Epochs
-    updates_per_episode = (flags.FLAGS.rollout_steps // flags.FLAGS.minibatch) * flags.FLAGS.training_epochs
+    updates_per_episode = (flags.FLAGS.rollout_steps // flags.FLAGS.minibatch) * \
+        flags.FLAGS.training_epochs
     total_updates = flags.FLAGS.num_episodes * updates_per_episode
 
     lr_schedule = optax.linear_schedule(
@@ -305,7 +306,7 @@ def main(argv: typing.List[str]) -> int:
     # Create a training state instance with adam optimizer
     train_state = _train_state.TrainState.create(
         params=params,
-        tx=optax.adam(learning_rate=lr_schedule),
+        tx=optax.adam(learning_rate=3e-4),
     )
 
     # Log loss and rewards during training
@@ -424,7 +425,8 @@ def main(argv: typing.List[str]) -> int:
             (jnp.std(advantages) + 1e-8)
         
         # Compute value targets.
-        value_targets = advantages + values_arr
+        value_targets = rewards_arr + flags.FLAGS.gamma * next_values * (1.0 - \
+                                                                         dones_arr)
 
         # Update the PPO model using the collected rollout data and 
         # computed advantages
