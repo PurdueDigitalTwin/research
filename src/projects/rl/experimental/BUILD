@@ -13,6 +13,7 @@ ml_py_binary(
         "jaxtyping",
         "matplotlib",
         "optax",
+        "//src/core:model",
         "//src/core:train_state",
         "//src/projects/rl:replay_buffer",
         "//src/utilities:logging",

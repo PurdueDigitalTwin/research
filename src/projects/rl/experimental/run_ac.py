@@ -1,7 +1,9 @@
+import functools
 import typing
 
 from absl import app
 from absl import flags
+from flax import jax_utils
 from flax import linen as nn
 from flax import serialization
 import gymnasium as gym
@@ -10,11 +12,17 @@ from jax import numpy as jnp
 import jaxtyping
 import optax
 
+from src.core import model as _model
 from src.core import train_state as _train_state
 from src.projects.rl import replay_buffer as _replay_buffer
 from src.utilities import logging as _logging
 
 # Flags
+flags.DEFINE_integer(
+    name="batch_size",
+    default=1024,
+    help="Number of transition tuples for single training step.",
+)
 flags.DEFINE_integer(
     name="buffer_capacity",
     default=30_000,
@@ -139,7 +147,7 @@ class ActorCriticModel:
     ) -> jaxtyping.PyTree:
         del kwargs
 
-        params = self.network.init(rngs, state)
+        variables = self.network.init(rngs, state)
         if jax.process_index() == 0:
             _tabulate_fn = nn.summary.tabulate(
                 module=self.network,
@@ -149,7 +157,52 @@ class ActorCriticModel:
             )
             print(_tabulate_fn(state))
 
-        return params
+        return variables["params"]
+
+    def training_step(
+        self,
+        *,
+        batch: jaxtyping.PyTree,
+        state: _train_state.TrainState,
+        rngs: typing.Any,
+        **kwargs,
+    ) -> _model.StepOutputs:
+        del kwargs
+
+        local_rng = jax.random.fold_in(rngs, jax.lax.axis_index("batch"))
+        local_rng = jax.random.fold_in(local_rng, state.step)
+
+        raise NotImplementedError
+
+    def evaluation_step(
+        self,
+        *,
+        batch: jaxtyping.PyTree,
+        params: jaxtyping.PyTree,
+        rngs: typing.Any,
+        **kwargs,
+    ) -> _model.StepOutputs:
+        raise NotImplementedError
+
+    def predict_step(
+        self,
+        *,
+        batch: jaxtyping.PyTree,
+        params: jaxtyping.PyTree,
+        rngs: typing.Any,
+        **kwargs,
+    ) -> jax.Array:
+        del kwargs
+
+        outputs = self.network.apply(
+            variables={"params": params},
+            state=batch,
+            rngs=rngs,
+        )
+        assert isinstance(outputs, typing.Dict)
+        logits = outputs["actor"]["logits"]
+
+        return jnp.argmax(logits, axis=-1)
 
 
 ################################################################################
@@ -203,6 +256,43 @@ def main(argv: typing.List[str]) -> None:
         "Successfully built %s",
         train_state.__class__.__name__,
     )
+
+    rngs, train_key, eval_key, predict_key = jax.random.split(rngs, num=4)
+    p_train_step = functools.partial(model.training_step, rngs=train_key)
+    p_train_step = jax.pmap(p_train_step, axis_name="batch")
+    p_eval_step = functools.partial(model.evaluation_step, rngs=eval_key)
+    p_eval_step = jax.pmap(p_eval_step, axis_name="batch")
+    p_predict_step = functools.partial(model.predict_step, rngs=predict_key)
+    p_predict_step = jax.pmap(p_predict_step, axis_name="batch")
+
+    train_state: _train_state.TrainState = jax_utils.replicate(train_state)
+    try:
+        _logging.rank_zero_info("Populating the replay buffer...")
+        state, _ = env.reset()
+        for step in range(flags.FLAGS.buffer_capacity):
+            batch = jax.tree_util.tree_map(
+                lambda x: (
+                    x.reshape(jax.local_device_count(), -1)
+                    if hasattr(x, "reshape")
+                    else x
+                ),
+                state,
+            )
+            action = p_predict_step(batch=batch, params=train_state.params)
+            action = jax.device_get(action).reshape(-1).item()
+            next_state, reward, terminated, truncated, _ = env.step(action)
+            done = terminated or truncated
+            buffer.add(state, action, reward, next_state, done)
+            state = next_state
+
+            if done:
+                state, _ = env.reset()
+        _logging.rank_zero_info("Populating the replay buffer... DONE")
+
+        # main training loop
+        _logging.rank_zero_info("Training...")
+    finally:
+        train_state = jax_utils.unreplicate(train_state)
 
     env.close()
 
