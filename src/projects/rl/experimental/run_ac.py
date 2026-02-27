@@ -6,6 +6,8 @@ from flax import linen as nn
 from flax import serialization
 import gymnasium as gym
 import jax
+from jax import numpy as jnp
+import jaxtyping
 
 from src.projects.rl import replay_buffer
 from src.utilities import logging
@@ -15,6 +17,11 @@ flags.DEFINE_integer(
     name="buffer_capacity",
     default=30_000,
     help="Maximum number of transition tuples in a replay buffer.",
+)
+flags.DEFINE_float(
+    name="gamma",
+    default=0.99,
+    help="Discount factor for future rewards in the reinforcement learning.",
 )
 flags.DEFINE_integer(
     name="seed",
@@ -26,6 +33,8 @@ flags.DEFINE_integer(
 ################################################################################
 # Actor-critic Model
 class ActorCriticNetwork(nn.Module):
+    r"""Backbone network for actor-critic model with shared backbone."""
+
     features: int
     out_features: int
     num_layers: int
@@ -34,21 +43,111 @@ class ActorCriticNetwork(nn.Module):
     param_dtype: typing.Any = None
 
     @nn.compact
-    def __call__(
-        self,
-        inputs: jax.Array,
-    ) -> typing.Tuple[jax.Array, jax.Array]:
-        raise NotImplementedError
+    def __call__(self, state: jax.Array) -> typing.Dict[str, jaxtyping.PyTree]:
+        r"""Forward pass the actor and critic networks.
+
+        Args:
+            state (jax.Array): Observed state of shape `(*, state_size)`.
+
+        Returns:
+            A dictionary of actor and critic outputs, where each value is a
+                `jaxtyping.PyTree`. For example, the actor output can be a
+                a single logit array for discrete action space, and the critic
+                output will then be the Q-function values of each action.
+        """
+        out = state.astype(self.dtype)
+
+        scale = self.features ** (-0.5)
+        for i in range(self.num_layers - 1):
+            out = nn.Dense(
+                features=self.features,
+                kernel_init=jax.nn.initializers.variance_scaling(
+                    scale=scale,
+                    mode="fan_avg",
+                    distribution="normal",
+                ),
+                use_bias=True,
+                bias_init=jax.nn.initializers.zeros,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                name=f"linear_{i+1:d}",
+            )(out)
+            out = self.activation_fn(out)
+
+        logits = nn.Dense(
+            features=self.out_features,
+            kernel_init=jax.nn.initializers.variance_scaling(
+                scale=1e-10,
+                mode="fan_avg",
+                distribution="normal",
+            ),
+            use_bias=True,
+            bias_init=jax.nn.initializers.zeros,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="actor_head",
+        )(out)
+
+        q_values = nn.Dense(
+            features=self.out_features,
+            kernel_init=jax.nn.initializers.variance_scaling(
+                scale=1e-10,
+                mode="fan_avg",
+                distribution="normal",
+            ),
+            use_bias=True,
+            bias_init=jax.nn.initializers.zeros,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="critic_head",
+        )(out)
+
+        return {"actor": {"logits": logits}, "critic": {"q_values": q_values}}
 
 
 class ActorCriticModel:
-    def __init__(self) -> None:
+    r"""Actor-critic model with."""
+
+    def __init__(
+        self,
+        action_space_dim: int,
+        gamma: float,
+    ) -> None:
+        self._action_space_dim = action_space_dim
+        self._gamma = gamma
+        self._network = ActorCriticNetwork(
+            features=64,
+            out_features=action_space_dim,
+            num_layers=2,
+            activation_fn=jax.nn.tanh,
+        )
         pass
 
     @property
     def network(self) -> ActorCriticNetwork:
         r"""ActorCriticNetwork: Backbone policy and critic networks."""
         return self._network
+
+    def init(
+        self,
+        *,
+        state: jax.Array,
+        rngs: typing.Any,
+        **kwargs,
+    ) -> jaxtyping.PyTree:
+        del kwargs
+
+        params = self.network.init(rngs, state)
+        if jax.process_index() == 0:
+            _tabulate_fn = nn.summary.tabulate(
+                module=self.network,
+                rngs=rngs,
+                depth=2,
+                console_kwargs=dict(width=120, force_jupyter=False),
+            )
+            print(_tabulate_fn(state))
+
+        return params
 
 
 ################################################################################
@@ -77,6 +176,15 @@ def main(argv: typing.List[str]) -> None:
         action_size=env.action_space.shape or (1,),
     )
     logging.rank_zero_info("Successfully built %s.", buffer.__class__.__name__)
+
+    logging.rank_zero_info("Building an actor-critic model.")
+    rngs, init_key = jax.random.split(rngs, num=2)
+    model = ActorCriticModel(
+        action_space_dim=env.action_space.n,  # type: ignore
+        gamma=flags.FLAGS.gamma,
+    )
+    params = model.init(state=jnp.zeros((1, *state_size)), rngs=init_key)
+    logging.rank_zero_info("Successfully built %s", model.__class__.__name__)
 
     env.close()
 
