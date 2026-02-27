@@ -1,5 +1,6 @@
 import collections
 import functools
+import os
 import typing
 
 from absl import app
@@ -11,6 +12,7 @@ import gymnasium as gym
 import jax
 from jax import numpy as jnp
 import jaxtyping
+from matplotlib import pyplot as plt
 import optax
 
 from src.core import model as _model
@@ -310,7 +312,7 @@ class ActorCriticModel:
 
 ################################################################################
 # Main entry point
-def main(argv: typing.List[str]) -> None:
+def main(argv: typing.List[str]) -> int:
     del argv  # unused
 
     rngs = jax.random.PRNGKey(flags.FLAGS.seed)
@@ -480,7 +482,34 @@ def main(argv: typing.List[str]) -> None:
         train_state = jax_utils.unreplicate(train_state)
         env.close()
 
-    env.close()
+    # Plot the log scalars
+    col_num = max(
+        sum(1 for key in train_scalars if "episode" in key),
+        len(eval_scalars),
+    )
+    fig, axes = plt.subplots(2, col_num)
+
+    i = 0
+    for key, value in train_scalars.items():
+        if "episode" in key:
+            axes[0][i].plot(value, alpha=0.7)
+            axes[0][i].set_xlabel("Training Episode")
+            axes[0][i].set_ylabel(key)
+            axes[0][i].grid(True, linestyle="--", alpha=0.6)
+            i += 1
+
+    i = 0
+    for i, (key, value) in enumerate(eval_scalars.items()):
+        axes[1][i].plot(value, alpha=0.7)
+        axes[0][i].set_xlabel("Training Episode")
+        axes[1][i].set_ylabel(key)
+        axes[1][i].grid(True, linestyle="--", alpha=0.6)
+        i += 1
+
+    fig.tight_layout()
+    fig.savefig(os.path.join(flags.FLAGS.work_dir, "ac_curves.png"), dpi=180)
+
+    return 0
 
 
 if __name__ == "__main__":
