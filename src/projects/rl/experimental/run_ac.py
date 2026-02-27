@@ -8,9 +8,11 @@ import gymnasium as gym
 import jax
 from jax import numpy as jnp
 import jaxtyping
+import optax
 
-from src.projects.rl import replay_buffer
-from src.utilities import logging
+from src.core import train_state as _train_state
+from src.projects.rl import replay_buffer as _replay_buffer
+from src.utilities import logging as _logging
 
 # Flags
 flags.DEFINE_integer(
@@ -156,35 +158,51 @@ def main(argv: typing.List[str]) -> None:
     del argv  # unused
 
     rngs = jax.random.PRNGKey(flags.FLAGS.seed)
-    logging.rank_zero_info("Running with global seed %r", rngs)
+    _logging.rank_zero_info("Running with global seed %r", rngs)
 
-    logging.rank_zero_info("Building the environment...")
+    _logging.rank_zero_info("Building the environment...")
     env = gym.make("CartPole-v1")
     state_size = env.observation_space.shape or (1,)
     action_size = env.action_space.shape or (1,)
-    logging.rank_zero_info(
+    _logging.rank_zero_info(
         "Initialized environment %s with state size %r and action size %r.",
         env.__class__.__name__,
         state_size,
         action_size,
     )
 
-    logging.rank_zero_info("Building replay buffer...")
-    buffer = replay_buffer.ReplayBuffer(
+    _logging.rank_zero_info("Building replay buffer...")
+    buffer = _replay_buffer.ReplayBuffer(
         capacity=flags.FLAGS.buffer_capacity,
         state_size=env.observation_space.shape or (1,),
         action_size=env.action_space.shape or (1,),
     )
-    logging.rank_zero_info("Successfully built %s.", buffer.__class__.__name__)
+    _logging.rank_zero_info(
+        "Successfully built %s.",
+        buffer.__class__.__name__,
+    )
 
-    logging.rank_zero_info("Building an actor-critic model.")
+    _logging.rank_zero_info("Building an actor-critic model.")
     rngs, init_key = jax.random.split(rngs, num=2)
     model = ActorCriticModel(
         action_space_dim=env.action_space.n,  # type: ignore
         gamma=flags.FLAGS.gamma,
     )
     params = model.init(state=jnp.zeros((1, *state_size)), rngs=init_key)
-    logging.rank_zero_info("Successfully built %s", model.__class__.__name__)
+    _logging.rank_zero_info("Successfully built %s", model.__class__.__name__)
+
+    _logging.rank_zero_info("Building training state...")
+    lr_scheduler = optax.warmup_constant_schedule(0.0, 1e-4, 2_000)
+    train_state = _train_state.TrainState.create(
+        params=params,
+        tx=optax.adam(lr_scheduler),
+        ema_rate=0.0,  # NOTE: do not apply exponential moving average
+    )
+    jax.block_until_ready(train_state)
+    _logging.rank_zero_info(
+        "Successfully built %s",
+        train_state.__class__.__name__,
+    )
 
     env.close()
 
