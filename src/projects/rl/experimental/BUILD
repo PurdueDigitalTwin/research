@@ -16,6 +16,7 @@ ml_py_binary(
         "//src/core:model",
         "//src/core:train_state",
         "//src/projects/rl:replay_buffer",
+        "//src/projects/rl:structure",
         "//src/utilities:logging",
     ],
 )
