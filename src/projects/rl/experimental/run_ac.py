@@ -1,3 +1,4 @@
+import collections
 import functools
 import typing
 
@@ -36,13 +37,25 @@ flags.DEFINE_float(
 )
 flags.DEFINE_integer(
     name="num_episodes",
-    default=50,
+    default=1_000,
     help="Number of episodes to train the Actor-Critic model.",
+)
+flags.DEFINE_integer(
+    name="eval_every_n_episodes",
+    default=50,
+    required=False,
+    help="Evaluation frequency (in episodes) during training.",
 )
 flags.DEFINE_integer(
     name="seed",
     default=42,
     help="Random generator seed.",
+)
+flags.DEFINE_string(
+    name="work_dir",
+    default=None,
+    required=True,
+    help="Working directory",
 )
 
 
@@ -375,13 +388,59 @@ def main(argv: typing.List[str]) -> None:
 
         # main training loop
         _logging.rank_zero_info("Training...")
+        train_scalars = collections.defaultdict(list)
+        eval_scalars = collections.defaultdict(list)
         rngs, sample_key = jax.random.split(rngs, num=2)
-        for episode in range(flags.FLAGS.num_episodes + 1):
+        for episode in range(1, flags.FLAGS.num_episodes + 1):
+            if episode % flags.FLAGS.eval_every_n_episodes == 0:
+                _logging.rank_zero_info(f"Evaluating at episode {episode:d}")
+                eval_env = gym.make("CartPole-v1")
+                eval_rewards = []
+                for _ in range(5):
+                    state, _ = eval_env.reset()
+                    done = False
+                    total_reward = 0
+
+                    while not done:
+                        batch = jax.tree_util.tree_map(
+                            common_utils.shard, state
+                        )
+                        action = p_predict_step(
+                            batch=batch,
+                            params=train_state.params,
+                        )
+                        action = jax.device_get(action).reshape(-1).item()
+                        (
+                            state,
+                            reward,
+                            terminated,
+                            truncated,
+                            _,
+                        ) = eval_env.step(action)
+                        done = terminated or truncated
+                        total_reward += float(reward)
+
+                    eval_rewards.append(total_reward)
+                eval_env.close()
+                _logging.rank_zero_info(
+                    f"Eval at episode {episode:d} | "
+                    f"Min Reward = {min(eval_rewards)} | "
+                    f"Max Reward = {max(eval_rewards)} | "
+                    f"Average Reward = {sum(eval_rewards) / len(eval_rewards)}."
+                )
+                eval_scalars["eval_min_reward"].append(min(eval_rewards))
+                eval_scalars["eval_max_reward"].append(max(eval_rewards))
+                eval_scalars["eval_avg_reward"].append(
+                    sum(eval_rewards) / len(eval_rewards)
+                )
+                _logging.rank_zero_info("Evaluation DONE!")
+
             state, _ = env.reset()
             done = False
+            episode_scalars = collections.defaultdict(list)
 
             while not done:
-                # sample a batch of transition tuples
+                # sample a batch of transition tuples and train
                 sample_key = jax.random.fold_in(sample_key, train_step_cntr)
                 batch = buffer.sample(flags.FLAGS.batch_size, sample_key)
                 assert isinstance(batch, _structure.StepTuple)
@@ -392,12 +451,34 @@ def main(argv: typing.List[str]) -> None:
                     batch=batch,
                     state=train_state,
                 )
-                print(outputs)
+                assert isinstance(outputs, _model.StepOutputs)
+                if outputs.scalars is not None:
+                    scalar_str = f"Step: {train_step_cntr:d} |"
+                    for k, v in outputs.scalars.items():
+                        v = jax.device_get(v).item()
+                        train_scalars[f"train_{k}_step"].append(v)
+                        episode_scalars[k].append(v)
+                        scalar_str += f" {k.capitalize()}: {v:.4f} |"
+                    if train_step_cntr % 50 == 0:
+                        _logging.rank_zero_info(scalar_str)
+
+                # execute the new policy and save transition
+                batch = jax.tree_util.tree_map(common_utils.shard, state)
+                action = p_predict_step(batch=batch, params=train_state.params)
+                action = jax.device_get(action).reshape(-1).item()
+                next_state, reward, terminated, truncated, _ = env.step(action)
+                done = terminated or truncated
+                buffer.add(state, action, reward, next_state, done)
+                state = next_state
 
                 train_step_cntr += 1
 
+            for k, v in episode_scalars.items():
+                train_scalars[f"train_{k}_episode"].append(sum(v) / len(v))
+
     finally:
         train_state = jax_utils.unreplicate(train_state)
+        env.close()
 
     env.close()
 
