@@ -1,5 +1,69 @@
+import os.path as osp
+import typing
+
 from absl import logging
 import jax
+import tensorflow as tf
+import wandb
+from wandb import sdk as wandb_sdk
+
+
+def init_wandb(
+    config: typing.Dict[str, typing.Any],
+    project_name: str,
+    experiment_name: str,
+    work_dir: str,
+    resume: bool = False,
+    checkpoint_dir: typing.Optional[str] = None,
+) -> None:
+    r"""Initializes the Weights and Biases logging.
+
+    Args:
+        config (Dict[str, typing.Any]): The experiment configuration to log.
+        project_name (str): Name of the project.
+        experiment_name (str): Name of the experiment.
+        work_dir (str): The working directory for experiment outputs.
+        resume (bool, optional): Whether to resume from an existing wandb run.
+            Default is `False`.
+        checkpoint_dir (Optional[str], optional): Directory of the checkpoint
+            file to resume from. Default is `None`.
+
+    Raises:
+        FileNotFoundError: If resuming and checkpoint directory does not exist.
+        RuntimeError: If wandb run initialization fails.
+    """
+
+    if resume and (checkpoint_dir is not None):
+        if not tf.io.gfile.exists(checkpoint_dir):
+            raise FileNotFoundError(
+                f"Checkpoint directory {checkpoint_dir} does not exist."
+            )
+        fp = osp.join(checkpoint_dir, "wandb.txt")
+        with tf.io.gfile.GFile(fp, "r") as f:
+            run_id = f.read().strip()
+        wandb.init(
+            id=run_id,
+            resume="must",
+            project=project_name,
+            dir=work_dir,
+            group=experiment_name,
+            job_type="coordinator" if jax.process_index() == 0 else "worker",
+        )
+    else:
+        wandb.init(
+            name="_".join([experiment_name, str(jax.process_index())]),
+            config=config,
+            project=project_name,
+            dir=work_dir,
+            group=experiment_name,
+            job_type="coordinator" if jax.process_index() == 0 else "worker",
+        )
+        _run = wandb.run
+        if not isinstance(_run, wandb_sdk.wandb_run.Run):
+            raise RuntimeError("Failed to initialize wandb run.")
+        fp = osp.join(work_dir, "wandb.txt")
+        with tf.io.gfile.GFile(fp, "w") as f:
+            f.write(_run.id)
 
 
 def rank_zero_log_first_n(
