@@ -35,7 +35,7 @@ class Model(abc.ABC):
         batch: typing.Any,
         rngs: typing.Union[typing.Any, typing.Dict[str, typing.Any]],
         **kwargs,
-    ) -> jaxtyping.PyTree:
+    ) -> typing.Tuple[jaxtyping.PyTree, jaxtyping.PyTree]:
         r"""Initializes the model parameters.
 
         Args:
@@ -44,9 +44,10 @@ class Model(abc.ABC):
             **kwargs: Additional keyword arguments.
 
         Returns:
-            A `PyTree` the initialized model parameters.
+            A tuple of two pytree instances. The first contains initialized
+                model parameters and the second is
         """
-        pass
+        ...
 
     @abc.abstractmethod
     def forward(
@@ -70,7 +71,6 @@ class Model(abc.ABC):
         """
         ...
 
-    @abc.abstractmethod
     def training_step(
         self,
         *,
@@ -92,7 +92,6 @@ class Model(abc.ABC):
         """
         ...
 
-    @abc.abstractmethod
     def evaluation_step(
         self,
         *,
