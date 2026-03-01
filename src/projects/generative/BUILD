@@ -26,40 +26,8 @@ ml_py_library(
         "jax",
         "jaxtyping",
         "//src/core:model",
-        "//src/projects/generative/model:unet",
-    ],
-)
-
-ml_py_library(
-    name = "experiment",
-    srcs = ["experiment.py"],
-    deps = [
-        "fiddle",
-        "jax",
-        "jaxtyping",
-        "optax",
-        "orbax-checkpoint",
-        "tensorflow-cpu",
-        "tqdm",
-        "wandb",
-        ":config",
-        "//src/core:train",
         "//src/core:train_state",
-        "//src/projects/generative/tools:fid",
-        "//src/utilities:logging",
-        "//src/utilities:visualization",
-    ],
-)
-
-ml_py_binary(
-    name = "main",
-    srcs = ["main.py"],
-    deps = [
-        "absl-py",
-        "fiddle",
-        "jax",
-        ":experiment",
-        "//src/core:distributed",
+        "//src/projects/generative/model:unet",
     ],
 )
 
@@ -76,5 +44,41 @@ ml_py_library(
         "//src/core:train_state",
         "//src/projects/generative/model:unet",
         "//src/projects/generative/pipeline:augment",
+    ],
+)
+
+ml_py_library(
+    name = "experiment",
+    srcs = ["experiment.py"],
+    deps = [
+        "fiddle",
+        "flax",
+        "jax",
+        "jaxtyping",
+        "numpy",
+        "optax",
+        "orbax-checkpoint",
+        "tensorflow-cpu",
+        "tqdm",
+        "wandb",
+        ":config",
+        "//src/core:train",
+        "//src/core:train_state",
+        "//src/projects/generative/tools:fid",
+        "//src/utilities:logging",
+        "//src/utilities:training",
+        "//src/utilities:visualization",
+    ],
+)
+
+ml_py_binary(
+    name = "main",
+    srcs = ["main.py"],
+    deps = [
+        "absl-py",
+        "fiddle",
+        "jax",
+        ":experiment",
+        "//src/core:distributed",
     ],
 )
