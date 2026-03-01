@@ -20,6 +20,15 @@ ml_py_library(
 )
 
 ml_py_library(
+    name = "training",
+    srcs = ["training.py"],
+    deps = [
+        "jax",
+        "jaxtyping",
+    ],
+)
+
+ml_py_library(
     name = "visualization",
     srcs = ["visualization.py"],
     deps = [
