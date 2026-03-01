@@ -114,7 +114,4 @@ class Model(abc.ABC):
         ...
 
 
-__all__ = [
-    "StepOutputs",
-    "Model",
-]
+__all__ = ["StepOutputs", "Model"]
