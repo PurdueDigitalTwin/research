@@ -429,12 +429,11 @@ class UAFlowUNetModel:
 
         # sample random time steps
         # TODO (juanwu): consider sampling from logit-normal
-        t = jax.random.randint(
+        t = jax.random.uniform(
             key=t_key,
             shape=batch_dims,
             minval=0.0,
             maxval=1.0,
-            dtype=jnp.int32,
         ).reshape(-1)
         t_expanded = t[..., None, None, None].astype(self._dtype)
 
@@ -485,7 +484,8 @@ class UAFlowUNetModel:
         new_state = state.apply_gradients(grads=grads)
 
         output = _model.StepOutputs(
-            scalars={"loss": loss}, histograms={"timestep": t}
+            scalars={"loss": loss},
+            histograms={"timestep": t},
         )
 
         return new_state, output
