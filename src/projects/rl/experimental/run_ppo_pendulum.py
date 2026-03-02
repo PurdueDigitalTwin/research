@@ -54,7 +54,7 @@ flags.DEFINE_integer(
 )
 flags.DEFINE_integer(
     name="rollout_steps",
-    default=1024,
+    default=2048,
     required=False,
     help="Number of steps to collect in each rollout phase before updating the " \
     "PPO model.",
@@ -67,7 +67,7 @@ flags.DEFINE_float(
 )
 flags.DEFINE_float(
     name="learning_rate",
-    default=5e-4,
+    default=1e-3,
     required=False,
     help="Learning rate for the PPO optimizer.",
 )
@@ -85,7 +85,7 @@ flags.DEFINE_float(
 )
 flags.DEFINE_float(
     name="value_coeff",
-    default=0.5,
+    default=1.0,
     required=False,
     help="Coefficient for the value function loss in the total PPO loss.",
 )
@@ -97,25 +97,25 @@ flags.DEFINE_float(
 )
 flags.DEFINE_integer(
     name="minibatch",
-    default=128,
+    default=256,
     required=False,
     help="Size of minibatches for PPO updates.",
 )
 flags.DEFINE_integer(
     name="training_epochs",
-    default=5,
+    default=3,
     required=False,
     help="Number of epochs to train on each rollout batch.",
 )
 flags.DEFINE_integer(
     name="num_envs",
-    default=16,
+    default=32,
     required=False,
     help="Number of trajectories to collect for evaluation.",
 )
 flags.DEFINE_string(
     name="env_name",
-    default="MountainCar-v0",
+    default="CartPole-v1",
     required=False,
     help="Name of the running environment",
 )
@@ -305,7 +305,7 @@ def main(argv: typing.List[str]) -> int:
     # Create a training state instance with adam optimizer
     train_state = _train_state.TrainState.create(
         params=params,
-        tx=optax.adam(learning_rate=3e-4),
+        tx=optax.adam(learning_rate=lr_schedule),
     )
 
     # Log loss and rewards during training
@@ -369,27 +369,10 @@ def main(argv: typing.List[str]) -> int:
                 env.step(np.asarray(action))
             done = terminated | truncated
 
-            # NOTE: new for mountaincar: we need to add additional reward shaping
-            # to encourage the car to move towards the goal. Otherwise the sparse
-            # reward of -1 at each step will make it hard for the agent to learn.
-            # next_state shape is (num_envs, obs_dim)
-            # next_state[:, 0] is position, next_state[:, 1] is velocity
-            pos = (next_state[:, 0] + 0.3) / 0.9 # normalize position to [-1, 1]
-            vel = next_state[:, 1] / 0.07 # normalize velocity to [-1, 1]
-            scaled_state = jnp.stack([pos, vel], axis=-1)
-
-            # Bonus for velocity and height to encourage swinging
-            # We use jnp/np because reward is a numpy array from the vec_env
-            velocity_bonus = 10.0 * jnp.square(scaled_state[:, 1])
-            height_bonus = 2.0 * jnp.square(scaled_state[:, 0])
-
-            # Update the reward before storing it
-            shaped_reward = reward + jnp.array(velocity_bonus + height_bonus)
-
             # Store transition
             rollout_states.append(state)
             rollout_actions.append(action)
-            rollout_rewards.append(shaped_reward)
+            rollout_rewards.append(reward)
             rollout_dones.append(done)
             rollout_values.append(value)
             rollout_log_probs.append(log_prob)
@@ -542,7 +525,7 @@ def main(argv: typing.List[str]) -> int:
 
             logging.rank_zero_info(
                 "Episode %d: surrogate loss: %.4f, value loss: %.4f, Loss = %.4f, \
-                Eval Reward = %.2f, Mean Prob Ratio = %.4f",
+                    Eval Reward = %.2f, Mean Prob Ratio = %.4f",
                 episode,
                 float(mean_episode_surrogate_loss),
                 float(mean_episode_value_loss),

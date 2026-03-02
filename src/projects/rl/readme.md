@@ -1,4 +1,4 @@
-# How to run DQN:
+# How to run RL algos:
 
 ### Navigate to the root directory
 
@@ -10,4 +10,12 @@ export PYTHONPATH=$PYTHONPATH:.
 
 ### Run the DQN script with the required work_dir flag and other unrequired flags
 
-python src/projects/rl/main_dqn.py --work_dir=./logs
+python src/projects/rl/run_dqn.py --work_dir=./logs
+
+### To run AC script:
+
+python src/projects/rl/run_ac.py --work_dir=./logs
+
+### To run PPO script:
+
+python src/projects/rl/run_ppo.py --work_dir=./logs
