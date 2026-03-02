@@ -126,7 +126,6 @@ def main(argv: typing.List[str]) -> int:
         tx=optax.adam(learning_rate=learning_rate),
     )
     jax.block_until_ready(train_state)
-    train_step_cntr = int(train_state.step)
     train_state = jax_utils.replicate(train_state)
     target_params = copy.deepcopy(train_state.params)
 
@@ -171,6 +170,8 @@ def main(argv: typing.List[str]) -> int:
 
         # done marks the end of each episode
         while not done:
+            train_step_cntr = int(jax.device_get(train_state.step)[0])
+
             # Epsilon-greedy action selection
             progress = min(1.0, episode / epsilon_decay_episodes)
             epsilon = epsilon_start + progress * (epsilon_end - epsilon_start)
@@ -219,8 +220,6 @@ def main(argv: typing.List[str]) -> int:
                 if train_state.step % target_update_freq == 0:
                     target_params = copy.deepcopy(train_state.params)
                     logging.rank_zero_info("Target network synced!")
-
-            train_step_cntr += 1
 
         if episode % flags.FLAGS.eval_every_n_episodes == 0:
             eval_env = gym.make("CartPole-v1")
