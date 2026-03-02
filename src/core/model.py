@@ -45,7 +45,8 @@ class Model(abc.ABC):
 
         Returns:
             A tuple of two pytree instances. The first contains initialized
-                model parameters and the second is
+                model parameters and the second are mutable variables such as
+                the batch normalization parameters.
         """
         ...
 
@@ -90,7 +91,7 @@ class Model(abc.ABC):
         Returns:
             A tuple of ``(new_state, step_outputs)``.
         """
-        ...
+        raise NotImplementedError("Train step function is not implemented.")
 
     def evaluation_step(
         self,
@@ -110,7 +111,7 @@ class Model(abc.ABC):
         Returns:
             The evaluation step outputs.
         """
-        ...
+        raise NotImplementedError("Evaluate step function is not implemented.")
 
 
 __all__ = ["StepOutputs", "Model"]
