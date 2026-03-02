@@ -185,6 +185,7 @@ class DQNModel(_model.Model):
 
         grad_fn = jax.value_and_grad(_loss_fn, has_aux=False)
         loss, grads = grad_fn(state.params)
+        grads = jax.lax.pmean(grads, axis_name="batch")
         new_state = state.apply_gradients(grads=grads)
 
         outputs = _model.StepOutputs(scalars={"loss": loss.mean()})

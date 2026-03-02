@@ -142,7 +142,7 @@ def main(argv: typing.List[str]) -> int:
     p_train_step = functools.partial(agent.training_step, rngs=train_key)
     p_train_step = jax.pmap(p_train_step, axis_name="batch")
     p_eval_step = functools.partial(agent.forward, rngs=eval_key)
-    p_eval_step = jax.pmap(agent.forward, axis_name="batch")
+    p_eval_step = jax.pmap(p_eval_step, axis_name="batch")
 
     # Populates the replay buffer
     logging.rank_zero_info("Populating buffer...")
