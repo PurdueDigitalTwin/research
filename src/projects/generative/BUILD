@@ -62,7 +62,6 @@ ml_py_library(
         "tqdm",
         "wandb",
         ":config",
-        "//src/core:train",
         "//src/core:train_state",
         "//src/projects/generative/tools:fid",
         "//src/utilities:logging",
