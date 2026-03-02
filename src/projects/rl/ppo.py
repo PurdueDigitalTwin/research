@@ -11,9 +11,7 @@ import optax
 import typing_extensions
 
 from src.core import model as _model
-from src.utilities import logging
 from src.projects.rl import policy
-from src.projects.rl import structure as _structure
 
 
 # create a PPO model calss by extending the base Model class
@@ -215,7 +213,6 @@ class PPOModel(_model.Model):
         surrogate_loss = -jnp.mean(surrogate_loss)
 
         # Compute the Value Function loss L^VF
-        # NOTE: when should I add stop_gradient
         value_targets = lax.stop_gradient(value_targets)
         
         # Average the value loss over the rollout steps

@@ -2,7 +2,7 @@
 # The purpose of this file is for rl learning (PPO)
 ################################################
 # framework: jax + flax linen
-# environment: gym CartPole-v1
+# environment: gym env
 # reference: https://arxiv.org/pdf/1707.06347
 # https://en.wikipedia.org/wiki/Policy_gradient_method#cite_note-3
 # useful code repo: 
@@ -39,7 +39,7 @@ import typing_extensions
 from src.core import model as _model
 from src.core import train_state as _train_state
 from src.utilities import logging
-from src.projects.rl.experimental import ppo
+from projects.rl import ppo
 from src.projects.rl import structure as _structure
 from src.projects.rl import policy
 
@@ -102,13 +102,13 @@ flags.DEFINE_float(
 )
 flags.DEFINE_integer(
     name="minibatch",
-    default=64,
+    default=256,
     required=False,
     help="Size of minibatches for PPO updates.",
 )
 flags.DEFINE_integer(
     name="training_epochs",
-    default=1,
+    default=3,
     required=False,
     help="Number of epochs to train on each rollout batch.",
 )
@@ -118,9 +118,12 @@ flags.DEFINE_integer(
     required=False,
     help="Number of trajectories to collect for evaluation.",
 )
-
-
-# NOTE: we need to use the updated values to compute GAE
+flags.DEFINE_string(
+    name="env_name",
+    default="MountainCar-v0",
+    required=False,
+    help="Name of the running environment",
+)
 
 
 def compute_gae(
@@ -255,7 +258,7 @@ def main(argv: typing.List[str]) -> int:
     # Create the CartPole environment
     # Run N envs in parallel to collect N trajectories for each rollout
     num_envs = flags.FLAGS.num_envs
-    env = gym.make_vec("CartPole-v1", num_envs=num_envs)
+    env = gym.make_vec(flags.FLAGS.env_name, num_envs=num_envs)
 
     single_obs_space = env.single_observation_space
     single_act_space = env.single_action_space
@@ -366,7 +369,6 @@ def main(argv: typing.List[str]) -> int:
 
             # Step the environment
             # each has the shape (num_envs, *)
-            # NOTE: can I do this via jnp?
             next_state, reward, terminated, truncated, _ = \
                 env.step(np.asarray(action))
             done = terminated | truncated
@@ -419,14 +421,13 @@ def main(argv: typing.List[str]) -> int:
         )
 
         # Normalize the advantages (not mention by the reference)
-        # NOTE: sinc the variance of the advantage is 1, L_VF should ideally 
-        # converge to 1.
         advantages = (advantages - jnp.mean(advantages)) / \
             (jnp.std(advantages) + 1e-8)
         
         # Compute value targets.
         value_targets = rewards_arr + flags.FLAGS.gamma * next_values * (1.0 - \
                                                                          dones_arr)
+        # value_targets = advantages + values_arr
 
         # Update the PPO model using the collected rollout data and 
         # computed advantages
@@ -500,7 +501,7 @@ def main(argv: typing.List[str]) -> int:
         # Evaluate the current policy every 10 episodes by running it in the 
         # environment.
         if episode % 1 == 0:
-            eval_env = gym.make("CartPole-v1")
+            eval_env = gym.make(flags.FLAGS.env_name)
             eval_reward = []
 
             # Run 5 evaluation episodes and average the total reward to get a 
