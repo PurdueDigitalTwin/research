@@ -221,10 +221,10 @@ class PPOModel(_model.Model):
         # value_loss = value_loss * 0.0
 
         # According to the original paper, they don't use an entropy bonus
-        # entropy_loss = jnp.mean(jnp.sum(jnp.exp(curr_log_probs) * \
-        #     curr_log_probs, axis=-1))
-        # entropy_loss = self._entropy_coeff * entropy_loss
-        entropy_loss = 0.0
+        entropy_loss = jnp.mean(jnp.sum(jnp.exp(curr_log_probs) * \
+            curr_log_probs, axis=-1))
+        entropy_loss = self._entropy_coeff * entropy_loss
+        # entropy_loss = 0.0
 
         # We want to minimize the surrogate total loss
         # total_loss = -surrogate_loss + value_loss

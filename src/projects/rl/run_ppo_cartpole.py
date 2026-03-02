@@ -291,7 +291,8 @@ def main(argv: typing.List[str]) -> int:
 
     # Optional: use annealing learning rate to prevent collapsing
     # Each episode has (Rollout / Minibatch) updates * Training Epochs
-    updates_per_episode = (flags.FLAGS.rollout_steps // flags.FLAGS.minibatch) * \
+    num_total_rollout_steps = flags.FLAGS.rollout_steps * num_envs
+    updates_per_episode = (num_total_rollout_steps // flags.FLAGS.minibatch) * \
         flags.FLAGS.training_epochs
     total_updates = flags.FLAGS.num_episodes * updates_per_episode
 
@@ -304,7 +305,7 @@ def main(argv: typing.List[str]) -> int:
     # Create a training state instance with adam optimizer
     train_state = _train_state.TrainState.create(
         params=params,
-        tx=optax.adam(learning_rate=3e-4),
+        tx=optax.adam(learning_rate=lr_schedule),
     )
 
     # Log loss and rewards during training
