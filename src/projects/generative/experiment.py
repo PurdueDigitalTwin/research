@@ -38,6 +38,36 @@ tf.config.experimental.set_visible_devices([], "TPU")
 
 # ==============================================================================
 # Helper Functions
+def _log_step_outputs(
+    outputs: _model.StepOutputs,
+    prefix: str,
+    step: int,
+    suffix: str = "",
+) -> None:
+    """Log a StepOutputs object to W&B under ``{prefix}/{key}{suffix}``."""
+    if outputs.scalars is not None:
+        wandb.log(
+            {f"{prefix}/{k}{suffix}": v for k, v in outputs.scalars.items()},
+            step=step,
+        )
+    if outputs.images is not None:
+        wandb.log(
+            {
+                f"{prefix}/{k}": wandb.Image(np.asarray(v))
+                for k, v in outputs.images.items()
+            },
+            step=step,
+        )
+    if outputs.histograms is not None:
+        wandb.log(
+            {
+                f"{prefix}/{k}": wandb.Histogram(list(v))
+                for k, v in outputs.histograms.items()
+            },
+            step=step,
+        )
+
+
 def evaluate(
     params: PyTree,
     rngs: jax.Array,
@@ -264,19 +294,19 @@ def train_and_evaluate(
             type(fid_metric),
         )
         return 1
-    evaluation_fn = functools.partial(
-        evaluate,
-        model=model,
-        rngs=rng,
-        batch=next(datamodule.eval_dataloader()),
-        fid_metric=fid_metric,
-    )
 
     if exp_config.mode == "train":
         logging.rank_zero_info("Compiling training step functions...")
         rng, train_key, eval_key = jax.random.split(rng, num=3)
         p_train_step = functools.partial(model.training_step, rngs=train_key)
         p_train_step = jax.pmap(p_train_step, axis_name="batch")
+        evaluation_fn = functools.partial(
+            evaluate,
+            model=model,
+            rngs=eval_key,
+            batch=next(datamodule.eval_dataloader()),
+            fid_metric=fid_metric,
+        )
 
         state: _train_state.TrainState = jax_utils.replicate(state)
         step = int(jax.device_get(state.step)[0])
@@ -301,49 +331,19 @@ def train_and_evaluate(
                         or step == exp_config.trainer.num_train_steps
                     ):
                         logging.rank_zero_info("Running evaluation...")
-                        eval_metrics = collections.defaultdict(list)
                         outputs = evaluation_fn(params=state.ema_params)
-                        if outputs.scalars is not None:
-                            for k, v in outputs.scalars.items():
-                                eval_metrics[k].append(
-                                    jax.device_get(v).mean()
-                                )
                         logging.rank_zero_info("Evaluation done.")
-
-                        if isinstance(outputs, _model.StepOutputs):
-                            if outputs.scalars is not None:
-                                wandb.log(
-                                    data={
-                                        f"eval/{k}": sum(v) / len(v)
-                                        for k, v in eval_metrics.items()
-                                    },
-                                    step=step,
-                                )
-                                scalar_str = ", ".join(
-                                    [
-                                        f"{k}={sum(v) / len(v):.4f}"
-                                        for k, v in eval_metrics.items()
-                                    ]
-                                )
-                                if pbar is not None:
-                                    pbar.write(f"[eval end]: {scalar_str:s}")
-
-                            if outputs.images is not None:
-                                wandb.log(
-                                    data={
-                                        f"eval/{k}": wandb.Image(np.asarray(v))
-                                        for k, v in outputs.images.items()
-                                    },
-                                    step=step,
-                                )
-                            if outputs.histograms is not None:
-                                wandb.log(
-                                    data={
-                                        f"eval/{k}": wandb.Histogram(list(v))
-                                        for k, v in outputs.histograms.items()
-                                    },
-                                    step=step,
-                                )
+                        _log_step_outputs(
+                            outputs=outputs,
+                            prefix="eval",
+                            step=step,
+                        )
+                        if outputs.scalars is not None and pbar is not None:
+                            scalar_str = ", ".join(
+                                f"{k}={jax.device_get(v).mean():.4f}"
+                                for k, v in outputs.scalars.items()
+                            )
+                            pbar.write(f"[eval end]: {scalar_str}")
 
                     train_batch = training.shard(train_batch)
                     with jax.profiler.StepTraceAnnotation(
@@ -364,30 +364,12 @@ def train_and_evaluate(
                             train_metrics[k].append(jax.device_get(v).mean())
 
                     if step % exp_config.trainer.log_every_n_steps == 0:
-                        if outputs.scalars is not None:
-                            wandb.log(
-                                data={
-                                    f"train/{k}_step": sum(v) / len(v)
-                                    for k, v in outputs.scalars.items()
-                                },
-                                step=step,
-                            )
-
-                        if outputs.images is not None:
-                            wandb.log(
-                                data={
-                                    f"train/{k}": wandb.Image(np.asarray(v))
-                                    for k, v in outputs.images.items()
-                                },
-                            )
-                        if outputs.histograms is not None:
-                            wandb.log(
-                                data={
-                                    f"train/{k}": wandb.Histogram(list(v))
-                                    for k, v in outputs.histograms.items()
-                                },
-                                step=step,
-                            )
+                        _log_step_outputs(
+                            outputs=outputs,
+                            prefix="train",
+                            step=step,
+                            suffix="_step",
+                        )
 
                     # update step and progress bar
                     step += 1
