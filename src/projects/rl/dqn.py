@@ -9,6 +9,7 @@ import optax
 import typing_extensions
 
 from src.core import model as _model
+from src.core import train_state as _train_state
 from src.projects.rl import policy
 from src.projects.rl import structure
 
@@ -40,11 +41,6 @@ class DQNModel(_model.Model):
         )
         self._use_double = use_double
 
-    @property
-    @typing_extensions.override
-    def network(self) -> policy.MlpPolicy:
-        return self._network
-
     @typing_extensions.override
     def init(
         self,
@@ -63,13 +59,13 @@ class DQNModel(_model.Model):
             A tuple of (q_params, target_params).
         """
         del kwargs
-        q_params = self.network.init(rngs, batch.state)
+        q_params = self._network.init(rngs, batch.state)
 
         # We may need to print the model summary for analysis.
         # Note that each layer has its own kernel matrix and bias vector (if
         # use_bias=True)
         _tabulate_fn = nn.summary.tabulate(
-            self.network,
+            self._network,
             rngs,
             console_kwargs=dict(width=120),
         )
@@ -106,95 +102,92 @@ class DQNModel(_model.Model):
             Q-values for the given state.
         """
         del deterministic, kwargs, rngs
-        out = self.network.apply(params, batch.state)
+        out = self._network.apply(params, batch.state)
         assert isinstance(out, jax.Array)
 
         return _model.StepOutputs(output=out)
 
     @typing_extensions.override
-    def compute_loss(
+    def training_step(
         self,
         *,
         batch: structure.StepTuple,
-        params: typing.Any,
+        state: _train_state.TrainState,
         target_params: typing.Any,
         rngs: typing.Any,
-        deterministic: bool = False,
         **kwargs,
-    ) -> typing.Tuple[jax.Array, _model.StepOutputs]:
-        r"""Computes the Q-learning loss using the Bellman equation.
+    ) -> typing.Tuple[_train_state.TrainState, _model.StepOutputs]:
+        local_rng = jax.random.fold_in(rngs, jax.lax.axis_index("batch"))
+        local_rng = jax.random.fold_in(local_rng, state.step)
 
-        Args:
-            batch (StepTuple): A batch of transition tuples ``(s, a, s', r)``.
-            params (Any): State-action value neetwork parameters.
-            target_params (Any): Target state-action network parameters.
-            rngs (Any): Random key for reproducibility.
-            deterministic (bool, optional): Whether to forward pass the network
-                in deterministic mode. Not used in this function.
+        def _loss_fn(params: jaxtyping.PyTree) -> jax.Array:
+            # Compute Q-values for current states
+            q_values = self._network.apply(params, batch.state, rngs=local_rng)
+            assert isinstance(q_values, jax.Array)
 
-        Returns:
-            A tuple of ``(loss, outputs)`` with scalar loss and other outputs.
-        """
-        del deterministic, kwargs
+            # Select Q-values for the action actually taken
+            if batch.action is None:
+                raise ValueError("Action is required for Q-learning.")
+            one_hot_action = jax.nn.one_hot(
+                # NOTE: enusure DQN takes in discrete action indexes
+                batch.action[..., 0].astype(jnp.int32),
+                num_classes=q_values.shape[-1],
+            )
+            q_values = q_values * lax.stop_gradient(one_hot_action)
+            q_values = jnp.sum(q_values, axis=-1)
 
-        # Compute Q-values for current states
-        q_values = self.network.apply(params, batch.state, rngs=rngs)
-        assert isinstance(q_values, jax.Array)
-
-        # Select Q-values for the action actually taken
-        if batch.action is None:
-            raise ValueError("Action is required for Q-learning.")
-        one_hot_action = jax.nn.one_hot(
-            # NOTE: enusure DQN takes in discrete action indexes
-            batch.action[..., 0].astype(jnp.int32),
-            num_classes=q_values.shape[-1],
-        )
-        q_values = jnp.sum(q_values * lax.stop_gradient(one_hot_action), -1)
-
-        # Compute Q-values for next states using target network
-        next_q_values = self.network.apply(
-            target_params,
-            batch.next_state,
-            rngs=rngs,
-        )
-        assert isinstance(next_q_values, jax.Array)
-
-        if self._use_double:
-            # use Double DQN
-            next_q_values_online = self.network.apply(
-                params,
+            # Compute Q-values for next states using target network
+            next_q_values = self._network.apply(
+                target_params,
                 batch.next_state,
-                rngs=rngs,
+                rngs=local_rng,
             )
-            assert isinstance(next_q_values_online, jax.Array)
-            max_next_action = jnp.argmax(next_q_values_online, axis=-1)
-            max_next_q = (
-                jnp.take_along_axis(
-                    next_q_values,
-                    max_next_action[:, None],
-                    axis=1,
+            assert isinstance(next_q_values, jax.Array)
+
+            if self._use_double:
+                # use Double DQN
+                next_q_values_online = self._network.apply(
+                    params,
+                    batch.next_state,
+                    rngs=local_rng,
                 )
-                .astype(jnp.float32)
-                .squeeze(axis=-1)
-            )
-        else:
-            # traditional DQN: simply max over action dimension
-            max_next_q = jnp.max(next_q_values, axis=-1)
+                assert isinstance(next_q_values_online, jax.Array)
+                max_next_action = jnp.argmax(next_q_values_online, axis=-1)
+                max_next_q = (
+                    jnp.take_along_axis(
+                        next_q_values,
+                        max_next_action[:, None],
+                        axis=1,
+                    )
+                    .astype(jnp.float32)
+                    .squeeze(axis=-1)
+                )
+            else:
+                # traditional DQN: simply max over action dimension
+                max_next_q = jnp.max(next_q_values, axis=-1)
 
-        # Compute TD-target using the Bellman equation
-        if batch.done is None:
-            d = jnp.zeros_like(max_next_q)
-        else:
-            d = batch.done.astype(max_next_q.dtype)
+            # Compute TD-target using the Bellman equation
+            if batch.done is None:
+                d = jnp.zeros_like(max_next_q)
+            else:
+                d = batch.done.astype(max_next_q.dtype)
 
-        if batch.reward is None:
-            r = jnp.zeros_like(max_next_q)
-        else:
-            r = batch.reward.astype(max_next_q.dtype)
-        q_target = lax.stop_gradient(r + self._gamma * max_next_q * (1.0 - d))
+            if batch.reward is None:
+                r = jnp.zeros_like(max_next_q)
+            else:
+                r = batch.reward.astype(max_next_q.dtype)
+            q_tgt = lax.stop_gradient(r + self._gamma * max_next_q * (1.0 - d))
 
-        # Compute loss as mean squared error
-        loss = jnp.mean(optax.squared_error(q_values, q_target))
-        step_outputs = _model.StepOutputs(scalars={"loss": loss})
+            # Compute loss as mean squared error
+            loss = jnp.mean(optax.squared_error(q_values, q_tgt))
 
-        return loss, step_outputs
+            return loss
+
+        grad_fn = jax.value_and_grad(_loss_fn, has_aux=False)
+        loss, grads = grad_fn(state.params)
+        grads = jax.lax.pmean(grads, axis_name="batch")
+        new_state = state.apply_gradients(grads=grads)
+
+        outputs = _model.StepOutputs(scalars={"loss": loss.mean()})
+
+        return new_state, outputs

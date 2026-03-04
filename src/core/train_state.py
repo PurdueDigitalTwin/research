@@ -2,34 +2,31 @@ import copy
 import typing
 
 from flax import struct
-from flax.core import frozen_dict
 import jax
 import jaxtyping
 import optax
 
 
 class TrainState(struct.PyTreeNode):
-    """Train state with exponential moving average of parameters.
+    r"""Train state with exponential moving average of parameters.
 
     Attributes:
         step (int): Counter incremented by calls to `apply_gradients()`.
-        params (FrozenDict): Model parameters to be updated by the optimizer.
+        params (Dict): Model parameters to be updated by the optimizer.
+        mutables (Optional[Dict]): Mutable variables used during network calls.
         tx (GradientTransformation): The `optax` optimizer.
         opt_state (OptState): The state of the `optax` optimizer.
+        ema_params (Dict): Exponential moving average of the parameters.
+        ema_rate (float, optional): Decay rate for exponential moving average.
     """
 
     step: int
-    """int: Counter incremented by calls to `apply_gradients()`."""
-    params: frozen_dict.FrozenDict = struct.field(pytree_node=True)
-    """FrozenDict: Model parameters to be updated by the optimizer."""
+    params: typing.Dict = struct.field(pytree_node=True)
+    mutables: typing.Optional[typing.Dict] = struct.field(pytree_node=True)
     tx: optax.GradientTransformation = struct.field(pytree_node=False)
-    """optax.GradientTransformation: The `optax` optimizer."""
     opt_state: optax.OptState = struct.field(pytree_node=True)
-    """OptState: The state of the `optax` optimizer."""
-    ema_params: frozen_dict.FrozenDict = struct.field(pytree_node=True)
-    """FrozenDict: Exponential moving average of parameters."""
+    ema_params: typing.Dict = struct.field(pytree_node=True)
     ema_rate: float = 0.999
-    """float: Decay rate for exponential moving average of parameters."""
 
     def apply_gradients(
         self,
@@ -37,7 +34,7 @@ class TrainState(struct.PyTreeNode):
         grads: jaxtyping.PyTree,
         **kwargs,
     ) -> "TrainState":
-        """Applies a single gradient step and update the parameters.
+        r"""Applies a single gradient step and update the parameters.
 
         Args:
             grads (PyTree): Gradients with the same structure as `.params`.
@@ -73,13 +70,18 @@ class TrainState(struct.PyTreeNode):
         params: jaxtyping.PyTree,
         tx: optax.GradientTransformation,
         ema_rate: float = 0.999,
+        mutables: typing.Optional[jaxtyping.PyTree] = None,
         **kwargs,
     ) -> "TrainState":
-        """Creates a new `TrainState` instance.
+        r"""Creates a new `TrainState` instance.
 
         Args:
             params (PyTree): Initial model parameters.
             tx (GradientTransformation): The `optax` optimizer.
+            ema_rate (float, optional): Decay rate for exponential moving
+                average of the model parameters. Default is :math:`0.999`.
+            mutables (Optional[PyTree], optional): Additional mutable variables
+                other than network parameters. Default is ``None``.
 
         Returns:
             A new `TrainState` initialized with the given params and optimizer.
@@ -92,5 +94,61 @@ class TrainState(struct.PyTreeNode):
             opt_state=opt_state,
             ema_params=copy.deepcopy(params),
             ema_rate=ema_rate,
+            mutables=mutables,
             **kwargs,
         )
+
+
+class MultiTrainState(struct.PyTreeNode):
+    r"""A collection of multiple train states.
+
+    Attributes:
+        step (int): Counter incremented by calls to `apply_gradients()`.
+        substates (Dict[str, TrainState]): A dictionary of train states.
+    """
+
+    step: int
+    substates: typing.Dict[str, TrainState]
+
+    def apply_gradients(
+        self,
+        *,
+        grads: typing.Dict[str, jaxtyping.PyTree],
+        **kwargs,
+    ) -> "MultiTrainState":
+        new_step, new_substates = self.step + 1, {}
+        for key, grad in grads.items():
+            if key not in self.substates:
+                raise ValueError(f"Invalid state {key}.")
+            new_substates[key] = self.substates[key].apply_gradients(
+                grads=grad,
+                kwargs=kwargs,
+            )
+            if new_substates[key].step != new_step:
+                raise ValueError(
+                    "Inconsistent train step: "
+                    f"{new_substates[key].step:d} and {new_step:d}."
+                )
+
+        return self.replace(step=self.step + 1, substates=new_substates)
+
+    @classmethod
+    def create(
+        cls: typing.Type["MultiTrainState"],
+        *,
+        substates: typing.Dict[str, TrainState],
+        **kwargs,
+    ) -> "MultiTrainState":
+        r"""Creates a new `MultiTrainState` instance.
+
+        Args:
+            substates (Dict[str, TrainState]): A dictionary of train states.
+
+        Returns:
+            A new `MultiTrainState` initialized with the given train states.
+        """
+
+        return cls(step=0, substates=substates, **kwargs)
+
+
+__all__ = ["TrainState", "MultiTrainState"]

@@ -8,6 +8,7 @@ import jaxtyping
 import typing_extensions
 
 from src.core import model as _model
+from src.core import train_state as _train_state
 from src.projects.generative.model import unet
 
 # Type aliases
@@ -394,22 +395,17 @@ class DDPMGaussianUNetModel(_model.Model):
             dtype=dtype,
         )
 
-    @property
     @typing_extensions.override
-    def network(self) -> DDPMUNetModule:
-        r"""DDPMUNetModule: The underlying neural network module."""
-        return self._network
-
     def init(
         self,
         *,
         batch: typing.Any,
         rngs: typing.Any,
         **kwargs,
-    ) -> PyTree:
+    ) -> typing.Tuple[PyTree, PyTree]:
         del batch, kwargs  # unused
 
-        variables = self.network.init(
+        variables = self._network.init(
             rngs,
             inputs=jnp.zeros(
                 (1, self.image_size, self.image_size, self.in_channels),
@@ -421,7 +417,7 @@ class DDPMGaussianUNetModel(_model.Model):
 
         if jax.process_index() == 0:
             tabulate_fn = nn.summary.tabulate(
-                self.network,
+                self._network,
                 depth=3,
                 rngs=rngs,
                 console_kwargs={"width": 120},
@@ -442,77 +438,9 @@ class DDPMGaussianUNetModel(_model.Model):
                 )
             )
 
-        return variables["params"]
+        params = variables.pop("params")
 
-    @typing_extensions.override
-    def compute_loss(
-        self,
-        *,
-        rngs: typing.Any,
-        batch: PyTree,
-        params: PyTree,
-        deterministic: bool = False,
-        **kwargs,
-    ) -> typing.Tuple[jax.Array, _model.StepOutputs]:
-        del kwargs  # unused
-        flip_rng, t_rng, noise_rng, dropout_rng = jax.random.split(rngs, num=4)
-
-        image = batch.get("image")
-        if not isinstance(image, jax.Array):
-            raise ValueError("Missing `image` in batch for training.")
-        image = image.astype(self.dtype).reshape(-1, *image.shape[-3:])
-        image = image * 2.0 - 1.0  # NOTE: scale to [-1, 1]
-        # random horizontal flipping
-        mask = jax.random.uniform(key=flip_rng, shape=image.shape[:-3]) < 0.5
-        image = jnp.where(
-            mask[..., None, None, None],
-            jnp.flip(image, axis=-2),
-            image,
-        )
-
-        timestep = jax.random.randint(
-            key=t_rng,
-            shape=image.shape[:-3],
-            minval=0,
-            maxval=self.num_diffusion_steps,
-        )
-
-        # draw sample from the posterior `q(x_{t} | x_{0})`
-        noise_true = jax.random.normal(
-            key=noise_rng,
-            shape=image.shape,
-            dtype=image.dtype,
-        )
-        w = jnp.broadcast_to(
-            self.alpha_bars[timestep][:, None, None, None],
-            image.shape,
-        )
-        samples = jnp.sqrt(w) * image + jnp.sqrt(1.0 - w) * noise_true
-        noise_pred = self.network.apply(
-            variables={"params": params},
-            inputs=samples,
-            timestep=timestep,
-            deterministic=deterministic,
-            rngs={"dropout": dropout_rng},
-        )
-        loss = jnp.mean(
-            jnp.sum(
-                jnp.square(noise_pred - jax.lax.stop_gradient(noise_true)),
-                axis=(-1, -2, -3),
-            )
-        )
-
-        out = _model.StepOutputs(
-            scalars={"loss": loss},
-            histograms={
-                "timestep": timestep,
-                "alpha_bars": self.alpha_bars[timestep],
-                "alphas": self.alphas[timestep],
-                "betas": self.betas[timestep],
-            },
-        )
-
-        return loss, out
+        return params, variables
 
     @typing_extensions.override
     def forward(
@@ -540,6 +468,92 @@ class DDPMGaussianUNetModel(_model.Model):
         else:
             # NOTE: with `reverse=True`, the final sample is at index 0
             return _model.StepOutputs(output=out[0])
+
+    @typing_extensions.override
+    def training_step(
+        self,
+        *,
+        batch: typing.Dict[str, typing.Any],
+        state: _train_state.TrainState,
+        rngs: typing.Any,
+        **kwargs,
+    ) -> typing.Tuple[_train_state.TrainState, _model.StepOutputs]:
+        local_rng = jax.random.fold_in(rngs, jax.lax.axis_index("batch"))
+        local_rng = jax.random.fold_in(local_rng, state.step)
+
+        # image preprocessing
+        f_rng, t_rng, e_rng, dropout_rng = jax.random.split(local_rng, 4)
+        image = batch.get("image")
+        if not isinstance(image, jax.Array):
+            raise ValueError("Missing `image` in batch for training.")
+        image = image.astype(self.dtype).reshape(-1, *image.shape[-3:])
+        image = image * 2.0 - 1.0  # NOTE: scale to [-1, 1]
+
+        # random horizontal flipping
+        mask = jax.random.uniform(key=f_rng, shape=image.shape[:-3]) < 0.5
+        image = jnp.where(
+            mask[..., None, None, None],
+            jnp.flip(image, axis=-2),
+            image,
+        )
+
+        # draw random timesteps
+        timestep = jax.random.randint(
+            key=t_rng,
+            shape=image.shape[:-3],
+            minval=0,
+            maxval=self.num_diffusion_steps,
+        )
+
+        # draw sample from the posterior `q(x_{t} | x_{0})`
+        noise_true = jax.random.normal(
+            key=e_rng,
+            shape=image.shape,
+            dtype=image.dtype,
+        )
+        noise_true = jax.lax.stop_gradient(noise_true)
+
+        # calculate the weights at each intermediate timesteps
+        w = jnp.broadcast_to(
+            self.alpha_bars[timestep][:, None, None, None],
+            image.shape,
+        )
+        samples = jnp.sqrt(w) * image + jnp.sqrt(1.0 - w) * noise_true
+
+        def _loss_fn(params: PyTree) -> jax.Array:
+            noise_pred = self._network.apply(
+                variables={"params": params},
+                inputs=samples,
+                timestep=timestep,
+                deterministic=False,
+                rngs={"dropout": dropout_rng},
+                **kwargs,
+            )
+            loss = jnp.mean(
+                jnp.sum(
+                    jnp.square(noise_pred - noise_true),
+                    axis=(-1, -2, -3),
+                )
+            )
+
+            return loss
+
+        grad_fn = jax.value_and_grad(_loss_fn, argnums=0, has_aux=False)
+        loss, grads = grad_fn(state.params)
+        grads = jax.lax.pmean(grads, axis_name="batch")
+        new_state = state.apply_gradients(grads=grads)
+
+        outputs = _model.StepOutputs(
+            scalars={"loss": loss.mean()},
+            histograms={
+                "timestep": timestep,
+                "alpha_bars": self.alpha_bars[timestep],
+                "alphas": self.alphas[timestep],
+                "betas": self.betas[timestep],
+            },
+        )
+
+        return new_state, outputs
 
     @staticmethod
     def get_betas(

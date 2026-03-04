@@ -9,7 +9,7 @@ import jaxtyping
 
 @chex.dataclass
 class StepOutputs:
-    """A base container for outputs from a single step.
+    r"""A base container for outputs from a single step.
 
     Attributes:
         output (Optional[jax.Array]): The main output of the model.
@@ -26,13 +26,7 @@ class StepOutputs:
 
 
 class Model(abc.ABC):
-    """Interface for models."""
-
-    @property
-    @abc.abstractmethod
-    def network(self) -> typing.Callable:
-        r"""Callable: The neural network module."""
-        ...
+    r"""Interface for models."""
 
     @abc.abstractmethod
     def init(
@@ -41,7 +35,7 @@ class Model(abc.ABC):
         batch: typing.Any,
         rngs: typing.Union[typing.Any, typing.Dict[str, typing.Any]],
         **kwargs,
-    ) -> jaxtyping.PyTree:
+    ) -> typing.Tuple[jaxtyping.PyTree, jaxtyping.PyTree]:
         r"""Initializes the model parameters.
 
         Args:
@@ -50,50 +44,74 @@ class Model(abc.ABC):
             **kwargs: Additional keyword arguments.
 
         Returns:
-            A `PyTree` the initialized model parameters.
+            A tuple of two pytree instances. The first contains initialized
+                model parameters and the second are mutable variables such as
+                the batch normalization parameters.
         """
-        pass
-
-    @abc.abstractmethod
-    def compute_loss(
-        self,
-        *,
-        rngs: typing.Any,
-        deterministic: bool = False,
-        params: frozen_dict.FrozenDict,
-        **kwargs,
-    ) -> typing.Tuple[jax.Array, StepOutputs]:
-        """Computes the loss given parameters and model inputs.
-
-        Args:
-            deterministic (bool): Whether to run the model in deterministic
-                mode (e.g., disable dropout). Default is `False`.
-            params (FrozenDict): The model parameters.
-            **kwargs: Keyword arguments consumed by the model.
-
-        Returns:
-            A dictionary containing the loss and other outputs.
-        """
-        raise NotImplementedError
+        ...
 
     @abc.abstractmethod
     def forward(
         self,
         *,
-        rngs: typing.Any,
         deterministic: bool = True,
         params: frozen_dict.FrozenDict,
+        rngs: typing.Any,
         **kwargs,
-    ) -> StepOutputs:
-        """Forward pass the model and returns the output tree structure.
+    ) -> typing.Any:
+        r"""Forward pass the model and returns the outputs.
 
         Args:
             deterministic (bool): Whether to run the model in deterministic
                 mode (e.g., disable dropout). Default is `True`.
             params (FrozenDict): The model parameters.
-            **kwargs: Keyword arguments consumed by the model.
+            rngs (Any): Random key generator.
 
         Returns:
             The model outputs.
         """
-        raise NotImplementedError
+        ...
+
+    def training_step(
+        self,
+        *,
+        batch: typing.Any,
+        state: typing.Any,
+        rngs: typing.Any,
+        **kwargs,
+    ) -> typing.Tuple[typing.Any, StepOutputs]:
+        r"""Performs a single training step.
+
+        Args:
+            batch (Any): A batch of training data samples.
+            state (Any): Data structure consisting of network parameters,
+                mutable variables, and optimizer states.
+            rngs (Any): Random key generator.
+
+        Returns:
+            A tuple of ``(new_state, step_outputs)``.
+        """
+        raise NotImplementedError("Train step function is not implemented.")
+
+    def evaluation_step(
+        self,
+        *,
+        batch: typing.Any,
+        params: frozen_dict.FrozenDict,
+        rngs: typing.Any,
+        **kwargs,
+    ) -> StepOutputs:
+        r"""Performs a single evaluation step.
+
+        Args:
+            batch (Any): A batch of evaluation data samples.
+            params (FrozenDict): The model parameters.
+            rngs (Any): Random key generator.
+
+        Returns:
+            The evaluation step outputs.
+        """
+        raise NotImplementedError("Evaluate step function is not implemented.")
+
+
+__all__ = ["StepOutputs", "Model"]

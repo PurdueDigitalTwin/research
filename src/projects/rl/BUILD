@@ -60,7 +60,8 @@ ml_py_binary(
         ":dqn",
         ":replay_buffer",
         ":structure",
-        "//src/core:model",
         "//src/core:train_state",
+        "//src/utilities:logging",
+        "//src/utilities:training",
     ],
 )

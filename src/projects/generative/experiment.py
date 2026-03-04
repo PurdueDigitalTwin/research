@@ -1,92 +1,77 @@
+import collections
 import dataclasses
 import functools
-import pathlib
 import platform
+import traceback
 import typing
 
 import fiddle as fdl
+from flax import jax_utils
 import jax
 from jax import numpy as jnp
 import jaxtyping
+import numpy as np
 import optax
 from orbax import checkpoint as ocp
+from orbax.checkpoint import utils as ocp_utils
 import tensorflow as tf
 from tqdm import auto as tqdm
 from tqdm.contrib import logging as tqdm_logging
 import wandb
-from wandb import sdk as wandb_sdk
 
 from src.core import config as _config
 from src.core import model as _model
-from src.core import train as _train
 from src.core import train_state as _train_state
 from src.projects.generative.tools import fid
 from src.utilities import logging
+from src.utilities import training
 from src.utilities import visualization
 
+# Type aliases
 PyTree = jaxtyping.PyTree
 
 
-# toggle off GPU/TPU for TensorFlow
+# Toggle off GPU/TPU for TensorFlow
 tf.config.experimental.set_visible_devices([], "GPU")
 tf.config.experimental.set_visible_devices([], "TPU")
-assert not tf.config.experimental.get_visible_devices("GPU")
 
 
 # ==============================================================================
 # Helper Functions
-def init_wandb(
-    config: _config.ExperimentConfig,
-    work_dir: str,
-    resume: bool = False,
+def _log_step_outputs(
+    outputs: _model.StepOutputs,
+    prefix: str,
+    step: int,
+    suffix: str = "",
 ) -> None:
-    r"""Initializes the Weights & Biases logging.
-
-    Args:
-        config (ExperimentConfig): The experiment configuration.
-        work_dir (str): The working directory for experiment outputs.
-        resume (bool, optional): Whether to resume from an existing wandb run.
-            Default is `False`.
-
-    Raises:
-        FileNotFoundError: If resuming and checkpoint directory does not exist.
-        RuntimeError: If wandb run initialization fails.
-    """
-
-    ckpt_dir = config.trainer.checkpoint_dir
-    if resume:
-        if not pathlib.Path(str(ckpt_dir)).exists():
-            raise FileNotFoundError(
-                f"Checkpoint directory {ckpt_dir} does not exist for resuming."
-            )
-        run_id = pathlib.Path(str(ckpt_dir), "wandb.txt").read_text().strip()
-        wandb.init(
-            id=run_id,
-            resume="must",
-            project=config.project_name,
-            dir=work_dir,
-            group=config.exp_name,
-            job_type="coordinator" if jax.process_index() == 0 else "worker",
+    """Log a StepOutputs object to W&B under ``{prefix}/{key}{suffix}``."""
+    if outputs.scalars is not None:
+        wandb.log(
+            {f"{prefix}/{k}{suffix}": v for k, v in outputs.scalars.items()},
+            step=step,
         )
-    else:
-        wandb.init(
-            name="_".join([config.exp_name, str(jax.process_index())]),
-            config=dataclasses.asdict(config),
-            project=config.project_name,
-            dir=work_dir,
-            group=config.exp_name,
-            job_type="coordinator" if jax.process_index() == 0 else "worker",
+    if outputs.images is not None:
+        wandb.log(
+            {
+                f"{prefix}/{k}": wandb.Image(np.asarray(v))
+                for k, v in outputs.images.items()
+            },
+            step=step,
         )
-        _run = wandb.run
-        if not isinstance(_run, wandb_sdk.wandb_run.Run):
-            raise RuntimeError("Failed to initialize wandb run.")
-        pathlib.Path(work_dir, "wandb.txt").write_text(_run.id)
+    if outputs.histograms is not None:
+        wandb.log(
+            {
+                f"{prefix}/{k}": wandb.Histogram(list(v))
+                for k, v in outputs.histograms.items()
+            },
+            step=step,
+        )
 
 
 def evaluate(
+    params: PyTree,
     rngs: jax.Array,
     model: _model.Model,
-    params: PyTree,
     batch: typing.Dict[str, typing.Any],
     fid_metric: fid.FrechetInceptionDistance,
     **kwargs,
@@ -94,9 +79,9 @@ def evaluate(
     r"""Conduct a single evaluation step and compute metrics.
 
     Args:
+        params (PyTree): The model parameters.
         rngs (jax.Array): Random key for sampling.
         model (Model): The generative model to be evaluated.
-        params (PyTree): The model parameters.
         batch (Dict[str, Any]): An example batch of evaluation data.
         fid_metric (FrechetInceptionDistance): The FID metric instance.
 
@@ -171,40 +156,12 @@ def evaluate(
     return outputs
 
 
-def training_step(
-    rngs: jax.Array,
-    model: _model.Model,
-    state: _train_state.TrainState,
-    batch: typing.Dict[str, typing.Any],
-    **kwargs,
-) -> typing.Tuple[_train_state.TrainState, _model.StepOutputs]:
-    r"""Conduct a single training step and update train state."""
-    local_rng = jax.random.fold_in(rngs, jax.lax.axis_index("batch"))
-    local_rng = jax.random.fold_in(local_rng, state.step)
-
-    def loss_fn(params: PyTree) -> typing.Tuple[jax.Array, _model.StepOutputs]:
-        loss, outputs = model.compute_loss(
-            rngs=local_rng,
-            params=params,
-            deterministic=False,
-            batch=batch,
-            **kwargs,
-        )
-        return loss, outputs
-
-    grad_fn = jax.value_and_grad(loss_fn, argnums=0, has_aux=True)
-    (_, outputs), grads = grad_fn(state.params)
-    grads = jax.lax.pmean(grads, axis_name="batch")
-    new_state = state.apply_gradients(grads=grads)
-
-    return new_state, outputs
-
-
 def train_and_evaluate(
     exp_config: _config.ExperimentConfig,
     work_dir: str,
 ) -> int:
     r"""Main entry point for training and evaluate generative models."""
+    _status = 0
 
     rng = jax.random.PRNGKey(exp_config.seed)
     log_dir = tf.io.gfile.join(
@@ -214,10 +171,14 @@ def train_and_evaluate(
     )
     if not tf.io.gfile.exists(log_dir):
         tf.io.gfile.makedirs(log_dir)
-    init_wandb(
-        config=exp_config,
+    checkpoint_dir = exp_config.trainer.checkpoint_dir
+    logging.init_wandb(
+        config=dataclasses.asdict(exp_config),
+        project_name=str(exp_config.project_name),
+        experiment_name=str(exp_config.exp_name),
         work_dir=log_dir,
-        resume=exp_config.trainer.checkpoint_dir is not None,
+        resume=checkpoint_dir is not None,
+        checkpoint_dir=checkpoint_dir,
     )
 
     # Log the current platform
@@ -267,7 +228,7 @@ def train_and_evaluate(
         param_dtype=exp_config.param_dtype,
         precision=exp_config.precision,
     )
-    params = model.init(batch=None, rngs=init_rng)  # NOTE: use dummy batch
+    params, _ = model.init(batch=None, rngs=init_rng)  # NOTE: use dummy batch
     logging.rank_zero_info(
         "Building model %s... DONE!",
         model.__class__.__name__,
@@ -323,7 +284,6 @@ def train_and_evaluate(
         logging.rank_zero_error("Resuming from checkpoint not implemented.")
         return 1
 
-    p_training_step = functools.partial(training_step, model=model)
     fid_metric = fdl.build(exp_config.metric)
     if not isinstance(fid_metric, fid.FrechetInceptionDistance):
         logging.rank_zero_error(
@@ -334,34 +294,168 @@ def train_and_evaluate(
             type(fid_metric),
         )
         return 1
-    evaluation_fn = functools.partial(
-        evaluate,
-        model=model,
-        rngs=rng,
-        batch=next(datamodule.eval_dataloader()),
-        fid_metric=fid_metric,
-    )
+
     if exp_config.mode == "train":
-        status = _train.run(
-            state=state,
-            datamodule=datamodule,
-            training_step=p_training_step,
-            evaluation_fn=evaluation_fn,
-            num_train_steps=exp_config.trainer.num_train_steps,
-            checkpoint_manager=checkpoint_manager,
-            checkpoint_every_n_steps=checkpoint_every_n_steps,
-            rng=rng,
-            log_every_n_steps=exp_config.trainer.log_every_n_steps,
-            eval_every_n_steps=exp_config.trainer.eval_every_n_steps,
+        logging.rank_zero_info("Compiling training step functions...")
+        rng, train_key, eval_key = jax.random.split(rng, num=3)
+        p_train_step = functools.partial(model.training_step, rngs=train_key)
+        p_train_step = jax.pmap(p_train_step, axis_name="batch")
+        evaluation_fn = functools.partial(
+            evaluate,
+            model=model,
+            rngs=eval_key,
+            batch=next(datamodule.eval_dataloader()),
+            fid_metric=fid_metric,
         )
+
+        state: _train_state.TrainState = jax_utils.replicate(state)
+        step = int(jax.device_get(state.step)[0])
+        if jax.process_index() == 0:
+            pbar = tqdm.tqdm(
+                initial=step,
+                total=exp_config.trainer.num_train_steps,
+                desc="Training",
+                leave=False,
+                position=0,
+                unit="step",
+            )
+        else:
+            pbar = None
+
+        try:
+            while step < exp_config.trainer.num_train_steps:
+                train_metrics = collections.defaultdict(list)
+                for train_batch in datamodule.train_dataloader():
+                    if (
+                        step % exp_config.trainer.eval_every_n_steps == 0
+                        or step == exp_config.trainer.num_train_steps
+                    ):
+                        logging.rank_zero_info("Running evaluation...")
+                        outputs = evaluation_fn(params=state.ema_params)
+                        logging.rank_zero_info("Evaluation done.")
+                        _log_step_outputs(
+                            outputs=outputs,
+                            prefix="eval",
+                            step=step,
+                        )
+                        if outputs.scalars is not None and pbar is not None:
+                            scalar_str = ", ".join(
+                                f"{k}={jax.device_get(v).mean():.4f}"
+                                for k, v in outputs.scalars.items()
+                            )
+                            pbar.write(f"[eval end]: {scalar_str}")
+
+                    train_batch = training.shard(train_batch)
+                    with jax.profiler.StepTraceAnnotation(
+                        name="train",
+                        step_num=step,
+                    ):
+                        state, outputs = p_train_step(
+                            state=state,
+                            batch=train_batch,
+                        )
+                    if not isinstance(outputs, _model.StepOutputs):
+                        raise RuntimeError(
+                            "FATAL: Output from `training_step` is not "
+                            "a `StepOutputs` object."
+                        )
+                    if outputs.scalars is not None:
+                        for k, v in outputs.scalars.items():
+                            train_metrics[k].append(jax.device_get(v).mean())
+
+                    if step % exp_config.trainer.log_every_n_steps == 0:
+                        _log_step_outputs(
+                            outputs=outputs,
+                            prefix="train",
+                            step=step,
+                            suffix="_step",
+                        )
+
+                    # update step and progress bar
+                    step += 1
+                    if pbar is not None:
+                        pbar.update(1)
+
+                    # checkpointing
+                    if (
+                        step % checkpoint_every_n_steps == 0
+                        or step >= exp_config.trainer.num_train_steps
+                    ):
+                        logging.rank_zero_info("Checkpointing...")
+                        with jax.profiler.StepTraceAnnotation(
+                            name="checkpoint",
+                            step_num=step,
+                        ):
+                            state_to_save = jax.tree_util.tree_map(
+                                ocp_utils.fully_replicated_host_local_array_to_global_array,
+                                state,
+                            )
+
+                            if hasattr(state_to_save, "ema_params"):
+                                params = state_to_save.ema_params
+                                state_to_save = dataclasses.replace(
+                                    state_to_save,
+                                    ema_params={},
+                                )
+                            else:
+                                params = state_to_save.params
+                                state_to_save = dataclasses.replace(
+                                    state_to_save,
+                                    params={},
+                                )
+                            checkpoint_manager.save(
+                                step=state_to_save.step,
+                                items={
+                                    "state": state_to_save,
+                                    "params": params,
+                                },
+                            )
+
+                    # break outer loop if reach max steps
+                    if step >= exp_config.trainer.num_train_steps:
+                        break
+
+                # logging on the end of epoch
+                scalar_output = {
+                    f"train/{k}_epoch": sum(v) / len(v)
+                    for k, v in train_metrics.items()
+                }
+                wandb.log(data=scalar_output, step=step)
+                scalar_str = ", ".join(
+                    [
+                        f"{k}={sum(v) / len(v):.4f}"
+                        for k, v in train_metrics.items()
+                    ]
+                )
+                if pbar is not None:
+                    pbar.write(f"[epoch end at step={step:d}]: {scalar_str:s}")
+
+        except Exception as e:
+            logging.rank_zero_error(
+                "Exception encountered during training: %s", e
+            )
+            error_trace = traceback.format_exc()
+            logging.rank_zero_error(error_trace)
+            _status = 1
+        finally:
+            state = jax_utils.unreplicate(state)
+            checkpoint_manager.wait_until_finished()
+            if pbar is not None:
+                pbar.close()
+            logging.rank_zero_info(
+                "Training finished. Final step: %d. Exit with code %d.",
+                state.step,
+                _status,
+            )
+
     elif exp_config.mode == "evaluate":
         logging.rank_zero_error("Evaluation mode not implemented.")
-        status = 1
+        _status = 1
     else:
         logging.rank_zero_error("Mode %s not implemented.", exp_config.mode)
-        status = 1
+        _status = 1
 
     # properly shutdown WandB
-    wandb.finish(exit_code=status)
+    wandb.finish(exit_code=_status)
 
-    return status
+    return _status

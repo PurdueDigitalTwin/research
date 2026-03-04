@@ -20,6 +20,7 @@ import typing
 
 from absl import app
 from absl import flags
+from flax import jax_utils
 from flax import serialization
 import gymnasium as gym
 import jax
@@ -27,12 +28,12 @@ from jax import numpy as jnp
 import matplotlib.pyplot as plt
 import optax
 
-from src.core import model as _model
 from src.core import train_state as _train_state
 from src.projects.rl import dqn as _dqn
 from src.projects.rl import replay_buffer as _buffer
 from src.projects.rl import structure as _struct
 from src.utilities import logging
+from src.utilities import training
 
 # Running flags
 flags.DEFINE_integer(
@@ -67,47 +68,8 @@ flags.DEFINE_bool(
 )
 
 
-# the training step function
-def train_step(
-    rngs: jax.Array,
-    state: _train_state.TrainState,
-    agent: _model.Model,
-    target_params: jax.Array,
-    batch: _struct.StepTuple,
-) -> typing.Tuple[_train_state.TrainState, _model.StepOutputs]:
-    r"""Performs a single training step.
-
-    Args:
-        params (jax.Array): Current agent parameters.
-        target_params (jax.Array): Target network parameters.
-        batch (StepTuple): Batch of experiences.
-        rngs (jax.random.PRNGKey): Random number generator key.
-
-    Returns:
-        A tuple of updated training state and loss value.
-    """
-    local_rng = jax.random.fold_in(rngs, state.step)
-
-    # Compute loss and gradients
-    def loss_fn(params):
-        return agent.compute_loss(
-            batch=batch,
-            params=params,
-            target_params=target_params,
-            rngs=local_rng,
-            deterministic=False,
-        )
-
-    # Get gradients
-    grads_fn = jax.value_and_grad(loss_fn, has_aux=True)
-    (loss, _), grads = grads_fn(state.params)
-    new_state = state.apply_gradients(grads=grads)
-
-    return new_state, loss
-
-
-def main(_: typing.List[str]) -> int:
-    del _  # NOTE: unused arguments
+def main(argv: typing.List[str]) -> int:
+    del argv  # NOTE: unused arguments
 
     # Example usage of the DQNModel class:
     # TODO (yaguang): Move arguments to experiment configs
@@ -157,13 +119,15 @@ def main(_: typing.List[str]) -> int:
         batch=_struct.StepTuple(state=jnp.zeros((1, *state_size))),
         rngs=init_rng,
     )
-    target_params = copy.deepcopy(q_params)
 
     # Create train state instance
     train_state = _train_state.TrainState.create(
         params=q_params,
         tx=optax.adam(learning_rate=learning_rate),
     )
+    jax.block_until_ready(train_state)
+    train_state = jax_utils.replicate(train_state)
+    target_params = copy.deepcopy(train_state.params)
 
     # log loss for analysis
     loss_log = []
@@ -172,14 +136,16 @@ def main(_: typing.List[str]) -> int:
     reward_log = []
 
     # Create two individual rngs for training and sampling
-    rngs, train_rng, buffer_rng, sample_rng = jax.random.split(rngs, num=4)
-    p_train_step = functools.partial(train_step, rngs=train_rng)
-    p_train_step = jax.jit(p_train_step, static_argnames=["agent"])
-    p_eval_step = jax.jit(agent.forward)
+    rngs, buffer_rng, sample_rng = jax.random.split(rngs, num=3)
+    rngs, train_key, eval_key = jax.random.split(rngs, num=3)
+    p_train_step = functools.partial(agent.training_step, rngs=train_key)
+    p_train_step = jax.pmap(p_train_step, axis_name="batch")
+    p_eval_step = functools.partial(agent.forward, rngs=eval_key)
+    p_eval_step = jax.jit(p_eval_step)
 
     # Populates the replay buffer
     logging.rank_zero_info("Populating buffer...")
-    state, info = env.reset()
+    state, _ = env.reset()
     for step in range(buffer_capacity):
         sample_step_rng = jax.random.fold_in(buffer_rng, step)
         action = env.action_space.sample()
@@ -204,10 +170,12 @@ def main(_: typing.List[str]) -> int:
 
         # done marks the end of each episode
         while not done:
+            train_step_cntr = int(jax.device_get(train_state.step)[0])
+
             # Epsilon-greedy action selection
             progress = min(1.0, episode / epsilon_decay_episodes)
             epsilon = epsilon_start + progress * (epsilon_end - epsilon_start)
-            sample_step_rng = jax.random.fold_in(sample_rng, train_state.step)
+            sample_step_rng = jax.random.fold_in(sample_rng, train_step_cntr)
 
             if jax.random.uniform(key=sample_step_rng) < epsilon:
                 # Exploration: random action
@@ -216,7 +184,7 @@ def main(_: typing.List[str]) -> int:
                 # Exploitation: select best action based on Q-values
                 q_values = p_eval_step(
                     batch=_struct.StepTuple(state=jnp.array(state[None, :])),
-                    params=train_state.params,
+                    params=jax_utils.unreplicate(train_state.params),
                 ).output
                 action = jnp.argmax(q_values, axis=-1).item()
 
@@ -232,16 +200,16 @@ def main(_: typing.List[str]) -> int:
             # Sample a batch of experiences from the replay buffer and train
             # the agent
             if len(replay_buffer) >= buffer_capacity:
-                sample_key = jax.random.fold_in(sample_rng, train_state.step)
+                sample_key = jax.random.fold_in(sample_rng, train_step_cntr)
                 batch = replay_buffer.sample(
                     key=sample_key,
                     batch_size=flags.FLAGS.batch_size,
                 )
+                batch = jax.tree_util.tree_map(training.shard, batch)
 
                 # Run the JIT-compiled update step
                 train_state, loss = p_train_step(
                     state=train_state,
-                    agent=agent,
                     target_params=target_params,
                     batch=batch,
                 )
@@ -249,7 +217,7 @@ def main(_: typing.List[str]) -> int:
                 episode_losses.append(loss)
 
                 # Update target network periodically
-                if train_state.step % target_update_freq == 0:
+                if train_step_cntr % target_update_freq == 0:
                     target_params = copy.deepcopy(train_state.params)
                     logging.rank_zero_info("Target network synced!")
 
@@ -266,10 +234,8 @@ def main(_: typing.List[str]) -> int:
                     # Add batch dimension [None, :] because the model expects
                     #  (batch, features)
                     q_values = p_eval_step(
-                        batch=_struct.StepTuple(
-                            state=jnp.array(state[None, :]),
-                        ),
-                        params=train_state.params,
+                        batch=_struct.StepTuple(state=state[None, :]),
+                        params=jax_utils.unreplicate(train_state.params),
                     ).output
 
                     # Select the best action
@@ -316,6 +282,7 @@ def main(_: typing.List[str]) -> int:
         #     epsilon,
         # )
 
+    train_state = jax_utils.unreplicate(train_state)
     # When the trainning is done, save the serialized model parameters to a file
     with open("dqn_model_params.msgpack", "wb") as f:
         f.write(serialization.msgpack_serialize(train_state.params))

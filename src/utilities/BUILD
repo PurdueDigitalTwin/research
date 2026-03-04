@@ -8,6 +8,8 @@ ml_py_library(
     deps = [
         "absl-py",
         "jax",
+        "tensorflow-cpu",
+        "wandb",
     ],
 )
 
@@ -16,6 +18,15 @@ ml_py_library(
     srcs = ["rank_zero.py"],
     deps = [
         "jax",
+    ],
+)
+
+ml_py_library(
+    name = "training",
+    srcs = ["training.py"],
+    deps = [
+        "jax",
+        "jaxtyping",
     ],
 )
 
