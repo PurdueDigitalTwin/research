@@ -184,7 +184,7 @@ def main(argv: typing.List[str]) -> int:
                 # Exploitation: select best action based on Q-values
                 q_values = p_eval_step(
                     batch=_struct.StepTuple(state=jnp.array(state[None, :])),
-                    params=train_state.params,
+                    params=jax_utils.unreplicate(train_state.params),
                 ).output
                 action = jnp.argmax(q_values, axis=-1).item()
 
@@ -235,7 +235,7 @@ def main(argv: typing.List[str]) -> int:
                     #  (batch, features)
                     q_values = p_eval_step(
                         batch=_struct.StepTuple(state=state[None, :]),
-                        params=train_state.params,
+                        params=jax_utils.unreplicate(train_state.params),
                     ).output
 
                     # Select the best action
