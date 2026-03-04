@@ -6,14 +6,11 @@
 # reference: https://arxiv.org/pdf/1312.5602
 # Double DQN: https://arxiv.org/pdf/1509.06461s
 ################################################
-# NOTE: the performance is not good (and the loss is not decreasing). The
-# testing rewards are approximately 80-200 (max reward is 500).
-# NOTE: will DQN encounters overfitting problem if trainning for too long?
-# NOTE: usually 2x batch size we do 2x learning rate, and buffer capacity is
+# NOTE: the performance is not stable due to the biased nature of the Q function
+# The reward curve can fluctuate a lot during training, and it can be hard to
+# determine when the model is converged.
+# Note: usually 2x batch size we do 2x learning rate, and buffer capacity is
 # 10x of the batch size.
-
-
-import copy
 import functools
 import os
 import typing
@@ -35,7 +32,7 @@ from src.projects.rl import structure as _struct
 from src.utilities import logging
 from src.utilities import training
 
-# Running flags
+# Running hyperparameters
 flags.DEFINE_integer(
     name="batch_size",
     default=512,
@@ -66,23 +63,52 @@ flags.DEFINE_bool(
     required=False,
     help="Whether to use Double DQN",
 )
+flags.DEFINE_float(
+    name="learning_rate",
+    default=1e-4,
+    required=False,
+    help="learning rate for training the DQN agent",
+)
+flags.DEFINE_integer(
+    name="buffer_capacity",
+    default=30000,
+    required=False,
+    help="Capacity of the replay buffer",
+)
+flags.DEFINE_float(
+    name="epsilon_start",
+    default=1.0,
+    required=False,
+    help="Starting value of epsilon for epsilon-greedy policy",
+)
+flags.DEFINE_float(
+    name="epsilon_end",
+    default=0.01,
+    required=False,
+    help="Ending value of epsilon for epsilon-greedy policy",
+)
+flags.DEFINE_integer(
+    name="epsilon_decay_episodes",
+    default=3000,
+    required=False,
+    help="Number of episodes over which epsilon is decayed",
+)
+flags.DEFINE_integer(
+    name="target_update_freq",
+    default=3000,
+    required=False,
+    help="Target network update frequency (in steps)",
+)
+flags.DEFINE_float(
+    name="gamma",
+    default=0.99,
+    required=False,
+    help="Discount factor for future rewards",
+)
 
 
 def main(argv: typing.List[str]) -> int:
     del argv  # NOTE: unused arguments
-
-    # Example usage of the DQNModel class:
-    # TODO (yaguang): Move arguments to experiment configs
-    # Define Hyperparameters
-    learning_rate = 1e-4
-    buffer_capacity = 30000
-    # use annealing epsilon for better performance.
-    epsilon_start = 1.0
-    epsilon_end = 0.01
-    epsilon_decay_episodes = 5000
-
-    target_update_freq = 3000  # target network update frequency (in steps)
-    gamma = 0.99  # discount factor
 
     # Random keys for JAX
     rngs = jax.random.PRNGKey(0)
@@ -100,7 +126,7 @@ def main(argv: typing.List[str]) -> int:
 
     # Create replay buffer
     replay_buffer = _buffer.ReplayBuffer(
-        capacity=buffer_capacity,
+        capacity=flags.FLAGS.buffer_capacity,
         state_size=state_size,
         action_size=action_size,
     )
@@ -109,7 +135,7 @@ def main(argv: typing.List[str]) -> int:
     # For `jax.nn`, we need to initialize the parameters first.
     agent = _dqn.DQNModel(
         action_space_dim=env.action_space.n,  # type: ignore
-        gamma=gamma,
+        gamma=flags.FLAGS.gamma,
         use_double=flags.FLAGS.use_double,
     )
 
@@ -123,11 +149,12 @@ def main(argv: typing.List[str]) -> int:
     # Create train state instance
     train_state = _train_state.TrainState.create(
         params=q_params,
-        tx=optax.adam(learning_rate=learning_rate),
+        tx=optax.adam(learning_rate=flags.FLAGS.learning_rate),
     )
     jax.block_until_ready(train_state)
     train_state = jax_utils.replicate(train_state)
-    target_params = copy.deepcopy(train_state.params)
+    target_params = train_state.params
+    train_step_cntr = int(jax.device_get(train_state.step)[0])
 
     # log loss for analysis
     loss_log = []
@@ -146,7 +173,7 @@ def main(argv: typing.List[str]) -> int:
     # Populates the replay buffer
     logging.rank_zero_info("Populating buffer...")
     state, _ = env.reset()
-    for step in range(buffer_capacity):
+    for step in range(flags.FLAGS.buffer_capacity):
         sample_step_rng = jax.random.fold_in(buffer_rng, step)
         action = env.action_space.sample()
         next_state, reward, terminated, truncated, info = env.step(action)
@@ -162,20 +189,23 @@ def main(argv: typing.List[str]) -> int:
 
     # The main training loop
     logging.rank_zero_info("Training...")
+    explore_step_cntr: int = 0
     for episode in range(flags.FLAGS.num_episodes + 1):
-        state, info = env.reset()
+        state, _ = env.reset()
         done = False
         episode_losses = []
         episode_reward = 0
 
         # done marks the end of each episode
         while not done:
-            train_step_cntr = int(jax.device_get(train_state.step)[0])
-
             # Epsilon-greedy action selection
-            progress = min(1.0, episode / epsilon_decay_episodes)
-            epsilon = epsilon_start + progress * (epsilon_end - epsilon_start)
-            sample_step_rng = jax.random.fold_in(sample_rng, train_step_cntr)
+            progress = min(1.0, episode / flags.FLAGS.epsilon_decay_episodes)
+            epsilon = flags.FLAGS.epsilon_start + progress * (
+                flags.FLAGS.epsilon_end - flags.FLAGS.epsilon_start
+            )
+
+            # Sample a random number to decide whether to explore or exploit
+            sample_step_rng = jax.random.fold_in(sample_rng, explore_step_cntr)
 
             if jax.random.uniform(key=sample_step_rng) < epsilon:
                 # Exploration: random action
@@ -196,10 +226,11 @@ def main(argv: typing.List[str]) -> int:
             replay_buffer.add(state, action, reward, next_state, done)
             state = next_state
             episode_reward += float(reward)
+            explore_step_cntr += 1
 
             # Sample a batch of experiences from the replay buffer and train
             # the agent
-            if len(replay_buffer) >= buffer_capacity:
+            if len(replay_buffer) >= flags.FLAGS.buffer_capacity:
                 sample_key = jax.random.fold_in(sample_rng, train_step_cntr)
                 batch = replay_buffer.sample(
                     key=sample_key,
@@ -217,9 +248,13 @@ def main(argv: typing.List[str]) -> int:
                 episode_losses.append(loss)
 
                 # Update target network periodically
-                if train_step_cntr % target_update_freq == 0:
-                    target_params = copy.deepcopy(train_state.params)
+                if train_step_cntr % flags.FLAGS.target_update_freq == 0:
+                    target_params = train_state.params
                     logging.rank_zero_info("Target network synced!")
+
+                train_step_cntr += 1
+        # Log episode reward
+        reward_log.append(episode_reward)
 
         if episode % flags.FLAGS.eval_every_n_episodes == 0:
             eval_env = gym.make("CartPole-v1")
@@ -264,27 +299,11 @@ def main(argv: typing.List[str]) -> int:
 
             eval_env.close()
 
-            # Check if environment is solved
-            if sum(eval_reward) / len(eval_reward) >= 500.0:
-                logging.rank_zero_info(
-                    "Environment solved in %d episodes!",
-                    episode,
-                )
-                # break
-
-        # Log episode reward
-        reward_log.append(episode_reward)
-        # logging.rank_zero_info(
-        #     "Episode %d | Episode Reward: %.2f | Episode Loss: %.4f | Epsilon: %.3f",
-        #     episode + 1,
-        #     episode_reward,
-        #     sum(episode_losses) / len(episode_losses) if episode_losses else 0.0,
-        #     epsilon,
-        # )
-
     train_state = jax_utils.unreplicate(train_state)
     # When the trainning is done, save the serialized model parameters to a file
-    with open("dqn_model_params.msgpack", "wb") as f:
+    with open(
+        os.path.join(flags.FLAGS.work_dir, "dqn_model_params.msgpack"), "wb"
+    ) as f:
         f.write(serialization.msgpack_serialize(train_state.params))
 
     # Close the environment

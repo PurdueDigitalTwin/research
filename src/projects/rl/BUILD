@@ -65,3 +65,22 @@ ml_py_binary(
         "//src/utilities:training",
     ],
 )
+
+ml_py_binary(
+    name = "run_dqn",
+    srcs = ["run_dqn.py"],
+    deps = [
+        "absl-py",
+        "flax",
+        "gymnasium",
+        "jax",
+        "matplotlib",
+        "optax",
+        ":dqn",
+        ":replay_buffer",
+        ":structure",
+        "//src/core:train_state",
+        "//src/utilities:logging",
+        "//src/utilities:training",
+    ],
+)
