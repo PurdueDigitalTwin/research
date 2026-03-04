@@ -7,12 +7,17 @@
 # Double DQN: https://arxiv.org/pdf/1509.06461s
 ################################################
 <<<<<<< HEAD
+<<<<<<< HEAD
 # NOTE: the performance is not stable due to the biased nature of the Q-learning.
 # The reward curve can fluctuate a lot during training, and it can be hard to
 =======
 # Note: the performance is not stable due to the biased nature of the Q-learning. 
 # The reward curve can fluctuate a lot during training, and it can be hard to 
 >>>>>>> 1ee3312 (feat: modified ppo)
+=======
+# Note: the performance is not stable due to the biased nature of the Q-learning. 
+# The reward curve can fluctuate a lot during training, and it can be hard to 
+>>>>>>> refs/remotes/origin/yaguang/ppo
 # determine when the model is converged.
 # Note: usually 2x batch size we do 2x learning rate, and buffer capacity is
 # 10x of the batch size.
@@ -41,7 +46,8 @@ from src.utilities import logging
 from src.utilities import training
 
 
-# Running flags
+
+# Running hyperparameters
 flags.DEFINE_integer(
     name="batch_size",
     default=512,
@@ -86,7 +92,11 @@ flags.DEFINE_integer(
 )
 flags.DEFINE_float(
     name="epsilon_start",
+<<<<<<< HEAD
     default=1.0,
+=======
+    default=1.0, 
+>>>>>>> refs/remotes/origin/yaguang/ppo
     required=False,
     help="Starting value of epsilon for epsilon-greedy policy",
 )
@@ -114,7 +124,10 @@ flags.DEFINE_float(
     required=False,
     help="Discount factor for future rewards",
 )
+<<<<<<< HEAD
 
+=======
+>>>>>>> refs/remotes/origin/yaguang/ppo
 
 # the training step function
 def train_step(
@@ -164,6 +177,7 @@ def train_step(
 
 def main(_: typing.List[str]) -> int:
     del _  # NOTE: unused arguments
+<<<<<<< HEAD
 
 
 def main(argv: typing.List[str]) -> int:
@@ -182,6 +196,8 @@ def main(argv: typing.List[str]) -> int:
     target_update_freq = 3000  # target network update frequency (in steps)
     gamma = 0.99  # discount factor
 
+=======
+>>>>>>> refs/remotes/origin/yaguang/ppo
     # Random keys for JAX
     rngs = jax.random.PRNGKey(0)
 
@@ -243,8 +259,13 @@ def main(argv: typing.List[str]) -> int:
 
     # Populates the replay buffer
     logging.rank_zero_info("Populating buffer...")
+<<<<<<< HEAD
     state, _ = env.reset()
     for step in range(buffer_capacity):
+=======
+    state, info = env.reset()
+    for step in range(flags.FLAGS.buffer_capacity):
+>>>>>>> refs/remotes/origin/yaguang/ppo
         sample_step_rng = jax.random.fold_in(buffer_rng, step)
         action = env.action_space.sample()
         next_state, reward, terminated, truncated, info = env.step(action)
@@ -272,10 +293,13 @@ def main(argv: typing.List[str]) -> int:
 
             # Epsilon-greedy action selection
 <<<<<<< HEAD
+<<<<<<< HEAD
             progress = min(1.0, episode / epsilon_decay_episodes)
             epsilon = epsilon_start + progress * (epsilon_end - epsilon_start)
             sample_step_rng = jax.random.fold_in(sample_rng, train_step_cntr)
 =======
+=======
+>>>>>>> refs/remotes/origin/yaguang/ppo
             progress = min(1.0, episode / flags.FLAGS.epsilon_decay_episodes)
             epsilon = flags.FLAGS.epsilon_start + progress * \
                 (flags.FLAGS.epsilon_end - flags.FLAGS.epsilon_start)
@@ -306,8 +330,13 @@ def main(argv: typing.List[str]) -> int:
 
             # Sample a batch of experiences from the replay buffer and train
             # the agent
+<<<<<<< HEAD
             if len(replay_buffer) >= buffer_capacity:
                 sample_key = jax.random.fold_in(sample_rng, train_step_cntr)
+=======
+            if len(replay_buffer) >= flags.FLAGS.buffer_capacity:
+                sample_key = jax.random.fold_in(sample_rng, train_state.step)
+>>>>>>> refs/remotes/origin/yaguang/ppo
                 batch = replay_buffer.sample(
                     key=sample_key,
                     batch_size=flags.FLAGS.batch_size,
@@ -324,7 +353,11 @@ def main(argv: typing.List[str]) -> int:
                 episode_losses.append(loss)
 
                 # Update target network periodically
+<<<<<<< HEAD
                 if train_step_cntr % target_update_freq == 0:
+=======
+                if train_state.step % flags.FLAGS.target_update_freq == 0:
+>>>>>>> refs/remotes/origin/yaguang/ppo
                     target_params = copy.deepcopy(train_state.params)
                     logging.rank_zero_info("Target network synced!")
 
@@ -392,9 +425,14 @@ def main(argv: typing.List[str]) -> int:
 
     train_state = jax_utils.unreplicate(train_state)
     # When the trainning is done, save the serialized model parameters to a file
+<<<<<<< HEAD
     with open(
         os.path.join(flags.FLAGS.work_dir, "dqn_model_params.msgpack"), "wb"
     ) as f:
+=======
+    with open(os.path.join(flags.FLAGS.work_dir, "dqn_model_params.msgpack"), 
+              "wb") as f:
+>>>>>>> refs/remotes/origin/yaguang/ppo
         f.write(serialization.msgpack_serialize(train_state.params))
 
     # Close the environment
