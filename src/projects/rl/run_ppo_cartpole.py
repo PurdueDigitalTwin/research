@@ -5,12 +5,12 @@
 # environment: gym env
 # reference: https://arxiv.org/pdf/1707.06347
 # https://en.wikipedia.org/wiki/Policy_gradient_method#cite_note-3
-# useful code repo: 
+# useful code repo:
 # https://github.com/ericyangyu/PPO-for-Beginners?tab=readme-ov-file
 ################################################
-# Note: value-based methods struggle when the action space is large (continous 
+# Note: value-based methods struggle when the action space is large (continous
 # action space). Usually they are less efficient in terms of trainning time.
-# Note: policy-based methods can learn stochastic policies where there isn't a 
+# Note: policy-based methods can learn stochastic policies where there isn't a
 # single best action, and they can also learn deterministic policies.
 # Note: policy-based methods encourages exploration by nature.
 # NOTE: why using advantage instead of value target?
@@ -20,7 +20,6 @@
 import functools
 import os
 import typing
-import numpy as np
 
 from absl import app
 from absl import flags
@@ -31,13 +30,13 @@ from jax import lax
 from jax import numpy as jnp
 import jaxtyping
 import matplotlib.pyplot as plt
+import numpy as np
 import optax
 
 from src.core import model as _model
 from src.core import train_state as _train_state
-from src.utilities import logging
 from src.projects.rl import ppo
-
+from src.utilities import logging
 
 # Running hyperparameters
 flags.DEFINE_string(
@@ -56,7 +55,7 @@ flags.DEFINE_integer(
     name="rollout_steps",
     default=2048,
     required=False,
-    help="Number of steps to collect in each rollout phase before updating the " \
+    help="Number of steps to collect in each rollout phase before updating the "
     "PPO model.",
 )
 flags.DEFINE_float(
@@ -132,7 +131,7 @@ def compute_gae(
     r"""Computes Generalized Advantage Estimation (GAE) for the given rollout data.
 
     Args:
-        rewards (jax.Array): Rewards collected during the rollout, with shape 
+        rewards (jax.Array): Rewards collected during the rollout, with shape
             `(rollout_steps, num_envs)`.
         values (jax.Array): Value estimates for each state in the rollout, with
             shape `(rollout_steps, num_envs)`.
@@ -151,28 +150,30 @@ def compute_gae(
 
     # Experiment: decouple advantage and value target
     # next_values = jnp.concatenate([values[1:], next_values[-1:]], axis=0)
-    
+
     # We scan backwards through the trajectory
-    def scan_surrogate_fn(gae_carry: jax.Array, transition: typing.Tuple) -> \
-        typing.Tuple[jax.Array, jax.Array]:
+    def scan_surrogate_fn(
+        gae_carry: jax.Array, transition: typing.Tuple
+    ) -> typing.Tuple[jax.Array, jax.Array]:
         reward, value, next_val, done = transition
-        
+
         # Temporal Difference Error: delta = r + gamma * V(s') * (1 - done) - V(s)
         delta = reward + gamma * next_val * (1.0 - done) - value
-        
+
         # GAE: A = delta + gamma * lambda * (1 - done) * A_{t+1}
         gae = delta + gamma * lambda_gae * (1.0 - done) * gae_carry
         return gae, gae
-    
+
     # Initialize the carry to be all zeros
     surrogate_init_carry = jnp.zeros_like(next_values[0], dtype=jnp.float32)
-    
+
     # Run lax.scan in reverse
-    _, advantages = lax.scan(scan_surrogate_fn, surrogate_init_carry, 
-                             transitions, reverse=True)
-    
+    _, advantages = lax.scan(
+        scan_surrogate_fn, surrogate_init_carry, transitions, reverse=True
+    )
+
     # advantages = jax.lax.stop_gradient(advantages)
-    
+
     return advantages
 
 
@@ -190,17 +191,17 @@ def train_step(
 
     Args:
         rngs (jax.Array): Random number generator keys for stochastic operations.
-        train_state (_train_state.TrainState): Current training state containing 
+        train_state (_train_state.TrainState): Current training state containing
             model parameters and optimizer state.
         agent (_model.Model): The PPO model instance to be trained.
         state (jax.Array): Input state array of shape `(*, D)`.
         action (jax.Array): Actions taken in the rollout, with shape `(*,)`
             where each entry is an integer representing the action index.
-        log_old_act_probs (jax.Array): Log action probabilities of the old 
+        log_old_act_probs (jax.Array): Log action probabilities of the old
             policy for the given rollout.
-        value_targets (jax.Array): Computed value targets for each transition 
+        value_targets (jax.Array): Computed value targets for each transition
             in the rollout.
-        advantages (jax.Array): Computed advantages for each transition in the 
+        advantages (jax.Array): Computed advantages for each transition in the
             rollout.
     Returns:
         Tuple[TrainState, jax.Array]: Updated training state and computed loss for
@@ -210,7 +211,9 @@ def train_step(
     local_rngs = jax.random.fold_in(rngs, train_state.step)
 
     # Compute the loss and gradients
-    def loss_fn(params: jaxtyping.PyTree) -> tuple[jax.Array, _model.StepOutputs]:
+    def loss_fn(
+        params: jaxtyping.PyTree,
+    ) -> tuple[jax.Array, _model.StepOutputs]:
         return agent.compute_loss(
             state=state,
             action=action,
@@ -225,18 +228,18 @@ def train_step(
     grads_fn = jax.value_and_grad(loss_fn, has_aux=True)
     (_, step_outputs), grads = grads_fn(train_state.params)
 
-    # similar to "theta_new = theta_old - learning_rate * grad" 
+    # similar to "theta_new = theta_old - learning_rate * grad"
     # in vanilla gradient descent
     new_train_state = train_state.apply_gradients(grads=grads)
-    return new_train_state, step_outputs    
+    return new_train_state, step_outputs
 
 
 def main(argv: typing.List[str]) -> int:
     r"""Main function to set up the environment, model, and training loop for PPO.
-    
-    Note: 
+
+    Note:
         This function initializes the CartPole environment, sets up the PPO model,
-        and runs the main training loop where it collects rollouts, computes GAE, 
+        and runs the main training loop where it collects rollouts, computes GAE,
         and updates the PPO model using the collected data. It also logs training
         progress and saves the trained model parameters and loss curves at the end.
 
@@ -292,14 +295,15 @@ def main(argv: typing.List[str]) -> int:
     # Optional: use annealing learning rate to prevent collapsing
     # Each episode has (Rollout / Minibatch) updates * Training Epochs
     num_total_rollout_steps = flags.FLAGS.rollout_steps * num_envs
-    updates_per_episode = (num_total_rollout_steps // flags.FLAGS.minibatch) * \
-        flags.FLAGS.training_epochs
+    updates_per_episode = (
+        num_total_rollout_steps // flags.FLAGS.minibatch
+    ) * flags.FLAGS.training_epochs
     total_updates = flags.FLAGS.num_episodes * updates_per_episode
 
     lr_schedule = optax.linear_schedule(
         init_value=flags.FLAGS.learning_rate,
         end_value=3e-7,  # Keep a small "learning floor"
-        transition_steps=total_updates 
+        transition_steps=total_updates,
     )
 
     # Create a training state instance with adam optimizer
@@ -325,12 +329,11 @@ def main(argv: typing.List[str]) -> int:
 
     # The main training loop
     for episode in range(flags.FLAGS.num_episodes):
-
         # state shape: (num_envs, state_dim)
         state, _ = env.reset()
         done = False
 
-        # Rollout: collect experience by interacting with the environment 
+        # Rollout: collect experience by interacting with the environment
         # using the current policy
         # logging.rank_zero_info("Collecting rollout data for episode %d", episode)
 
@@ -339,7 +342,6 @@ def main(argv: typing.List[str]) -> int:
         rollout_next_states = []
 
         for rollout_step in range(flags.FLAGS.rollout_steps):
-
             # Evaluate current policy
             logits, value = p_eval_step(
                 params=train_state.params,
@@ -354,7 +356,7 @@ def main(argv: typing.List[str]) -> int:
             # action shape: (num_envs,) where each entry is an integer representing
             # the action index for each environment in the vectorized environment.
             action = jax.random.categorical(sample_key, logits)
-            
+
             # Get log prob of taken action
             curr_log_probs = jax.nn.log_softmax(logits)
             log_prob = jnp.take_along_axis(
@@ -365,8 +367,9 @@ def main(argv: typing.List[str]) -> int:
 
             # Step the environment
             # each has the shape (num_envs, *)
-            next_state, reward, terminated, truncated, _ = \
-                env.step(np.asarray(action))
+            next_state, reward, terminated, truncated, _ = env.step(
+                np.asarray(action)
+            )
             done = terminated | truncated
 
             # Store transition
@@ -397,7 +400,7 @@ def main(argv: typing.List[str]) -> int:
         # logging.rank_zero_info("Computing GAE for episode %d", episode)
 
         # Get value of the state that follows the rollout
-        # NOTE: to obey bellman equation, the next value should be learned rather 
+        # NOTE: to obey bellman equation, the next value should be learned rather
         # than using the current rollout traj.
         # next_values shape: (rollout_steps, num_envs)
         _, next_values = p_eval_step(
@@ -417,15 +420,17 @@ def main(argv: typing.List[str]) -> int:
         )
 
         # Normalize the advantages (not mention by the reference)
-        advantages = (advantages - jnp.mean(advantages)) / \
-            (jnp.std(advantages) + 1e-8)
-        
+        advantages = (advantages - jnp.mean(advantages)) / (
+            jnp.std(advantages) + 1e-8
+        )
+
         # Compute value targets.
-        value_targets = rewards_arr + flags.FLAGS.gamma * next_values * (1.0 - \
-                                                                         dones_arr)
+        value_targets = rewards_arr + flags.FLAGS.gamma * next_values * (
+            1.0 - dones_arr
+        )
         # value_targets = advantages + values_arr
 
-        # Update the PPO model using the collected rollout data and 
+        # Update the PPO model using the collected rollout data and
         # computed advantages
         # logging.rank_zero_info("Updating PPO model for episode %d", episode)
         # Update the PPO model using minibatches
@@ -439,22 +444,22 @@ def main(argv: typing.List[str]) -> int:
         batch_size = flags.FLAGS.minibatch
         # Update num_steps to the total transition count
         num_total_steps = flags.FLAGS.rollout_steps * num_envs
-        
+
         episode_surrogate_loss = []
         episode_value_loss = []
         episode_loss = []
         episode_prob_ratio_mean = []
-        
+
         # sample mini-batches M <= NT
-        for _ in range(flags.FLAGS.training_epochs): # train for k epochs
+        for _ in range(flags.FLAGS.training_epochs):  # train for k epochs
             # Shuffle the indices at the start of each epoch
             rngs, shuffle_rng = jax.random.split(rngs)
             permutation = jax.random.permutation(shuffle_rng, num_total_steps)
-            
+
             # Iterate through the buffer in minibatches
             for i in range(0, num_total_steps, batch_size):
                 indices = permutation[i : i + batch_size]
-                
+
                 # Slice the data for this minibatch
                 mb_states = states_arr[indices]
                 mb_actions = actions_arr[indices]
@@ -473,34 +478,41 @@ def main(argv: typing.List[str]) -> int:
                     value_targets=mb_value_targets,
                     advantages=mb_advantages,
                 )
-                
+
                 # Track metrics
-                episode_surrogate_loss.append(float(step_outputs.
-                                                    scalars["surrogate_loss"]))
-                episode_value_loss.append(float(step_outputs.scalars["value_loss"]))
+                episode_surrogate_loss.append(
+                    float(step_outputs.scalars["surrogate_loss"])
+                )
+                episode_value_loss.append(
+                    float(step_outputs.scalars["value_loss"])
+                )
                 episode_loss.append(step_outputs.scalars["loss"])
                 episode_prob_ratio_mean.append(
                     step_outputs.scalars["prob_ratio_mean"]
                 )
 
         # Logging
-        mean_episode_surrogate_loss = jnp.mean(jnp.array(episode_surrogate_loss))
+        mean_episode_surrogate_loss = jnp.mean(
+            jnp.array(episode_surrogate_loss)
+        )
         mean_episode_value_loss = jnp.mean(jnp.array(episode_value_loss))
         mean_episode_loss = jnp.mean(jnp.array(episode_loss))
-        mean_episode_prob_ratio_mean = jnp.mean(jnp.array(episode_prob_ratio_mean))
+        mean_episode_prob_ratio_mean = jnp.mean(
+            jnp.array(episode_prob_ratio_mean)
+        )
 
         surrogate_loss_log.append(float(mean_episode_surrogate_loss))
         value_loss_log.append(float(mean_episode_value_loss))
         loss_log.append(float(mean_episode_loss))
         prob_ratio_mean_log.append(float(mean_episode_prob_ratio_mean))
 
-        # Evaluate the current policy every 10 episodes by running it in the 
+        # Evaluate the current policy every 10 episodes by running it in the
         # environment.
         if episode % 1 == 0:
             eval_env = gym.make(flags.FLAGS.env_name)
             eval_reward = []
 
-            # Run 5 evaluation episodes and average the total reward to get a 
+            # Run 5 evaluation episodes and average the total reward to get a
             # more stable estimate of the policy's performance.
             for _ in range(5):
                 state, _ = eval_env.reset()
@@ -513,13 +525,14 @@ def main(argv: typing.List[str]) -> int:
                         params=train_state.params,
                     )
                     action = jnp.argmax(logits)
-                    state, reward, terminated, truncated, _ = \
-                        eval_env.step(int(action))
+                    state, reward, terminated, truncated, _ = eval_env.step(
+                        int(action)
+                    )
                     done = terminated or truncated
                     episode_reward += float(reward)
 
                 eval_reward.append(episode_reward)
-                
+
             mean_eval_reward = jnp.mean(jnp.array(eval_reward))
             reward_log.append(float(mean_eval_reward))
 
@@ -533,10 +546,11 @@ def main(argv: typing.List[str]) -> int:
                 float(mean_eval_reward),
                 float(mean_episode_prob_ratio_mean),
             )
-    
+
     # When the trainning is done, save the serialized model parameters to a file
-    with open(os.path.join(flags.FLAGS.work_dir, "ppo_model_params.msgpack"), 
-              "wb") as f:
+    with open(
+        os.path.join(flags.FLAGS.work_dir, "ppo_model_params.msgpack"), "wb"
+    ) as f:
         f.write(serialization.msgpack_serialize(train_state.params))
 
     # Close the environment

@@ -513,5 +513,5 @@ def main(argv: typing.List[str]) -> int:
 
 
 if __name__ == "__main__":
+    jax.config.config_with_absl()
     app.run(main=main)
-    
