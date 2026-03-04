@@ -356,9 +356,9 @@ def main(argv: typing.List[str]) -> int:
             action = jax.random.categorical(sample_key, logits)
             
             # Get log prob of taken action
-            curr_log_prob = jax.nn.log_softmax(logits)
+            curr_log_probs = jax.nn.log_softmax(logits)
             log_prob = jnp.take_along_axis(
-                curr_log_prob,
+                curr_log_probs,
                 action[..., None],
                 axis=-1,
             ).squeeze(axis=-1)

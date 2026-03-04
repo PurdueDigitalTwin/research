@@ -36,7 +36,7 @@ import optax
 from src.core import model as _model
 from src.core import train_state as _train_state
 from src.utilities import logging
-from src.projects.rl import ppo
+from src.projects.rl.experimental import ppo_continuous
 
 
 # Running hyperparameters
@@ -48,7 +48,7 @@ flags.DEFINE_string(
 )
 flags.DEFINE_integer(
     name="num_episodes",
-    default=50,
+    default=100,
     required=False,
     help="Number of episodes to train the PPO model.",
 )
@@ -97,7 +97,7 @@ flags.DEFINE_float(
 )
 flags.DEFINE_integer(
     name="minibatch",
-    default=256,
+    default=64,
     required=False,
     help="Size of minibatches for PPO updates.",
 )
@@ -109,13 +109,13 @@ flags.DEFINE_integer(
 )
 flags.DEFINE_integer(
     name="num_envs",
-    default=32,
+    default=16,
     required=False,
     help="Number of trajectories to collect for evaluation.",
 )
 flags.DEFINE_string(
     name="env_name",
-    default="CartPole-v1",
+    default="Pendulum-v1",
     required=False,
     help="Name of the running environment",
 )
@@ -258,11 +258,11 @@ def main(argv: typing.List[str]) -> int:
     single_obs_space = env.single_observation_space
     single_act_space = env.single_action_space
 
-    # NOTE: forr now we are using discrete action space
-    assert isinstance(single_act_space, gym.spaces.Discrete)
+    # # NOTE: forr now we are using continuous action space
+    assert isinstance(single_act_space, gym.spaces.Box)
 
     state_shape = single_obs_space.shape
-    action_shape = single_act_space.n
+    action_shape = single_act_space.shape[0]
 
     logging.rank_zero_info(
         "Initialized environment %s with state size %r and action size %r.",
@@ -272,8 +272,8 @@ def main(argv: typing.List[str]) -> int:
     )
 
     # Initialize the PPO policy network
-    agent = ppo.PPOModel(
-        action_space_dim=action_shape.astype(int),
+    agent = ppo_continuous.PPOModel(
+        action_space_dim=action_shape,
         gamma=flags.FLAGS.gamma,
         clip_epsilon=flags.FLAGS.clip_epsilon,
         lambda_gae=flags.FLAGS.lambda_gae,
@@ -341,10 +341,11 @@ def main(argv: typing.List[str]) -> int:
         for rollout_step in range(flags.FLAGS.rollout_steps):
 
             # Evaluate current policy
-            logits, value = p_eval_step(
+            mean, log_std, value = p_eval_step(
                 params=train_state.params,
                 state=state,
             )
+            std = jnp.exp(log_std)
 
             # squeeze value from shape (num_envs, 1) to (num_envs,)
             value = value.squeeze(axis=-1)
@@ -353,20 +354,23 @@ def main(argv: typing.List[str]) -> int:
             sample_key = jax.random.fold_in(sample_rng, rollout_step)
             # action shape: (num_envs,) where each entry is an integer representing
             # the action index for each environment in the vectorized environment.
-            action = jax.random.categorical(sample_key, logits)
+
+            noise = jax.random.normal(sample_key, shape=mean.shape)
+            action = mean + noise * std
+
+            # Pendulum expects actions between -2.0 and 2.0
+            env_action = np.clip(action, single_act_space.low, single_act_space.high)
             
-            # Get log prob of taken action
-            curr_log_prob = jax.nn.log_softmax(logits)
-            log_prob = jnp.take_along_axis(
-                curr_log_prob,
-                action[..., None],
-                axis=-1,
-            ).squeeze(axis=-1)
+            # Calculate Gaussian log probability of the sampled action
+            var = std ** 2
+            log_prob = -0.5 * (jnp.log(2 * jnp.pi) + 2 * log_std + \
+                               ((action - mean) ** 2) / var)
+            log_prob = log_prob.sum(axis=-1)  # Sum log probs across action dimensions
 
             # Step the environment
             # each has the shape (num_envs, *)
             next_state, reward, terminated, truncated, _ = \
-                env.step(np.asarray(action))
+                env.step(np.asarray(env_action))
             done = terminated | truncated
 
             # Store transition
@@ -400,7 +404,7 @@ def main(argv: typing.List[str]) -> int:
         # NOTE: to obey bellman equation, the next value should be learned rather 
         # than using the current rollout traj.
         # next_values shape: (rollout_steps, num_envs)
-        _, next_values = p_eval_step(
+        _, _, next_values = p_eval_step(
             params=train_state.params,
             state=next_states_arr,
         )
@@ -431,7 +435,7 @@ def main(argv: typing.List[str]) -> int:
         # Update the PPO model using minibatches
         # Flatten the arrays before minibatching
         states_arr = states_arr.reshape(-1, *state_shape)
-        actions_arr = actions_arr.reshape(-1)
+        actions_arr = actions_arr.reshape(-1, action_shape)
         log_probs_arr = log_probs_arr.reshape(-1)
         advantages = advantages.reshape(-1)
         value_targets = value_targets.reshape(-1)
@@ -508,13 +512,18 @@ def main(argv: typing.List[str]) -> int:
                 episode_reward = 0.0
 
                 while not done:
-                    logits, _ = p_eval_step(
+                    mean, _, _ = p_eval_step(
                         state=state,
                         params=train_state.params,
                     )
-                    action = jnp.argmax(logits)
+                    # NOTE: Use the deterministic mean for evaluation, and clip 
+                    # it to valid bounds
+                    action = jnp.clip(
+                        np.asarray(mean), single_act_space.low, 
+                        single_act_space.high)
+
                     state, reward, terminated, truncated, _ = \
-                        eval_env.step(int(action))
+                        eval_env.step(np.asarray(action))
                     done = terminated or truncated
                     episode_reward += float(reward)
 

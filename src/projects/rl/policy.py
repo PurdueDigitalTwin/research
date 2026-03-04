@@ -115,3 +115,58 @@ class ActorCriticPolicy(nn.Module):
         value = build_branch(inputs, "critic", 1)
 
         return logits, value
+    
+class ContinuousActorCriticPolicy(nn.Module):
+    r"""Continuous Actor-Critic Policy Network with independent (non-sharing) paths.
+    """
+
+    features: int
+    out_features: int
+    num_layers: int
+    activation_fn: typing.Callable
+    dtype: typing.Any = None
+    param_dtype: typing.Any = None
+
+    @nn.compact
+    def __call__(self, inputs: jax.Array) -> \
+        typing.Tuple[jax.Array, jax.Array, jax.Array]:
+        inputs = inputs.astype(self.dtype)
+
+        # Define a helper to build a standalone branch
+        def build_branch(x, name_prefix, final_features):
+            for i in range(self.num_layers):
+                x = nn.Dense(
+                    features=self.features if i != self.num_layers - 1 else \
+                        final_features,
+                    kernel_init=jax.nn.initializers.variance_scaling(
+                        scale=1.0, mode="fan_avg", distribution="uniform"
+                    ),
+                    use_bias=True,
+                    bias_init=jax.nn.initializers.zeros,
+                    dtype=self.dtype,
+                    param_dtype=self.param_dtype,
+                    name=f"{name_prefix}_fc_{i+1}",
+                )(x)
+                x = self.activation_fn(x)
+            
+            # Output head for the specific branch
+            return nn.Dense(
+                features=final_features,
+                kernel_init=jax.nn.initializers.variance_scaling(
+                    scale=1.0, mode="fan_avg", distribution="uniform"
+                ),
+                use_bias=True,
+                name=f"{name_prefix}_head"
+            )(x)
+
+        # Create two completely independent paths starting from raw inputs
+        mean = build_branch(inputs, "actor", self.out_features)
+        value = build_branch(inputs, "critic", 1)
+
+        # NOTE: The mean is given by the actor branch, and we can have a separate 
+        # learnable parameter for the log standard deviation (log_std) of the 
+        # Gaussian.
+        log_std = self.param("log_std", jax.nn.initializers.zeros, \
+                             (self.out_features,))
+
+        return mean, log_std, value
