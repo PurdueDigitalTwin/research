@@ -217,7 +217,7 @@ def main(argv: typing.List[str]) -> int:
                 episode_losses.append(loss)
 
                 # Update target network periodically
-                if train_state.step % target_update_freq == 0:
+                if train_step_cntr % target_update_freq == 0:
                     target_params = copy.deepcopy(train_state.params)
                     logging.rank_zero_info("Target network synced!")
 
