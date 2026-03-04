@@ -141,7 +141,7 @@ def main(argv: typing.List[str]) -> int:
     p_train_step = functools.partial(agent.training_step, rngs=train_key)
     p_train_step = jax.pmap(p_train_step, axis_name="batch")
     p_eval_step = functools.partial(agent.forward, rngs=eval_key)
-    p_eval_step = jax.pmap(p_eval_step, axis_name="batch")
+    p_eval_step = jax.jit(p_eval_step)
 
     # Populates the replay buffer
     logging.rank_zero_info("Populating buffer...")
@@ -233,9 +233,8 @@ def main(argv: typing.List[str]) -> int:
                     # Forward pass (Note: pure exploitation)
                     # Add batch dimension [None, :] because the model expects
                     #  (batch, features)
-                    state = training.shard(state[None, :])
                     q_values = p_eval_step(
-                        batch=_struct.StepTuple(state=state),
+                        batch=_struct.StepTuple(state=state[None, :]),
                         params=train_state.params,
                     ).output
 
