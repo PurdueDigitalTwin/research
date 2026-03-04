@@ -5,11 +5,13 @@ A monolithic source code repository designed for multi-language, multi-platform,
 ## 🚀 Getting Started
 
 ### Prerequisites
-* [Bazel](https://bazel.build/install) (via Bazelisk recommended)
-* Python 3.x
-* A compatible accelerator driver (CUDA for NVIDIA, or standard drivers for MPS/TPU)
+
+- [Bazel](https://bazel.build/install) (via Bazelisk recommended)
+- Python 3.x
+- A compatible accelerator driver (CUDA for NVIDIA, or standard drivers for MPS/TPU)
 
 ## Project Structure
+
 The repository structure is shown here:
 
 ```text
