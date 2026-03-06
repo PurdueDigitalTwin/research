@@ -87,7 +87,7 @@ Because this project uses **Bazel** to manage all file dependencies, **whenever 
 
 ### 1. Understanding `BUILD` File Structure
 
-Open `@src/projects/rl/BUILD`, and you will see two main types of Bazel Rule Macros:
+Open `src/projects/rl/BUILD`, and you will see two main types of Bazel Rule Macros:
 - `ml_py_library`: Used to define a library file or module (to be imported by other code).
 - `ml_py_binary`: Used to define an executable entry script (like `main.py`, which can be run directly via `bazelisk run`).
 
