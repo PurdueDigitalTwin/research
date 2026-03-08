@@ -8,6 +8,7 @@ ml_py_library(
     deps = [
         "chex",
         "jax",
+        "//src/core:model",
     ],
 )
 
