@@ -10,13 +10,18 @@ from src.core import model as _model
 class BaseAgent(_model.Model, abc.ABC):
     r"""Base class for reinforcement learning agents."""
 
+    @abc.abstractmethod
+    def configure_train_state(self, *args, **kwargs) -> typing.Any:
+        r"""Configure and returns a training state container."""
+        ...
+
     @property
     @abc.abstractmethod
     def is_on_policy(self) -> bool:
         r"""bool: Whether the agent runs an on-policy RL algorithm."""
         ...
 
-    def on_train_batch_end(self, state: typing.Any, **kwargs) -> typing.Any:
+    def on_train_batch_end(self, *, state: typing.Any, **kwargs) -> typing.Any:
         r"""Called at the end of a single training step."""
         return state  # NOTE: no-op by default.
 
