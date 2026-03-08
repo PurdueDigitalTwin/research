@@ -4,7 +4,7 @@ from jax import numpy as jnp
 from jax import random as jrnd
 import numpy as np
 
-from src.projects.rl import structure
+from src.projects.rl import common
 
 
 # Create a replay buffer class to store experiences
@@ -67,7 +67,7 @@ class ReplayBuffer:
         self._ptr = (self._ptr + 1) % self._capacity
         self._size = min(self._size + 1, self._capacity)
 
-    def sample(self, batch_size: int, key: typing.Any) -> structure.StepTuple:
+    def sample(self, batch_size: int, key: typing.Any) -> common.StepTuple:
         r"""Samples a batch of experiences from the replay buffer.
 
         Args:
@@ -75,13 +75,13 @@ class ReplayBuffer:
             key (Any): Random key for reproducible sampling.
 
         Returns:
-            A tuple of (states, actions, rewards, next_states, dones).
+            A step tuple of (states, actions, rewards, next_states, dones).
         """
         indices = jrnd.choice(key, self._size, (batch_size,), replace=False)
         # Convert JAX indices to a Python list of ints in one shot
         indices = indices.tolist()
 
-        return structure.StepTuple(
+        return common.StepTuple(
             state=jnp.asarray(self._states[indices]),
             action=jnp.asarray(self._actions[indices]),
             reward=jnp.asarray(self._rewards[indices]),
