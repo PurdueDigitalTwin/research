@@ -1,0 +1,13 @@
+---
+name: "Feature Request"
+about: "Suggest a new research idea or improvement"
+labels: "enhancement"
+
+body:
+  - type: markdown
+    attributes:
+      value: >
+        Please:
+
+        - [ ] Check for duplicate requests.
+        - [ ] Describe your goal, and if possible provide a code snippet with a motivating example.
