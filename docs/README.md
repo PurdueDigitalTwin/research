@@ -19,12 +19,15 @@ ______________________________________________________________________
 Before running any code, ensure that system-level dependencies are correctly loaded and the appropriate driver versions are enabled:
 
 1. **Load CUDA and cuDNN modules** (typically required on clusters/servers):
+
    ```bash
    module load cuda/12.6
    module load cudnn
    ```
+
 2. **Bazel Build System**:
    This project uses [Bazelisk](https://github.com/bazelbuild/bazelisk) (as a wrapper for Bazel) for unified build version management.
+
    - All Python dependencies are declared via `rules_python` in `MODULE.bazel` and are automatically fetched during the build.
    - **No need** to manually run `pip install`; Bazel will isolate the execution environment properly.
 
@@ -56,28 +59,28 @@ bazelisk run --config=cuda //src/projects/rl:main -- --work_dir logs/
 
 ### Common Run Examples
 
-**Run Reinforcement Learning (RL - DQN)**
+- Run Reinforcement Learning (RL - DQN)
 
-```bash
-module load cuda/12.6
-module load cudnn
-CUDA_VISIBLE_DEVICES=0 NCCL_P2P_LEVEL=NVL NCCL_SHM_DISABLE=0 XLA_PYTHON_CLIENT_MEM_FRACTION=.9 \
-bazelisk run --config=cuda //src/projects/rl:main -- \
-    --work_dir logs/rl_run \
-    --num_episodes 5000 \
-    --batch_size 512
-```
+  ```bash
+  module load cuda/12.6
+  module load cudnn
+  CUDA_VISIBLE_DEVICES=0 NCCL_P2P_LEVEL=NVL NCCL_SHM_DISABLE=0 XLA_PYTHON_CLIENT_MEM_FRACTION=.9 \
+  bazelisk run --config=cuda //src/projects/rl:main -- \
+      --work_dir logs/rl_run \
+      --num_episodes 5000 \
+      --batch_size 512
+  ```
 
-**Run Generative Models (Generative - DDPM / Mean Flow)**
+- Run Generative Models (Generative - DDPM / Mean Flow)
 
-```bash
-module load cuda/12.6
-module load cudnn
-CUDA_VISIBLE_DEVICES=0 NCCL_P2P_LEVEL=NVL NCCL_SHM_DISABLE=0 XLA_PYTHON_CLIENT_MEM_FRACTION=.9 \
-bazelisk run --config=cuda //src/projects/generative:main -- \
-    --work_dir logs/generative_run \
-    --distributed False
-```
+  ```bash
+  module load cuda/12.6
+  module load cudnn
+  CUDA_VISIBLE_DEVICES=0 NCCL_P2P_LEVEL=NVL NCCL_SHM_DISABLE=0 XLA_PYTHON_CLIENT_MEM_FRACTION=.9 \
+  bazelisk run --config=cuda //src/projects/generative:main -- \
+      --work_dir logs/generative_run \
+      --distributed False
+  ```
 
 *(Note: If you have specific `fiddle` configuration files when running `generative`, you might also need to pass them via arguments like `--experiment=xxx`, see `main.py` for details)*
 
