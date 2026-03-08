@@ -12,8 +12,6 @@ This is a machine learning and deep learning research codebase built on JAX/Flax
 - **`src/data/`**: Data processing modules (e.g., data pipelines using HuggingFace `datasets`).
 - **`MODULE.bazel`**: Bazel dependency and environment configuration file, managing Python versions and related package dependencies.
 
-______________________________________________________________________
-
 ## 🛠️ Environment Setup
 
 Before running any code, ensure that system-level dependencies are correctly loaded and the appropriate driver versions are enabled:
@@ -30,8 +28,6 @@ Before running any code, ensure that system-level dependencies are correctly loa
 
    - All Python dependencies are declared via `rules_python` in `MODULE.bazel` and are automatically fetched during the build.
    - **No need** to manually run `pip install`; Bazel will isolate the execution environment properly.
-
-______________________________________________________________________
 
 ## 🚀 How to Run
 
@@ -83,8 +79,6 @@ bazelisk run --config=cuda //src/projects/rl:main -- --work_dir logs/
   ```
 
 *(Note: If you have specific `fiddle` configuration files when running `generative`, you might also need to pass them via arguments like `--experiment=xxx`, see `main.py` for details)*
-
-______________________________________________________________________
 
 ## 🔧 Adding New Features & BUILD Files
 
