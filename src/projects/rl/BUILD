@@ -1,6 +1,6 @@
 load("//third_party:defs.bzl", "ml_py_binary", "ml_py_library")
 
-package(default_visibility = ["//src/projects/generative:__subpackages__"])
+package(default_visibility = ["//src/projects/rl:__subpackages__"])
 
 ml_py_library(
     name = "common",
@@ -9,32 +9,6 @@ ml_py_library(
         "chex",
         "jax",
         "//src/core:model",
-    ],
-)
-
-ml_py_library(
-    name = "dqn",
-    srcs = ["dqn.py"],
-    deps = [
-        "flax",
-        "gymnasium",
-        "jax",
-        "jaxtyping",
-        "optax",
-        "typing_extensions",
-        ":policy",
-        "//src/core:model",
-        "//src/core:train_state",
-        "//src/utilities:logging",
-    ],
-)
-
-ml_py_library(
-    name = "policy",
-    srcs = ["policy.py"],
-    deps = [
-        "flax",
-        "jax",
     ],
 )
 
