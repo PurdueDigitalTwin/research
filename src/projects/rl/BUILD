@@ -52,16 +52,8 @@ ml_py_binary(
     srcs = ["main.py"],
     deps = [
         "absl-py",
-        "flax",
-        "gymnasium",
+        "fiddle",
         "jax",
-        "matplotlib",
-        "optax",
-        ":dqn",
-        ":replay_buffer",
-        ":structure",
-        "//src/core:train_state",
-        "//src/utilities:logging",
-        "//src/utilities:training",
+        "//src/core:distributed",
     ],
 )
