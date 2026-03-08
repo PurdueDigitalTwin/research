@@ -1,7 +1,9 @@
 ---
 name: "Feature Request"
-about: "Suggest a new research idea or improvement"
-labels: "enhancement"
+description: >-
+  Suggest a new research idea or improvement for the research repository.
+labels:
+  - enhancement
 
 body:
   - type: markdown
