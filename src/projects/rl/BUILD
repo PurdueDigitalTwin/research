@@ -3,6 +3,15 @@ load("//third_party:defs.bzl", "ml_py_binary", "ml_py_library")
 package(default_visibility = ["//src/projects/generative:__subpackages__"])
 
 ml_py_library(
+    name = "common",
+    srcs = ["common.py"],
+    deps = [
+        "chex",
+        "jax",
+    ],
+)
+
+ml_py_library(
     name = "dqn",
     srcs = ["dqn.py"],
     deps = [
@@ -34,16 +43,7 @@ ml_py_library(
     deps = [
         "jax",
         "numpy",
-        ":structure",
-    ],
-)
-
-ml_py_library(
-    name = "structure",
-    srcs = ["structure.py"],
-    deps = [
-        "chex",
-        "jax",
+        ":common",
     ],
 )
 
