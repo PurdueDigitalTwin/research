@@ -1,8 +1,11 @@
+import functools
+
 import fiddle as fdl
 import gymnasium as gym
 import optax
 
 from src.core import config as _config
+from src.nn import mlp
 from src.projects.rl import common as _common
 from src.projects.rl.agents import dqn
 
@@ -16,6 +19,10 @@ def dqn_mlp_cartpole() -> _common.RLExperimentConfig:
         agent=fdl.Partial(
             dqn.DQNModel,
             action_space_dim=2,
+            network=functools.partial(
+                mlp.MultiLayerPerceptron,
+                feature_list=[256, 256, 2],
+            ),
             gamma=0.99,
             q_target_update_freq=3_000,
             use_double=False,
