@@ -22,10 +22,13 @@ class DQNModel(common.BaseAgent):
     def __init__(
         self,
         action_space_dim: int,
-        network: nn.Module,
+        network: typing.Callable[..., nn.Module],
         gamma: float,
         q_target_update_freq: int,
         use_double: bool = False,
+        dtype: typing.Any = None,
+        param_dtype: typing.Any = None,
+        precision: typing.Any = None,
     ) -> None:
         r"""Instantiates a DQN model.
 
@@ -36,10 +39,20 @@ class DQNModel(common.BaseAgent):
                 the target Q-network parameters with the online one.
             use_double (bool, optional): Whether to train the DQN model with
                 double Q-learning. See ``https://arxiv.org/abs/1509.06461``.
+            dtype (Any, optional): Data type for computation.
+                Default is ``None``.
+            param_dtype (Any, optional): Data type for the network parameters.
+                Default is ``None``.
+            precision (Any, optional): Precision for the computation.
+                Default is ``None``.
         """
         self._action_space_dim = action_space_dim
         self._gamma = gamma
-        self._network = network
+        self._network = network(
+            dtype=dtype,
+            param_dtype=param_dtype,
+            precision=precision,
+        )
         self._q_target_update_freq = q_target_update_freq
         self._use_double = use_double
 
@@ -50,7 +63,7 @@ class DQNModel(common.BaseAgent):
         batch: common.StepTuple,
         rngs: typing.Any,
         **kwargs,
-    ) -> jaxtyping.PyTree:
+    ) -> typing.Tuple[jaxtyping.PyTree, jaxtyping.PyTree]:
         r"""Initializes Q-network parameters.
 
         Args:
@@ -58,10 +71,10 @@ class DQNModel(common.BaseAgent):
             rngs (jax.random.PRNGKey): Random number generator key.
 
         Returns:
-            A tuple of (q_params, target_params).
+            A tuple of ``(params, mutables)``.
         """
         del kwargs
-        q_params = self._network.init(rngs, batch.state)
+        q_params = self._network.init(rngs, batch.state, deterministic=True)
 
         # We may need to print the model summary for analysis.
         # Note that each layer has its own kernel matrix and bias vector (if
@@ -71,9 +84,9 @@ class DQNModel(common.BaseAgent):
             rngs,
             console_kwargs=dict(width=120),
         )
-        print(_tabulate_fn(batch.state))
+        print(_tabulate_fn(batch.state, deterministic=True))
 
-        return q_params
+        return q_params, {"target_params": q_params}
 
     @typing_extensions.override
     def forward(
@@ -103,8 +116,12 @@ class DQNModel(common.BaseAgent):
         Returns:
             Q-values for the given state.
         """
-        del deterministic, kwargs, rngs
-        out = self._network.apply(params, batch.state)
+        del kwargs, rngs
+        out = self._network.apply(
+            params,
+            batch.state,
+            deterministic=deterministic,
+        )
         assert isinstance(out, jax.Array)
 
         return _model.StepOutputs(output=out)
@@ -129,7 +146,12 @@ class DQNModel(common.BaseAgent):
 
         def _loss_fn(params: jaxtyping.PyTree) -> jax.Array:
             # Compute Q-values for current states
-            q_values = self._network.apply(params, batch.state, rngs=local_rng)
+            q_values = self._network.apply(
+                params,
+                batch.state,
+                deterministic=False,
+                rngs=local_rng,
+            )
             assert isinstance(q_values, jax.Array)
 
             # Select Q-values for the action actually taken
@@ -147,6 +169,7 @@ class DQNModel(common.BaseAgent):
             next_q_values = self._network.apply(
                 target_params,
                 batch.next_state,
+                deterministic=True,
                 rngs=local_rng,
             )
             assert isinstance(next_q_values, jax.Array)
@@ -156,6 +179,7 @@ class DQNModel(common.BaseAgent):
                 next_q_values_online = self._network.apply(
                     params,
                     batch.next_state,
+                    deterministic=True,
                     rngs=local_rng,
                 )
                 assert isinstance(next_q_values_online, jax.Array)
@@ -203,7 +227,10 @@ class DQNModel(common.BaseAgent):
         self,
         params: typing.Any,
         tx: optax.GradientTransformation,
+        **kwargs,
     ) -> _train_state.TrainState:
+        del kwargs  # unused argument
+
         return _train_state.TrainState.create(
             params=params,
             tx=tx,

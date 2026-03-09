@@ -32,19 +32,35 @@ class _QNetwork(nn.Module):
     r"""Minimal Q-network used in tests."""
 
     action_dim: int
+    dtype: typing.Any
+    param_dtype: typing.Any
+    precision: typing.Any
 
     @nn.compact
-    def __call__(self, x: jax.Array) -> jax.Array:
-        x = nn.Dense(64)(x)
+    def __call__(self, x: jax.Array, deterministic: bool = True) -> jax.Array:
+        del deterministic
+
+        x = nn.Dense(
+            64,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            precision=self.precision,
+        )(x)
         x = nn.relu(x)
-        x = nn.Dense(self.action_dim)(x)
+        x = nn.Dense(
+            self.action_dim,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            precision=self.precision,
+        )(x)
+
         return x
 
 
 def _make_agent(use_double: bool = False) -> _dqn.DQNModel:
     return _dqn.DQNModel(
         action_space_dim=ACTION_DIM,
-        network=_QNetwork(action_dim=ACTION_DIM),
+        network=functools.partial(_QNetwork, action_dim=ACTION_DIM),
         gamma=0.99,
         q_target_update_freq=TARGET_UPDATE_FREQ,
         use_double=use_double,
@@ -96,7 +112,7 @@ def test_dqn_init() -> None:
     r"""Init() returns a non-empty parameter pytree."""
     agent = _make_agent()
     batch = _make_dummy_batch()
-    params = agent.init(batch=batch, rngs=rng)
+    params, _ = agent.init(batch=batch, rngs=rng)
 
     leaves = jax.tree_util.tree_leaves(params)
     assert len(leaves) > 0, "params pytree should be non-empty"
@@ -113,7 +129,7 @@ def test_dqn_forward() -> None:
     r"""Forward() returns Q-values of shape (BATCH, ACTION_DIM)."""
     agent = _make_agent()
     batch = _make_dummy_batch()
-    params = agent.init(batch=batch, rngs=rng)
+    params, _ = agent.init(batch=batch, rngs=rng)
 
     outputs = agent.forward(batch=batch, params=params)
 
@@ -131,7 +147,7 @@ def test_dqn_configure_train_state() -> None:
     r"""configure_train_state() creates a ``TrainState`` with target_params."""
     agent = _make_agent()
     batch = _make_dummy_batch()
-    params = agent.init(batch=batch, rngs=rng)
+    params, _ = agent.init(batch=batch, rngs=rng)
     tx = optax.adam(1e-4)
     state = agent.configure_train_state(params=params, tx=tx)
 
@@ -158,7 +174,7 @@ def test_dqn_training_step(use_double: bool) -> None:
     r"""training_step() decrements loss and increments step counter."""
     agent = _make_agent(use_double=use_double)
     batch = _make_dummy_batch()
-    params = agent.init(batch=batch, rngs=rng)
+    params, _ = agent.init(batch=batch, rngs=rng)
     tx = optax.adam(1e-4)
     state = agent.configure_train_state(params=params, tx=tx)
 
@@ -192,7 +208,7 @@ def test_dqn_on_train_batch_end_no_sync() -> None:
     r"""on_train_batch_end NOT sync target params at non-divisible steps."""
     agent = _make_agent()
     batch = _make_dummy_batch()
-    params = agent.init(batch=batch, rngs=rng)
+    params, _ = agent.init(batch=batch, rngs=rng)
     tx = optax.adam(1e-4)
     state = agent.configure_train_state(params=params, tx=tx)
 
@@ -219,7 +235,7 @@ def test_dqn_on_train_batch_end_syncs_target() -> None:
     r"""on_train_batch_end syncs target params at divisible steps."""
     agent = _make_agent()
     batch = _make_dummy_batch()
-    params = agent.init(batch=batch, rngs=rng)
+    params, _ = agent.init(batch=batch, rngs=rng)
     tx = optax.adam(1e-4)
     state = agent.configure_train_state(params=params, tx=tx)
 
