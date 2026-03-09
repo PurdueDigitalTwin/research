@@ -23,6 +23,7 @@ ml_py_library(
         "optax",
         ":common",
         "//src/core:config",
+        "//src/nn:mlp",
         "//src/projects/rl/agents:dqn",
     ],
 )
@@ -37,6 +38,17 @@ ml_py_library(
     ],
 )
 
+ml_py_library(
+    name = "train",
+    srcs = ["train.py"],
+    deps = [
+        "fiddle",
+        "jax",
+        ":common",
+        "//src/utilities:logging",
+    ],
+)
+
 ml_py_binary(
     name = "main",
     srcs = ["main.py"],
@@ -44,6 +56,8 @@ ml_py_binary(
         "absl-py",
         "fiddle",
         "jax",
+        ":config",
+        ":train",
         "//src/core:distributed",
     ],
 )
