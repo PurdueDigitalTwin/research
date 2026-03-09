@@ -7,8 +7,23 @@ ml_py_library(
     srcs = ["common.py"],
     deps = [
         "chex",
+        "fiddle",
         "jax",
+        "//src/core:config",
         "//src/core:model",
+    ],
+)
+
+ml_py_library(
+    name = "config",
+    srcs = ["config.py"],
+    deps = [
+        "fiddle",
+        "gymnasium",
+        "optax",
+        ":common",
+        "//src/core:config",
+        "//src/projects/rl/agents:dqn",
     ],
 )
 

@@ -1,9 +1,12 @@
 import abc
+import dataclasses
 import typing
 
 import chex
+import fiddle as fdl
 import jax
 
+from src.core import config as _config
 from src.core import model as _model
 
 
@@ -47,6 +50,24 @@ class BaseEnvironment(abc.ABC):
     def close(self) -> None:
         r"""Destructor for the environment."""
         pass  # NOTE: no-op by default
+
+
+@dataclasses.dataclass(frozen=False, kw_only=True)
+class RLExperimentConfig:
+    project_name: str
+    exp_name: str
+
+    # composed configuration objects
+    agent: fdl.Partial[BaseAgent]
+    environment: fdl.Config[BaseEnvironment]
+    trainer: _config.TrainerConfig
+    optimizer: _config.OptimizerConfig
+
+    # global settings
+    dtype: typing.Any = None
+    param_dtype: typing.Any = None
+    precision: typing.Any = None
+    seed: int = 42
 
 
 @chex.dataclass
