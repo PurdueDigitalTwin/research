@@ -1,6 +1,6 @@
 ---
 name: "Feature Request"
-about: "Suggest a new research idea or improvement"
+description: "Suggest a new research idea or improvement"
 labels: "enhancement"
 
 body:
