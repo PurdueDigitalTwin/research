@@ -2,8 +2,11 @@ REP 0 --- Introduction to REP
 =============================
 
 **Author**: Juanwu Lu
+
 **Status**: Active
+
 **Type**: Informational
+
 **Created**: 25-Mar-2026
 
 .. contents:: Table of Contents

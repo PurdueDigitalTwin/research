@@ -20,7 +20,8 @@ This is a centralized source code repository for collaborative work at Purdue Di
 However, an effective maintenance of the repository would require a joint effort of all the lab members, to ensure code health and resolve potential redundancy in unnecessary dependencies. Thereby, we encourage the developers to file Research Proposals (REPs) before creating a pull request. See documentation below.
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 1
    :caption: Research Proposals
 
    reps/0-introduction
+   reps/35-rl-infra
