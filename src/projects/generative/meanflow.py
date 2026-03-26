@@ -591,7 +591,7 @@ class MeanFlowUNetModel(_model.Model):
             if self.use_improved_meanflow:
                 # NOTE: improved MeanFlow calculate instantaneous velocity
                 # at t given by u(z, t, t)
-                v = u_fn(z_t=z, r_in=t, t_in=t)
+                v = jax.lax.stop_gradient(u_fn(z_t=z, r_in=t, t_in=t))
             else:
                 v = e - image
             u, dudt = jax.jvp(u_fn, (z, r, t), (v, drdt, dtdt))
