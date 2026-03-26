@@ -47,7 +47,10 @@ def _log_step_outputs(
     """Log a StepOutputs object to W&B under ``{prefix}/{key}{suffix}``."""
     if outputs.scalars is not None:
         wandb.log(
-            {f"{prefix}/{k}{suffix}": v for k, v in outputs.scalars.items()},
+            {
+                f"{prefix}/{k}{suffix}": float(jax.device_get(v).mean())
+                for k, v in outputs.scalars.items()
+            },
             step=step,
         )
     if outputs.images is not None:
@@ -61,7 +64,9 @@ def _log_step_outputs(
     if outputs.histograms is not None:
         wandb.log(
             {
-                f"{prefix}/{k}": wandb.Histogram(list(v))
+                f"{prefix}/{k}": wandb.Histogram(
+                    np.asarray(jax.device_get(v)).ravel().tolist()
+                )
                 for k, v in outputs.histograms.items()
             },
             step=step,
