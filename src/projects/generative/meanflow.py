@@ -591,7 +591,7 @@ class MeanFlowUNetModel(_model.Model):
             if self.use_improved_meanflow:
                 # NOTE: improved MeanFlow calculate instantaneous velocity
                 # at t given by u(z, t, t)
-                v = u_fn(z_t=z, r_in=r, t_in=t)
+                v = u_fn(z_t=z, r_in=t, t_in=t)
             else:
                 v = e - image
             u, dudt = jax.jvp(u_fn, (z, r, t), (v, drdt, dtdt))
@@ -624,7 +624,7 @@ class MeanFlowUNetModel(_model.Model):
             # calculate velocity loss for monitoring
             velocity_loss = jnp.where(
                 jnp.equal(t, r)[..., None, None, None],
-                jnp.square(u - v),
+                jnp.square(u - (e - image)),
                 jnp.zeros_like(u),
             )
             velocity_loss = jnp.sum(velocity_loss, axis=(-1, -2, -3)).mean()
