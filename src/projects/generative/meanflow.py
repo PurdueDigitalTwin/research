@@ -401,7 +401,6 @@ class MeanFlowUNetModel(_model.Model):
         },
         timestamp_overlap_rate: float = 0.75,
         adaptive_weight_power: float = 1.0,
-        use_improved_meanflow: bool = False,
         dtype: typing.Any = None,
         param_dtype: typing.Any = None,
         precision: typing.Any = None,
@@ -415,7 +414,6 @@ class MeanFlowUNetModel(_model.Model):
         self.timestamp_sampler_kwargs = timestamp_sampler_kwargs
         self.timestamp_overlap_rate = timestamp_overlap_rate
         self.adaptive_weight_power = adaptive_weight_power
-        self.use_improved_meanflow = use_improved_meanflow
         self._augment = augment.EDMAugmentor(
             image_size=(image_size, image_size),
             p=0.12,
@@ -588,12 +586,7 @@ class MeanFlowUNetModel(_model.Model):
             # NOTE: following the original meanflow
             drdt = jnp.zeros_like(r)
             dtdt = jnp.ones_like(t)
-            if self.use_improved_meanflow:
-                # NOTE: improved MeanFlow calculate instantaneous velocity
-                # at t given by u(z, t, t)
-                v = jax.lax.stop_gradient(u_fn(z_t=z, r_in=t, t_in=t))
-            else:
-                v = e - image
+            v = e - image
             u, dudt = jax.jvp(u_fn, (z, r, t), (v, drdt, dtdt))
             u_target = v - (t - r)[..., None, None, None] * dudt
 
@@ -700,3 +693,9 @@ class MeanFlowUNetModel(_model.Model):
         )
 
         return _model.StepOutputs(output=out)
+
+
+__all__ = [
+    "MeanFlowUNetModule",
+    "MeanFlowUNetModel",
+]
