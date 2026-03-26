@@ -240,8 +240,9 @@ class MeanFlowUNetModule(nn.Module):
         resample_filter (Optional[Sequence[int]]): One-dimensional FIR
             filter for up/downsampling. Default is :math:`[1, 1]`.
         deterministic (Optional[bool]): Whether to run deterministically.
-        dtype (dtype): The dtype of the computation (default: float32).
-        param_dtype (dtype): The dtype of the parameters (default: float32).
+        dtype (Any): The dtype of the computation.
+        param_dtype (Any): The dtype of the parameters.
+        precision (Any): Numerical precision for the computation.
     """
 
     features: int
@@ -361,8 +362,6 @@ class MeanFlowUNetModel(_model.Model):
         dropout_rate (float): Dropout rate for the classifier-free guidance.
         resample_filter (typing.Sequence[float | int]): One-dimensional FIR
             filter for up/downsampling. Default is :math:`[1, 1]`.
-        dtype (dtype): The dtype of the computation (default: float32).
-        param_dtype (dtype): The dtype of the parameters (default: float32).
         timestamp_cond (Literal): The type of timestamp conditioning.
             One of `["t_and_r", "t_and_t_minus_r",
             "t_and_r_and_t_minus_r", "t_minus_r"]`.
@@ -373,6 +372,11 @@ class MeanFlowUNetModel(_model.Model):
         timestamp_overlap_rate (float): The minimum overlap rate between
             begin and end timestamps.
         adaptive_weight_power (float): The power for adaptive weight scaling.
+        use_improved_meanflow (bool): Whether to apply improved v-loss.
+            See ``https://arxiv.org/abs/2512.02012``.
+        dtype (Any): The dtype of the computation.
+        param_dtype (Any): The dtype of the parameters.
+        precision (Any): Numerical precision for the computation.
     """
 
     def __init__(
@@ -384,9 +388,6 @@ class MeanFlowUNetModel(_model.Model):
         epsilon: float = 1e-6,
         skip_scale: float = 1.0,
         resample_filter: typing.Sequence[int] = [1, 1],
-        dtype: typing.Any = None,
-        param_dtype: typing.Any = None,
-        precision: typing.Any = None,
         timestamp_cond: typing.Literal[
             "t_and_r",
             "t_and_t_minus_r",
@@ -400,6 +401,10 @@ class MeanFlowUNetModel(_model.Model):
         },
         timestamp_overlap_rate: float = 0.75,
         adaptive_weight_power: float = 1.0,
+        use_improved_meanflow: bool = False,
+        dtype: typing.Any = None,
+        param_dtype: typing.Any = None,
+        precision: typing.Any = None,
     ) -> None:
         """Initializes the `MeanFlow` model."""
         self.in_channels = in_channels
@@ -410,6 +415,7 @@ class MeanFlowUNetModel(_model.Model):
         self.timestamp_sampler_kwargs = timestamp_sampler_kwargs
         self.timestamp_overlap_rate = timestamp_overlap_rate
         self.adaptive_weight_power = adaptive_weight_power
+        self.use_improved_meanflow = use_improved_meanflow
         self._augment = augment.EDMAugmentor(
             image_size=(image_size, image_size),
             p=0.12,
@@ -545,7 +551,6 @@ class MeanFlowUNetModel(_model.Model):
             (1 - t[..., None, None, None]) * image,
             t[..., None, None, None] * e,
         )
-        v = e - image
 
         def _loss_fn(params: PyTree) -> typing.Tuple[jax.Array, jax.Array]:
             # applies Jacobian vector product
@@ -583,6 +588,12 @@ class MeanFlowUNetModel(_model.Model):
             # NOTE: following the original meanflow
             drdt = jnp.zeros_like(r)
             dtdt = jnp.ones_like(t)
+            if self.use_improved_meanflow:
+                # NOTE: improved MeanFlow calculate instantaneous velocity
+                # at t given by u(z, t, t)
+                v = u_fn(z_t=z, r_in=r, t_in=t)
+            else:
+                v = e - image
             u, dudt = jax.jvp(u_fn, (z, r, t), (v, drdt, dtdt))
             u_target = v - (t - r)[..., None, None, None] * dudt
 
