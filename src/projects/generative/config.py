@@ -143,6 +143,7 @@ def meanflow_unet_cifar_10() -> _config.ExperimentConfig:
             timestamp_sampler_kwargs=dict(mean=-2.0, stddev=2.0),
             timestamp_overlap_rate=0.25,
             adaptive_weight_power=0.75,
+            use_improved_meanflow=False,
         ),
         metric=fdl.Config(
             fid.FrechetInceptionDistance,
