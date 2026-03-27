@@ -228,7 +228,7 @@ def improved_meanflow_unet_cifar_10() -> _config.ExperimentConfig:
                 path="uoft-cs/cifar10",
                 token=os.getenv("HF_TOKEN", None),
                 revision="0b2714987fa478483af9968de7c934580d0bb9a2",
-                split="test",
+                split="train",
             ),
             image_key="img",
             batch_size=32,
