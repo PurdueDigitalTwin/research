@@ -372,8 +372,6 @@ class MeanFlowUNetModel(_model.Model):
         timestamp_overlap_rate (float): The minimum overlap rate between
             begin and end timestamps.
         adaptive_weight_power (float): The power for adaptive weight scaling.
-        use_improved_meanflow (bool): Whether to apply improved v-loss.
-            See ``https://arxiv.org/abs/2512.02012``.
         dtype (Any): The dtype of the computation.
         param_dtype (Any): The dtype of the parameters.
         precision (Any): Numerical precision for the computation.
@@ -695,7 +693,170 @@ class MeanFlowUNetModel(_model.Model):
         return _model.StepOutputs(output=out)
 
 
+class ImprovedMeanFlowUNetModel(MeanFlowUNetModel):
+    r"""Implementation of improved MeanFlow model.
+
+    .. note::
+
+        This is a customized implementation of improved MeanFlow algorithm
+        presented in ``https://arxiv.org/abs/2512.02012``.
+
+    Args:
+        in_channels (int): Number of input image channels.
+        image_size (int): Height and width of the input images.
+        features (int): Dimensionality of the latent feature map.
+        dropout_rate (float): Dropout rate for the classifier-free guidance.
+        resample_filter (typing.Sequence[float | int]): One-dimensional FIR
+            filter for up/downsampling. Default is :math:`[1, 1]`.
+        timestamp_cond (Literal): The type of timestamp conditioning.
+            One of `["t_and_r", "t_and_t_minus_r",
+            "t_and_r_and_t_minus_r", "t_minus_r"]`.
+        timestamp_sampler (str): The distribution to sample timestamps from.
+            One of `["uniform", "logit-normal"]`.
+        timestamp_sampler_kwargs (Dict[str, Any]): Additional keyword arguments
+            for the timestamp sampler.
+        timestamp_overlap_rate (float): The minimum overlap rate between
+            begin and end timestamps.
+        adaptive_weight_power (float): The power for adaptive weight scaling.
+        dtype (Any): The dtype of the computation.
+        param_dtype (Any): The dtype of the parameters.
+        precision (Any): Numerical precision for the computation.
+    """
+
+    @typing_extensions.override
+    def training_step(
+        self,
+        *,
+        batch: typing.Any,
+        state: _train_state.TrainState,
+        rngs: typing.Any,
+        **kwargs,
+    ) -> typing.Tuple[_train_state.TrainState, _model.StepOutputs]:
+        local_rng = jax.random.fold_in(rngs, jax.lax.axis_index("batch"))
+        local_rng = jax.random.fold_in(local_rng, state.step)
+
+        # NOTE: enforce float32 for training stability using `jax.jvp`
+        image = batch["image"].astype(jnp.float32)
+        assert isinstance(image, jax.Array)
+        batch_dims = image.shape[:-3]
+        tr_rng, dropout_rng, a_rng, m_rng, e_rng = jax.random.split(rngs, 5)
+
+        # pre-process the inputs
+        image = image * 2.0 - 1.0
+        image, cond = self._augment.apply(
+            variables={},
+            images=image,
+            rngs={"augment": a_rng},
+        )
+        assert isinstance(image, jax.Array)
+        assert isinstance(cond, jax.Array)
+
+        # NOTE: following the notation in Algorithm 1 of the source paper
+        # sample begin timestep r and end timestep t.
+        t, r = sample_t_r(
+            key=tr_rng,
+            shape=batch_dims,
+            dtype=image.dtype,
+            distribution=self.timestamp_sampler,
+            **self.timestamp_sampler_kwargs,
+        )
+
+        t, r = jnp.maximum(t, r), jnp.minimum(t, r)
+        # ensure a portion of overlap between t and r
+        # NOTE: the following code randomly mask by uniform samples
+        r_eq_t_mask = jnp.less(
+            jax.random.uniform(key=m_rng, shape=batch_dims, dtype=image.dtype),
+            self.timestamp_overlap_rate,
+        )
+        r = jnp.where(r_eq_t_mask, t, r)
+
+        # sample e ~ N(0, I)
+        e = jax.random.normal(key=e_rng, shape=image.shape, dtype=image.dtype)
+
+        # generate z_{t}
+        z = jnp.add(
+            (1 - t[..., None, None, None]) * image,
+            t[..., None, None, None] * e,
+        )
+
+        def _loss_fn(params: PyTree) -> typing.Tuple[jax.Array, PyTree]:
+            # applies Jacobian vector product
+            def u_fn(
+                z_t: jax.Array,
+                r_in: jax.Array,
+                t_in: jax.Array,
+            ) -> jax.Array:
+                if self.timestamp_cond == "t_and_r":
+                    timestamps = (t_in, r_in)
+                elif self.timestamp_cond == "t_and_t_minus_r":
+                    timestamps = (t_in, t_in - r_in)
+                elif self.timestamp_cond == "t_and_r_and_t_minus_r":
+                    timestamps = (t_in, r_in, t_in - r_in)
+                elif self.timestamp_cond == "t_minus_r":
+                    timestamps = (t_in - r_in,)
+                else:
+                    raise ValueError(
+                        f"Unsupported timestamp conditioning: {self.timestamp_cond}."
+                    )
+
+                out = self._network.apply(
+                    variables={"params": params},
+                    image=z_t,
+                    timestamps=timestamps,
+                    edm_cond=cond,
+                    deterministic=False,
+                    rngs={"dropout": dropout_rng},
+                    **kwargs,
+                )
+                assert isinstance(out, jax.Array)
+
+                return out
+
+            # NOTE: following the original meanflow
+            drdt = jnp.zeros_like(r)
+            dtdt = jnp.ones_like(t)
+            v = u_fn(z, r_in=t, t_in=t)
+            u, dudt = jax.jvp(u_fn, (z, r, t), (v, drdt, dtdt))
+            u_target = v - (t - r)[..., None, None, None] * dudt
+
+            # NOTE: sum over all the pixels, following official implementation
+            u_loss = jnp.sum(
+                jnp.square(u - jax.lax.stop_gradient(u_target)),
+                axis=(-1, -2, -3),
+            )
+            # applies adaptive weight power
+            if self.adaptive_weight_power > 0.0:
+                ada_wt = jnp.power(u_loss + 1e-2, self.adaptive_weight_power)
+                u_loss = u_loss / jax.lax.stop_gradient(ada_wt)
+
+            v_loss = jnp.sum(jnp.square(v - (e - image)), axis=(-1, -2, -3))
+            if self.adaptive_weight_power > 0.0:
+                ada_wt = jnp.power(v_loss + 1e-2, self.adaptive_weight_power)
+                v_loss = v_loss / jax.lax.stop_gradient(ada_wt)
+
+            loss = jnp.mean(u_loss + v_loss)
+
+            return loss, dict(u_loss=jnp.mean(u_loss), v_loss=jnp.mean(v_loss))
+
+        grad_fn = jax.value_and_grad(_loss_fn, has_aux=True)
+        (loss, outs), grads = grad_fn(state.params)
+        grads = jax.lax.pmean(grads, axis_name="batch")
+        new_state = state.apply_gradients(grads=grads)
+
+        outputs = _model.StepOutputs(
+            scalars={
+                "loss": loss.mean(),
+                "u_loss": outs["u_loss"].mean(),
+                "v_loss": outs["v_loss"].mean(),
+            },
+            histograms={"t": t, "r": r, "t - r": t - r},
+        )
+
+        return new_state, outputs
+
+
 __all__ = [
     "MeanFlowUNetModule",
     "MeanFlowUNetModel",
+    "ImprovedMeanFlowUNetModel",
 ]
