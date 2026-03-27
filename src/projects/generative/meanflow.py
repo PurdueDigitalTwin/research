@@ -816,7 +816,11 @@ class ImprovedMeanFlowUNetModel(MeanFlowUNetModel):
             drdt = jnp.zeros_like(r)
             dtdt = jnp.ones_like(t)
             v = u_fn(z, r_in=t, t_in=t)
-            u, dudt = jax.jvp(u_fn, (z, r, t), (v, drdt, dtdt))
+            u, dudt = jax.jvp(
+                u_fn,
+                (z, r, t),
+                (jax.lax.stop_gradient(v), drdt, dtdt),
+            )
             u_target = v - (t - r)[..., None, None, None] * dudt
 
             # NOTE: sum over all the pixels, following official implementation
@@ -829,7 +833,10 @@ class ImprovedMeanFlowUNetModel(MeanFlowUNetModel):
                 ada_wt = jnp.power(u_loss + 1e-2, self.adaptive_weight_power)
                 u_loss = u_loss / jax.lax.stop_gradient(ada_wt)
 
-            v_loss = jnp.sum(jnp.square(v - (e - image)), axis=(-1, -2, -3))
+            v_loss = jnp.sum(
+                jnp.square(v - jax.lax.stop_gradient(e - image)),
+                axis=(-1, -2, -3)
+            )
             if self.adaptive_weight_power > 0.0:
                 ada_wt = jnp.power(v_loss + 1e-2, self.adaptive_weight_power)
                 v_loss = v_loss / jax.lax.stop_gradient(ada_wt)
