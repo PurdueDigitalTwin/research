@@ -817,11 +817,7 @@ class ImprovedMeanFlowUNetModel(MeanFlowUNetModel):
             dtdt = jnp.ones_like(t)
             v = u_fn(z, r_in=t, t_in=t)
             vc = jax.lax.stop_gradient(e - image)
-            u, dudt = jax.jvp(
-                u_fn,
-                (z, r, t),
-                (jax.lax.stop_gradient(v), drdt, dtdt),
-            )
+            u, dudt = jax.jvp(u_fn, (z, r, t), (v, drdt, dtdt))
             u_target = vc - (t - r)[..., None, None, None] * dudt
 
             # NOTE: sum over all the pixels, following official implementation
