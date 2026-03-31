@@ -693,182 +693,6 @@ class MeanFlowUNetModel(_model.Model):
         return _model.StepOutputs(output=out)
 
 
-class ImprovedMeanFlowUNetModule(nn.Module):
-    """A ``SongNet`` backbone with separate ``u-head`` and ``v-head``.
-
-    Attributes:
-        features (int): Number of channels in the latent feature maps.
-        dropout_rate (float): Dropout rate for the attention blocks.
-        epsilon (float): Small constant for numerical stability in `GroupNorm`.
-        skip_scale (float): Scaling factor for skip connections.
-        resample_filter (Optional[Sequence[int]]): One-dimensional FIR
-            filter for up/downsampling. Default is :math:`[1, 1]`.
-        deterministic (Optional[bool]): Whether to run deterministically.
-        dtype (Any): The dtype of the computation.
-        param_dtype (Any): The dtype of the parameters.
-        precision (Any): Numerical precision for the computation.
-    """
-
-    features: int
-    dropout_rate: float
-    epsilon: float
-    skip_scale: float
-    resample_filter: typing.Sequence[int] = (1, 1)
-    deterministic: typing.Optional[bool] = None
-    dtype: typing.Any = None
-    param_dtype: typing.Any = None
-    precision: typing.Any = None
-
-    @nn.compact
-    def __call__(
-        self,
-        image: jax.Array,
-        timestamps: typing.Tuple[jax.Array],
-        edm_cond: typing.Optional[jax.Array] = None,
-        deterministic: typing.Optional[bool] = None,
-    ) -> typing.Tuple[jax.Array, jax.Array]:
-        r"""Forward pass the `MeanFlowUNetModel`.
-
-        Args:
-            inputs (jax.Array): Input images of shape `(*, H, W, C)`.
-            timestamps (Tuple[jax.Array, ...]): Timestamps of shape `(*, 1)`.
-            edm_cond (jax.Array, optional): Conditioning embeddings for
-                EDM data augmentation of shape `(*, 6)`.
-            deterministic (bool, optional): Whether to run deterministically.
-
-        Returns:
-            A tuple of two arrays. The first array is the predicted average
-            velocity of shape `(*, H, W, C)`, and the second array is the
-            predicted velocity of shape `(*, H, W, C)`.
-        """
-        m_deterministic = nn.merge_param(
-            "deterministic",
-            self.deterministic,
-            deterministic,
-        )
-
-        # encode the conditions
-        time_embed = SinusoidalEmbed(self.features * 2, endpoint=True)
-        emb = [time_embed(time) for time in timestamps]
-        cond = jnp.concatenate(emb, axis=-1)
-
-        if edm_cond is not None:
-            aug_embed = nn.Dense(
-                features=cond.shape[-1],
-                use_bias=False,
-                kernel_init=jax.nn.initializers.variance_scaling(
-                    scale=1.0,
-                    mode="fan_avg",
-                    distribution="uniform",
-                ),
-                dtype=self.dtype,
-                param_dtype=self.param_dtype,
-                name="aug_fc",
-            )
-            aug_cond = aug_embed(edm_cond)
-            cond = cond + aug_cond
-
-        # projects the conditioning embeddings
-        cond_in = nn.Dense(
-            features=self.features * 4,
-            kernel_init=jax.nn.initializers.variance_scaling(
-                scale=1.0,
-                mode="fan_avg",
-                distribution="uniform",
-            ),
-            bias_init=jax.nn.initializers.zeros,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="cond_fc_1",
-        )
-        cond = jax.nn.silu(cond_in(cond))
-        cond_out = nn.Dense(
-            features=self.features * 4,
-            kernel_init=jax.nn.initializers.variance_scaling(
-                scale=1.0,
-                mode="fan_avg",
-                distribution="uniform",
-            ),
-            bias_init=jax.nn.initializers.zeros,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="cond_fc_2",
-        )
-        cond = jax.nn.silu(cond_out(cond))
-
-        # pass through the backbone U-Net
-        backbone = unet.SongNetwork(
-            features=self.features,
-            ch_mults=[2, 2, 2],
-            dropout_rate=self.dropout_rate,
-            epsilon=self.epsilon,
-            skip_scale=self.skip_scale,
-            resample_filter=self.resample_filter,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            precision=self.precision,
-            name="backbone",
-        )
-        output = backbone(
-            inputs=image,
-            cond=cond,
-            deterministic=m_deterministic,
-            with_head=False,
-        )
-
-        # pass through the average velocity head
-        u_norm_out = nn.GroupNorm(
-            num_groups=32,
-            epsilon=self.epsilon,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="u_norm_out",
-        )
-        u_output = jax.nn.silu(u_norm_out(output))
-        u_output = nn.Conv(
-            features=image.shape[-1],
-            kernel_size=(3, 3),
-            strides=(1, 1),
-            padding=(1, 1),
-            kernel_init=jax.nn.initializers.variance_scaling(
-                scale=1e-10,
-                mode="fan_avg",
-                distribution="uniform",
-            ),
-            bias_init=jax.nn.initializers.zeros,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="u_conv_out",
-        )(u_output)
-
-        # pass through the velocity head
-        v_norm_out = nn.GroupNorm(
-            num_groups=32,
-            epsilon=self.epsilon,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="v_norm_out",
-        )
-        v_output = jax.nn.silu(v_norm_out(output))
-        v_output = nn.Conv(
-            features=image.shape[-1],
-            kernel_size=(3, 3),
-            strides=(1, 1),
-            padding=(1, 1),
-            kernel_init=jax.nn.initializers.variance_scaling(
-                scale=1e-10,
-                mode="fan_avg",
-                distribution="uniform",
-            ),
-            bias_init=jax.nn.initializers.zeros,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="v_conv_out",
-        )(v_output)
-
-        return u_output, v_output
-
-
 class ImprovedMeanFlowUNetModel(MeanFlowUNetModel):
     r"""Implementation of improved MeanFlow model.
 
@@ -898,63 +722,6 @@ class ImprovedMeanFlowUNetModel(MeanFlowUNetModel):
         param_dtype (Any): The dtype of the parameters.
         precision (Any): Numerical precision for the computation.
     """
-
-    def __init__(
-        self,
-        in_channels: int,
-        image_size: int,
-        features: int,
-        dropout_rate: float,
-        epsilon: float = 1e-6,
-        skip_scale: float = 1.0,
-        resample_filter: typing.Sequence[int] = [1, 1],
-        timestamp_cond: typing.Literal[
-            "t_and_r",
-            "t_and_t_minus_r",
-            "t_and_r_and_t_minus_r",
-            "t_minus_r",
-        ] = "t_and_t_minus_r",
-        timestamp_sampler: str = "logit-normal",
-        timestamp_sampler_kwargs: typing.Dict[str, typing.Any] = {
-            "mean": -0.4,
-            "stddev": 1.0,
-        },
-        timestamp_overlap_rate: float = 0.75,
-        adaptive_weight_power: float = 1.0,
-        dtype: typing.Any = None,
-        param_dtype: typing.Any = None,
-        precision: typing.Any = None,
-    ) -> None:
-        super().__init__(
-            in_channels=in_channels,
-            image_size=image_size,
-            features=features,
-            dropout_rate=dropout_rate,
-            epsilon=epsilon,
-            skip_scale=skip_scale,
-            resample_filter=resample_filter,
-            timestamp_cond=timestamp_cond,
-            timestamp_sampler=timestamp_sampler,
-            timestamp_sampler_kwargs=timestamp_sampler_kwargs,
-            timestamp_overlap_rate=timestamp_overlap_rate,
-            adaptive_weight_power=adaptive_weight_power,
-            dtype=dtype,
-            param_dtype=param_dtype,
-            precision=precision,
-        )
-
-        # NOTE: override the backbone with separate u-head and v-head
-        self._network = ImprovedMeanFlowUNetModule(
-            features=features,
-            dropout_rate=dropout_rate,
-            epsilon=epsilon,
-            skip_scale=skip_scale,
-            resample_filter=resample_filter,
-            dtype=dtype,
-            param_dtype=param_dtype,
-            precision=precision,
-            name="unet",
-        )
 
     @typing_extensions.override
     def training_step(
@@ -1012,13 +779,13 @@ class ImprovedMeanFlowUNetModel(MeanFlowUNetModel):
             t[..., None, None, None] * e,
         )
 
-        def _loss_fn(params: PyTree) -> typing.Tuple[jax.Array, PyTree]:
+        def _loss_fn(params: PyTree) -> typing.Tuple[jax.Array, jax.Array]:
             # applies Jacobian vector product
             def u_fn(
                 z_t: jax.Array,
                 r_in: jax.Array,
                 t_in: jax.Array,
-            ) -> typing.Tuple[jax.Array, jax.Array]:
+            ) -> jax.Array:
                 if self.timestamp_cond == "t_and_r":
                     timestamps = (t_in, r_in)
                 elif self.timestamp_cond == "t_and_t_minus_r":
@@ -1032,7 +799,7 @@ class ImprovedMeanFlowUNetModel(MeanFlowUNetModel):
                         f"Unsupported timestamp conditioning: {self.timestamp_cond}."
                     )
 
-                u_out, v_out = self._network.apply(
+                u_out = self._network.apply(
                     variables={"params": params},
                     image=z_t,
                     timestamps=timestamps,
@@ -1042,111 +809,52 @@ class ImprovedMeanFlowUNetModel(MeanFlowUNetModel):
                     **kwargs,
                 )
                 assert isinstance(u_out, jax.Array)
-                assert isinstance(v_out, jax.Array)
 
-                return u_out, v_out
+                return u_out
 
             # NOTE: evaluate meanflow identity with bootstrapping
+            # This exploits the boundary condition as described in section 4.1
             drdt = jnp.zeros_like(r)
             dtdt = jnp.ones_like(t)
-            _, v_tangent = u_fn(z, r_in=t, t_in=t)
-            vc = jax.lax.stop_gradient(e - image)
-            u, dudt, v = jax.jvp(
-                u_fn,
-                (z, r, t),
-                (v_tangent, drdt, dtdt),
-                has_aux=True,
-            )
-            u_pred = jnp.add(
+            v_target = jax.lax.stop_gradient(e - image)
+            v_marg = u_fn(z_t=z, r_in=t, t_in=t)
+
+            u, dudt = jax.jvp(u_fn, (z, r, t), (v_marg, drdt, dtdt))
+            v_pred = jnp.add(
                 u, (t - r)[..., None, None, None] * jax.lax.stop_gradient(dudt)
             )
 
             # NOTE: sum over all the pixels, following official implementation
-            u_loss = jnp.sum(jnp.square(u_pred - vc), axis=(-1, -2, -3))
+            loss = jnp.sum(jnp.square(v_pred - v_target), axis=(-1, -2, -3))
             if self.adaptive_weight_power > 0.0:
-                ada_wt = jnp.power(u_loss + 1e-2, self.adaptive_weight_power)
-                u_loss = u_loss / jax.lax.stop_gradient(ada_wt)
+                ada_wt = jnp.power(loss + 1e-2, self.adaptive_weight_power)
+                loss = loss / jax.lax.stop_gradient(ada_wt)
+            loss = jnp.mean(loss)
 
-            v_loss = jnp.sum(jnp.square(v - vc), axis=(-1, -2, -3))
-            if self.adaptive_weight_power > 0.0:
-                ada_wt = jnp.power(v_loss + 1e-2, self.adaptive_weight_power)
-                v_loss = v_loss / jax.lax.stop_gradient(ada_wt)
+            # calculate velocity loss for monitoring
+            velocity_loss = jnp.where(
+                jnp.equal(t, r)[..., None, None, None],
+                jnp.square(u - (e - image)),
+                jnp.zeros_like(u),
+            )
+            velocity_loss = jnp.sum(velocity_loss, axis=(-1, -2, -3)).mean()
 
-            loss = jnp.mean(u_loss + v_loss)
-
-            return loss, dict(u_loss=jnp.mean(u_loss), v_loss=jnp.mean(v_loss))
+            return loss, velocity_loss
 
         grad_fn = jax.value_and_grad(_loss_fn, has_aux=True)
-        (loss, outs), grads = grad_fn(state.params)
+        (loss, velocity_loss), grads = grad_fn(state.params)
         grads = jax.lax.pmean(grads, axis_name="batch")
         new_state = state.apply_gradients(grads=grads)
 
         outputs = _model.StepOutputs(
             scalars={
                 "loss": loss.mean(),
-                "u_loss": outs["u_loss"].mean(),
-                "v_loss": outs["v_loss"].mean(),
+                "velocity_loss": velocity_loss.mean(),
             },
             histograms={"t": t, "r": r, "t - r": t - r},
         )
 
         return new_state, outputs
-
-    @typing_extensions.override
-    def forward(
-        self,
-        *,
-        rngs: jax.Array,
-        params: frozen_dict.FrozenDict,
-        shape: typing.Sequence[typing.Union[int, typing.Any]],
-        deterministic: bool = True,
-        **kwargs,
-    ) -> _model.StepOutputs:
-        r"""Forward sampling with average velocity prediction.
-
-        Args:
-            rngs (jax.Array): Random key for sampling.
-            params (frozen_dict.FrozenDict): The model parameters.
-            shape (typing.Sequence[typing.Union[int, typing.Any]]): The shape
-                of the generated samples, including batch size.
-            deterministic (bool): Whether to run the model deterministically.
-            **kwargs: Additional keyword arguments.
-
-        Returns:
-            The output samples.
-        """
-        del kwargs  # unused
-
-        z_1 = jax.random.normal(
-            key=rngs,
-            shape=shape,
-            dtype=self._network.dtype,
-        )
-        r = jnp.zeros(z_1.shape[:-3], dtype=z_1.dtype)
-        t = jnp.ones(z_1.shape[:-3], dtype=z_1.dtype)
-        if self.timestamp_cond == "t_and_r":
-            timestamps = (t, r)
-        elif self.timestamp_cond == "t_and_t_minus_r":
-            timestamps = (t, t - r)
-        elif self.timestamp_cond == "t_and_r_and_t_minus_r":
-            timestamps = (t, r, t - r)
-        elif self.timestamp_cond == "t_minus_r":
-            timestamps = (t - r,)
-        else:
-            raise ValueError(
-                f"Unsupported timestamp conditioning: {self.timestamp_cond}."
-            )
-
-        u_out, _ = self._network.apply(
-            variables={"params": params},
-            image=z_1,
-            timestamps=timestamps,
-            edm_cond=None,
-            deterministic=deterministic,
-        )
-        out = z_1 - u_out
-
-        return _model.StepOutputs(output=out)
 
 
 __all__ = [
