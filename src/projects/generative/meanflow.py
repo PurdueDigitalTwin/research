@@ -1054,7 +1054,7 @@ class ImprovedMeanFlowUNetModel(MeanFlowUNetModel):
             u, dudt, v = jax.jvp(
                 u_fn,
                 (z, r, t),
-                (jax.lax.stop_gradient(v_tangent), drdt, dtdt),
+                (v_tangent, drdt, dtdt),
                 has_aux=True,
             )
             u_pred = jnp.add(
