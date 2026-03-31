@@ -816,6 +816,7 @@ class HoNetwork(nn.Module):
         inputs: jax.Array,
         cond: jax.Array,
         deterministic: typing.Optional[bool] = None,
+        with_head: bool = True,
     ) -> jax.Array:
         r"""Forward pass of the `HoNetwork` architecture.
 
@@ -824,6 +825,9 @@ class HoNetwork(nn.Module):
             cond (jax.Array): Conditioning array of shape `(*, C_cond)`.
             deterministic (bool, optional): If true, the model is run in
                 deterministic mode (e.g., no dropout). Defaults to `None`.
+            with_head (bool, optional): Whether to apply the final convolutional
+                block. If `False`, returns the output of the last upsampling
+                block. Default is `True`.
 
         Returns:
             Output array of shape `(*, H, W, C_out)`, where `C_out` is the
@@ -987,37 +991,38 @@ class HoNetwork(nn.Module):
                 )
                 out = up_block(out)
 
-        norm_out = nn.GroupNorm(
-            num_groups=self.num_groups,
-            epsilon=self.epsilon,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="norm_out",
-        )
-        conv_out = nn.Conv(
-            features=(
-                self.out_features
-                if isinstance(
-                    self.out_features,
-                    int,
-                )
-                else inputs.shape[-1]
-            ),
-            kernel_size=(3, 3),
-            strides=(1, 1),
-            padding="SAME",
-            kernel_init=jax.nn.initializers.variance_scaling(
-                scale=1e-10,
-                mode="fan_avg",
-                distribution="uniform",
-            ),
-            bias_init=jax.nn.initializers.zeros,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="conv_out",
-        )
-        out = conv_out(jax.nn.silu(norm_out(out)))
-        chex.assert_shape(out, (*batch_dims, *dims["HWC"]))
+        if with_head:
+            norm_out = nn.GroupNorm(
+                num_groups=self.num_groups,
+                epsilon=self.epsilon,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                name="norm_out",
+            )
+            conv_out = nn.Conv(
+                features=(
+                    self.out_features
+                    if isinstance(
+                        self.out_features,
+                        int,
+                    )
+                    else inputs.shape[-1]
+                ),
+                kernel_size=(3, 3),
+                strides=(1, 1),
+                padding="SAME",
+                kernel_init=jax.nn.initializers.variance_scaling(
+                    scale=1e-10,
+                    mode="fan_avg",
+                    distribution="uniform",
+                ),
+                bias_init=jax.nn.initializers.zeros,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                name="conv_out",
+            )
+            out = conv_out(jax.nn.silu(norm_out(out)))
+            chex.assert_shape(out, (*batch_dims, *dims["HWC"]))
 
         return out
 
@@ -1072,6 +1077,7 @@ class SongNetwork(nn.Module):
         inputs: jax.Array,
         cond: jax.Array,
         deterministic: typing.Optional[bool] = None,
+        with_head: bool = True,
     ) -> jax.Array:
         r"""Forward pass of the `ScoreNet`.
 
@@ -1080,6 +1086,9 @@ class SongNetwork(nn.Module):
             cond (jax.Array): Conditioning array of shape `(*, C_cond)`.
             deterministic (bool, optional): If true, the model is run in
                 deterministic mode (e.g., no dropout). Defaults to `None`.
+            with_head (bool, optional): Whether to apply the final convolutional
+                block. If `False`, returns the output of the last upsampling
+                block. Default is `True`.
 
         Returns:
             Output array of shape `(*, H, W, C_out)`, where `C_out` is the
@@ -1254,30 +1263,31 @@ class SongNetwork(nn.Module):
                     )
                     out = block(out)
 
-        # forward pass the output convolution
-        norm_out = nn.GroupNorm(
-            num_groups=self.num_groups,
-            epsilon=self.epsilon,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="norm_out",
-        )
-        out = jax.nn.silu(norm_out(out))
-        conv_out = nn.Conv(
-            features=dims.C,  # type: ignore
-            kernel_size=(3, 3),
-            strides=(1, 1),
-            padding=(1, 1),
-            kernel_init=jax.nn.initializers.variance_scaling(
-                scale=1e-10,
-                mode="fan_avg",
-                distribution="uniform",
-            ),
-            bias_init=jax.nn.initializers.zeros,
-            dtype=self.dtype,
-            name="conv_out",
-        )
-        out = conv_out(out)
-        chex.assert_shape(out, (*batch_dims, *dims["HWC"]))
+        if with_head:
+            # forward pass the output convolution
+            norm_out = nn.GroupNorm(
+                num_groups=self.num_groups,
+                epsilon=self.epsilon,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                name="norm_out",
+            )
+            out = jax.nn.silu(norm_out(out))
+            conv_out = nn.Conv(
+                features=dims.C,  # type: ignore
+                kernel_size=(3, 3),
+                strides=(1, 1),
+                padding=(1, 1),
+                kernel_init=jax.nn.initializers.variance_scaling(
+                    scale=1e-10,
+                    mode="fan_avg",
+                    distribution="uniform",
+                ),
+                bias_init=jax.nn.initializers.zeros,
+                dtype=self.dtype,
+                name="conv_out",
+            )
+            out = conv_out(out)
+            chex.assert_shape(out, (*batch_dims, *dims["HWC"]))
 
         return out
