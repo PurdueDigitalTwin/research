@@ -207,7 +207,27 @@ def main(argv: typing.List[str]) -> int:
             label=r"Data $\mathbf{x}_0$",
         )
 
-        # Formatting
+        # plot conditional velocity trajectories
+        # only label the first trajectory for the legend to avoid clutter
+        ax.plot(
+            [z[0, 0], data[0, 0]],
+            [z[0, 1], data[0, 1]],
+            color="#9d9795",
+            lw=0.5,
+            alpha=0.5,
+            zorder=3,
+            label=r"Conditional Paths $p(\mathbf{x},t \mid \mathbf{x}_0)$",
+        )
+        ax.plot(
+            [z[1:, 0], data[1:, 0]],
+            [z[1:, 1], data[1:, 1]],
+            color="#9d9795",
+            lw=0.5,
+            alpha=0.5,
+            zorder=3,
+        )
+
+        # formatting
         ax.set_aspect("equal")
         ax.set_facecolor("#000000")
         ax.tick_params(colors="white")
@@ -218,7 +238,7 @@ def main(argv: typing.List[str]) -> int:
 
         if i == 0:
             ax.set_ylabel("Spatial Dimension 2", fontsize=12, color="white")
-        ax.legend(loc="lower right", framealpha=0.95, edgecolor="black")
+        ax.legend(loc="upper right", framealpha=0.95, edgecolor="black")
         ax.set_xlabel("Spatial Dimension 1", fontsize=12, color="white")
         ax.set_title(
             rf"$t={t_eval}$",
