@@ -19,9 +19,14 @@ plt.rcParams.update(
 )
 
 # Flags
+flags.DEFINE_float(
+    name="buffer_radius",
+    default=0.5,
+    help="Radius around the conditional paths for heatmap evaluation.",
+)
 flags.DEFINE_integer(
     "n_grid_points",
-    default=25,
+    default=200,
     help="Number of grid points per axis to evaluate the marginal velocity",
 )
 flags.DEFINE_integer(
@@ -109,7 +114,7 @@ def main(argv: typing.List[str]) -> int:
     rng, sample_key = jax.random.split(rng)
     z, data = _create_samples(sample_key, flags.FLAGS.n_samples)
 
-    grid_min, grid_max = -3.0, 8.0
+    grid_min, grid_max = -1.0, 8.0
     xs = jnp.linspace(grid_min, grid_max, num=flags.FLAGS.n_grid_points)
     ys = jnp.linspace(grid_min, grid_max, num=flags.FLAGS.n_grid_points)
     X, Y = jnp.meshgrid(xs, ys)
@@ -165,17 +170,35 @@ def main(argv: typing.List[str]) -> int:
     for i, t_eval in enumerate(t_evals):
         ax = fig.add_subplot(gs[1, i])
 
-        # Evaluate velocity and expected difference on the grid
+        # evaluate velocity and expected difference on the grid
         _, expected_diff = velocity_fn(grid_points, t_eval)
         diff_heatmap = expected_diff.reshape(X.shape)
 
+        # masking logic to only evaluate differences near conditional paths
+        x_t_eval = (1 - t_eval) * data + t_eval * z
+
+        # evaluate distances with shape: (n_grid_points**2, n_samples)
+        dists = jnp.linalg.norm(
+            grid_points[:, None, :] - x_t_eval[None, :, :],
+            axis=-1,
+        )
+        min_dists = jnp.min(dists, axis=-1)
+
+        # 3. Create a boolean mask and apply it
+        mask = min_dists > flags.FLAGS.buffer_radius
+        diff_heatmap_masked = jnp.where(
+            mask.reshape(X.shape),
+            jnp.nan,
+            diff_heatmap,
+        )
+
         # Plot the expected difference heatmap
         mesh = ax.imshow(
-            diff_heatmap,
+            diff_heatmap_masked,
             extent=[grid_min, grid_max, grid_min, grid_max],
             origin="lower",
             cmap="magma",
-            alpha=0.7,
+            alpha=0.95,
             zorder=1,
         )
         cbar = fig.colorbar(mesh, ax=ax, fraction=0.046, pad=0.04)
@@ -229,19 +252,18 @@ def main(argv: typing.List[str]) -> int:
         )
 
         # plot the specific current states x_t
-        x_t_eval = (1 - t_eval) * data + t_eval * z
-        ax.scatter(
-            x_t_eval[:, 0],
-            x_t_eval[:, 1],
-            fc="#f4e0b0",  # Yellow/Gold to pop against the magma background
-            ec="#000000",
-            marker=mpl_markers.MarkerStyle("^", fillstyle="full"),
-            s=40,
-            lw=0.5,
-            alpha=0.6,
-            zorder=5,
-            label=r"Current State $\mathbf{x}_t$",
-        )
+        # ax.scatter(
+        #     x_t_eval[:, 0],
+        #     x_t_eval[:, 1],
+        #     fc="#f4e0b0",
+        #     ec="#000000",
+        #     marker=mpl_markers.MarkerStyle("^", fillstyle="full"),
+        #     s=40,
+        #     lw=0.5,
+        #     alpha=0.6,
+        #     zorder=5,
+        #     label=r"Current State $\mathbf{x}_t$",
+        # )
 
         # formatting
         ax.set_aspect("equal")
@@ -254,7 +276,7 @@ def main(argv: typing.List[str]) -> int:
 
         if i == 0:
             ax.set_ylabel("Spatial Dimension 2", fontsize=12, color="white")
-        ax.legend(loc="lower right", framealpha=0.95, edgecolor="black")
+        ax.legend(loc="upper right", framealpha=0.95, edgecolor="black")
         ax.set_xlabel("Spatial Dimension 1", fontsize=12, color="white")
         ax.set_title(
             rf"$t={t_eval}$",
