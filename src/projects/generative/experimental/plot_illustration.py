@@ -1,4 +1,3 @@
-import math
 import typing
 
 from absl import app
@@ -7,14 +6,6 @@ import jax
 from jax import numpy as jnp
 from matplotlib import pyplot as plt
 
-# Configure plotting style
-plt.rcParams.update(
-    {
-        "text.usetex": False,
-        "font.family": "serif",
-        "font.serif": ["Times New Roman", "Computer Modern Roman", "serif"],
-    }
-)
 
 # Flags
 flags.DEFINE_integer(
@@ -49,7 +40,7 @@ def _create_samples(
         p=jnp.array([0.2, 0.5, 0.3]),
     )
     _modes = jnp.array(
-        [[6.0, 6.0], [3.0, 3 * math.sqrt(3.0)], [3 * math.sqrt(3.0), 3.0]],
+        [[5.0, 2.0], [4.0, 4.0], [2.0, 5.0]],
         dtype=jnp.float32,
     )
     _stddevs = jnp.array([0.2, 0.6, 0.3], dtype=jnp.float32)
@@ -65,20 +56,19 @@ def _create_samples(
 def _mc_marginal_velocity(
     z: jax.Array,
     data: jax.Array,
-) -> typing.Callable[[jax.Array, float], jax.Array]:
-    r"""Returns Monte-Carlo estimate of the marginal velocity field.
+) -> typing.Callable[[jax.Array, float], typing.Tuple[jax.Array, jax.Array]]:
+    r"""Returns Monte-Carlo estimate of the marginal velocity field and the expected difference.
 
     Args:
         z (jax.Array): Latent samples of shape ``(n_samples, 2)``.
         data (jax.Array): Data samples of shape ``(n_samples, 2)``.
 
     Returns:
-        A function that takes in a point ``x`` of shape ``(num_points, 2)`` and
-        a scalar time ``t`` and returns the Monte-Carlo estimate of the
-        marginal velocity at that point and time, of shape ``(num_points, 2,)``.
+        A function that takes in a point ``x`` and time ``t`` and returns a tuple
+        of the marginal velocity and the expected difference across paths.
     """
 
-    def velocity(x: jax.Array, t: float) -> jax.Array:
+    def velocity(x: jax.Array, t: float) -> typing.Tuple[jax.Array, jax.Array]:
         # compute conditional velocity at x_{t} | x_{0}
         cond_vf = z - data
 
@@ -97,7 +87,15 @@ def _mc_marginal_velocity(
         # compute marginal velocity v(x_{t},t)=E_{x_{0}|x_{t}}[v(x_{t}|x_{0})]
         out = jnp.einsum("mn,nd->md", weights, cond_vf)
 
-        return out
+        # compute expected difference: E_{x_{0}|x_{t}} [|| v_marg - v_cond ||]
+        # Diff between marginal vector field and every conditional vector field
+        diffs = out[:, None, :] - cond_vf[None, :, :]  # Shape: (M, N, 2)
+        norms = jnp.linalg.norm(diffs, axis=-1)  # Shape: (M, N)
+
+        # Weighted sum over the N paths
+        expected_diff = jnp.sum(weights * norms, axis=-1)  # Shape: (M,)
+
+        return out, expected_diff
 
     return velocity
 
@@ -110,16 +108,40 @@ def main(argv: typing.List[str]) -> int:
     rng, sample_key = jax.random.split(rng)
     z, data = _create_samples(sample_key, flags.FLAGS.n_samples)
 
-    # create a grid of points to eavaluate the marginal velocity field
-    xs = jnp.linspace(-1.5, 6.0, num=flags.FLAGS.n_grid_points)
-    ys = jnp.linspace(-1.5, 6.0, num=flags.FLAGS.n_grid_points)
+    # create a grid of points to evaluate the marginal velocity field
+    xs = jnp.linspace(-3, 8.0, num=flags.FLAGS.n_grid_points)
+    ys = jnp.linspace(-3, 8.0, num=flags.FLAGS.n_grid_points)
     X, Y = jnp.meshgrid(xs, ys)
     grid_points = jnp.stack([X.ravel(), Y.ravel()], axis=-1)
+
     velocity_fn = _mc_marginal_velocity(z, data)
-    mvf = velocity_fn(grid_points, 1.0)
+
+    # Evaluate at t=0.5 to visualize the intersecting paths clearly
+    t_eval = 0.5
+    _, expected_diff = velocity_fn(grid_points, t_eval)
+
+    # Reshape the expected difference back to the 2D grid shape for plotting
+    diff_heatmap = expected_diff.reshape(X.shape)
 
     # plotting
-    fig, ax = plt.subplots(figsize=(6, 6))
+    fig, ax = plt.subplots(figsize=(7, 6))
+
+    # Plot the expected difference heatmap
+    mesh = ax.pcolormesh(
+        X,
+        Y,
+        diff_heatmap,
+        cmap="magma",
+        shading="auto",
+        alpha=0.7,
+        zorder=1,
+    )
+    cbar = fig.colorbar(mesh, ax=ax, fraction=0.046, pad=0.04)
+    cbar.set_label(
+        r"$\mathbb{E}_{x_0|x_t} [\|v(x_t,t) - v(x_t,t \mid x_0)\|]$",
+        color="white",
+    )
+    cbar.ax.yaxis.set_tick_params(color="white", labelcolor="white")
 
     # plot samples
     ax.scatter(
@@ -127,7 +149,7 @@ def main(argv: typing.List[str]) -> int:
         z[:, 1],
         fc="#a8d3e0",
         ec="#000000",
-        s=20,
+        s=40,
         lw=0.0,
         alpha=0.8,
         zorder=5,
@@ -138,29 +160,30 @@ def main(argv: typing.List[str]) -> int:
         data[:, 1],
         fc="#f1c6d1",
         ec="#000000",
-        s=20,
+        s=40,
         lw=0.0,
         alpha=0.8,
         zorder=5,
         label=r"Data samples $\mathbf{x}_0\sim p_{data}$",
     )
 
-    # plot marginal velocity field as quiver plot
-    scale = 10 * jnp.sqrt(jnp.sum(mvf**2, axis=-1)).max().item()
-    ax.quiver(
-        grid_points[:, 0],
-        grid_points[:, 1],
-        -mvf[:, 0],
-        -mvf[:, 1],
-        color="#FFFFFF",
-        alpha=0.5,
-        scale=scale,
-        width=0.0035,
-        headwidth=3,
-    )
-
+    # Set background color for the figure to match the dark aesthetic
+    fig.set_facecolor("#000000")
     ax.set_aspect("equal")
     ax.set_facecolor("#000000")
+    ax.tick_params(colors="white")
+    for spine in ax.spines.values():
+        spine.set_edgecolor("white")
+    ax.set_xlim(-3, 8)
+    ax.set_ylim(-3, 8)
+    ax.set_xlabel("Spatial Dimension 1", fontsize=12)
+    ax.set_ylabel("Spatial Dimension 2", fontsize=12)
+    ax.set_title(
+        "Empirical Marginal Velocity Field & Conditional Trajectories ($t=0.5$)",
+        fontsize=14,
+        fontweight="bold",
+        pad=15,
+    )
     ax.legend(loc="lower right", framealpha=0.95, edgecolor="black")
 
     plt.show()
