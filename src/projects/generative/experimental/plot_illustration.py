@@ -5,6 +5,7 @@ from absl import app
 from absl import flags
 import jax
 from jax import numpy as jnp
+from matplotlib import markers as mpl_markers
 from matplotlib import pyplot as plt
 import matplotlib.gridspec as gridspec
 
@@ -124,18 +125,19 @@ def main(argv: typing.List[str]) -> int:
     )
 
     # ---------------------------------------------------------
-    # TOP ROW: Expected difference curve over t
+    # TOP ROW: Expected difference curve over t (Evaluated on paths)
     # ---------------------------------------------------------
     ax_top = fig.add_subplot(gs[0, :])
 
-    # Calculate the spatial average of the expected difference across the grid for t in (0, 1)
     t_steps = jnp.linspace(0.01, 0.99, 50)
 
-    def eval_grid_mean(t):
-        _, exp_diff = velocity_fn(grid_points, t)
+    # NOTE: Evaluate strictly along the conditional paths
+    def eval_path_mean(t):
+        x_t = (1 - t) * data + t * z
+        _, exp_diff = velocity_fn(x_t, t)
         return jnp.mean(exp_diff)
 
-    mean_diffs = jax.vmap(eval_grid_mean)(t_steps)
+    mean_diffs = jax.vmap(eval_path_mean)(t_steps)
 
     ax_top.plot(t_steps, mean_diffs, color="#c9e5c6", lw=3)
 
@@ -147,7 +149,7 @@ def main(argv: typing.List[str]) -> int:
     ax_top.set_xlabel("Flow Time Step (t)", color="white", fontsize=12)
     ax_top.set_ylabel("Mean Expected Difference", color="white", fontsize=12)
     ax_top.set_title(
-        "Average Expected Difference Over Spatial Grid vs. Time",
+        "Expected Difference Evaluated Exclusively Along Conditional Paths",
         color="white",
         fontsize=14,
         fontweight="bold",
@@ -156,14 +158,14 @@ def main(argv: typing.List[str]) -> int:
     ax_top.grid(True, color="#333333", linestyle="--", alpha=0.7)
 
     # ---------------------------------------------------------
-    # BOTTOM ROW: Reuse the exact previous code for three t values
+    # BOTTOM ROW: Heatmaps with Current States x_t overlaid
     # ---------------------------------------------------------
-    t_evals = [0.1, 0.5, 0.9]
+    t_evals = [0.25, 0.5, 0.75]
 
     for i, t_eval in enumerate(t_evals):
         ax = fig.add_subplot(gs[1, i])
 
-        # Evaluate velocity and expected difference
+        # Evaluate velocity and expected difference on the grid
         _, expected_diff = velocity_fn(grid_points, t_eval)
         diff_heatmap = expected_diff.reshape(X.shape)
 
@@ -183,32 +185,7 @@ def main(argv: typing.List[str]) -> int:
         )
         cbar.ax.yaxis.set_tick_params(color="white", labelcolor="white")
 
-        # plot samples
-        ax.scatter(
-            z[:, 0],
-            z[:, 1],
-            fc="#a8d3e0",
-            ec="#000000",
-            s=40,
-            lw=0.0,
-            alpha=0.8,
-            zorder=5,
-            label=r"Latent $\mathbf{x}_1$",
-        )
-        ax.scatter(
-            data[:, 0],
-            data[:, 1],
-            fc="#f1c6d1",
-            ec="#000000",
-            s=40,
-            lw=0.0,
-            alpha=0.8,
-            zorder=5,
-            label=r"Data $\mathbf{x}_0$",
-        )
-
-        # plot conditional velocity trajectories
-        # only label the first trajectory for the legend to avoid clutter
+        # Plot conditional velocity trajectories
         ax.plot(
             [z[0, 0], data[0, 0]],
             [z[0, 1], data[0, 1]],
@@ -227,6 +204,45 @@ def main(argv: typing.List[str]) -> int:
             zorder=3,
         )
 
+        # Plot endpoints
+        ax.scatter(
+            z[:, 0],
+            z[:, 1],
+            fc="#a8d3e0",
+            ec="#000000",
+            s=40,
+            lw=0.0,
+            alpha=0.8,
+            zorder=4,
+            label=r"Latent $\mathbf{x}_1$",
+        )
+        ax.scatter(
+            data[:, 0],
+            data[:, 1],
+            fc="#f1c6d1",
+            ec="#000000",
+            s=40,
+            lw=0.0,
+            alpha=0.8,
+            zorder=4,
+            label=r"Data $\mathbf{x}_0$",
+        )
+
+        # plot the specific current states x_t
+        x_t_eval = (1 - t_eval) * data + t_eval * z
+        ax.scatter(
+            x_t_eval[:, 0],
+            x_t_eval[:, 1],
+            fc="#f4e0b0",  # Yellow/Gold to pop against the magma background
+            ec="#000000",
+            marker=mpl_markers.MarkerStyle("^", fillstyle="full"),
+            s=40,
+            lw=0.5,
+            alpha=0.6,
+            zorder=5,
+            label=r"Current State $\mathbf{x}_t$",
+        )
+
         # formatting
         ax.set_aspect("equal")
         ax.set_facecolor("#000000")
@@ -238,7 +254,7 @@ def main(argv: typing.List[str]) -> int:
 
         if i == 0:
             ax.set_ylabel("Spatial Dimension 2", fontsize=12, color="white")
-        ax.legend(loc="upper right", framealpha=0.95, edgecolor="black")
+        ax.legend(loc="lower right", framealpha=0.95, edgecolor="black")
         ax.set_xlabel("Spatial Dimension 1", fontsize=12, color="white")
         ax.set_title(
             rf"$t={t_eval}$",
