@@ -1,3 +1,4 @@
+import math
 import typing
 
 from absl import app
@@ -5,6 +6,16 @@ from absl import flags
 import jax
 from jax import numpy as jnp
 from matplotlib import pyplot as plt
+import matplotlib.gridspec as gridspec
+
+# Configure plotting style
+plt.rcParams.update(
+    {
+        "text.usetex": False,
+        "font.family": "sans-serif",
+        "font.sans-serif": ["Helvetica", "DejaVu Sans", "sans-serif"],
+    }
+)
 
 # Flags
 flags.DEFINE_integer(
@@ -56,16 +67,7 @@ def _mc_marginal_velocity(
     z: jax.Array,
     data: jax.Array,
 ) -> typing.Callable[[jax.Array, float], typing.Tuple[jax.Array, jax.Array]]:
-    r"""Returns Monte-Carlo estimate of the marginal velocity field and the expected difference.
-
-    Args:
-        z (jax.Array): Latent samples of shape ``(n_samples, 2)``.
-        data (jax.Array): Data samples of shape ``(n_samples, 2)``.
-
-    Returns:
-        A function that takes in a point ``x`` and time ``t`` and returns a tuple
-        of the marginal velocity and the expected difference across paths.
-    """
+    r"""Returns Monte-Carlo estimate of the marginal velocity field and the expected difference."""
 
     def velocity(x: jax.Array, t: float) -> typing.Tuple[jax.Array, jax.Array]:
         # compute conditional velocity at x_{t} | x_{0}
@@ -87,7 +89,6 @@ def _mc_marginal_velocity(
         out = jnp.einsum("mn,nd->md", weights, cond_vf)
 
         # compute expected difference: E_{x_{0}|x_{t}} [|| v_marg - v_cond ||]
-        # Diff between marginal vector field and every conditional vector field
         diffs = out[:, None, :] - cond_vf[None, :, :]  # Shape: (M, N, 2)
         norms = jnp.linalg.norm(diffs, axis=-1)  # Shape: (M, N)
 
@@ -100,7 +101,6 @@ def _mc_marginal_velocity(
 
 
 # Main entry point
-# Main entry point
 def main(argv: typing.List[str]) -> int:
     del argv  # unused
 
@@ -108,7 +108,6 @@ def main(argv: typing.List[str]) -> int:
     rng, sample_key = jax.random.split(rng)
     z, data = _create_samples(sample_key, flags.FLAGS.n_samples)
 
-    # create a grid of points to evaluate the marginal velocity field
     grid_min, grid_max = -3.0, 8.0
     xs = jnp.linspace(grid_min, grid_max, num=flags.FLAGS.n_grid_points)
     ys = jnp.linspace(grid_min, grid_max, num=flags.FLAGS.n_grid_points)
@@ -117,77 +116,120 @@ def main(argv: typing.List[str]) -> int:
 
     velocity_fn = _mc_marginal_velocity(z, data)
 
-    # Evaluate at t=0.5 to visualize the intersecting paths clearly
-    t_eval = 0.5
-    _, expected_diff = velocity_fn(grid_points, t_eval)
-
-    # Reshape the expected difference back to the 2D grid shape for plotting
-    diff_heatmap = expected_diff.reshape(X.shape)
-
-    # plotting
-    fig, ax = plt.subplots(figsize=(7, 6))
-
-    # Plot the expected difference heatmap using imshow
-    mesh = ax.imshow(
-        diff_heatmap,
-        extent=[grid_min, grid_max, grid_min, grid_max],
-        origin="lower",
-        cmap="magma",
-        alpha=0.7,
-        zorder=1,
-    )
-    cbar = fig.colorbar(mesh, ax=ax, fraction=0.046, pad=0.04)
-    cbar.set_label(
-        r"$\mathbb{E}_{x_0|x_t} [\|v(x_t,t) - v(x_t,t \mid x_0)\|]$",
-        color="white",
-    )
-    cbar.ax.yaxis.set_tick_params(color="white", labelcolor="white")
-
-    # plot samples
-    ax.scatter(
-        z[:, 0],
-        z[:, 1],
-        fc="#a8d3e0",
-        ec="#000000",
-        s=40,
-        lw=0.0,
-        alpha=0.8,
-        zorder=5,
-        label=r"Latent samples $\mathbf{x}_1\sim\mathcal{N}(0,0.09\mathbf{I})$",
-    )
-    ax.scatter(
-        data[:, 0],
-        data[:, 1],
-        fc="#f1c6d1",
-        ec="#000000",
-        s=40,
-        lw=0.0,
-        alpha=0.8,
-        zorder=5,
-        label=r"Data samples $\mathbf{x}_0\sim p_{data}$",
-    )
-
-    # Set background color for the figure to match the dark aesthetic
+    # Setup the figure and GridSpec
+    fig = plt.figure(figsize=(18, 12))
     fig.set_facecolor("#000000")
-    ax.set_aspect("equal")
-    ax.set_facecolor("#000000")
-    ax.tick_params(colors="white")
-    for spine in ax.spines.values():
+    gs = gridspec.GridSpec(
+        2, 3, height_ratios=[1, 1.3], hspace=0.3, wspace=0.25
+    )
+
+    # ---------------------------------------------------------
+    # TOP ROW: Expected difference curve over t
+    # ---------------------------------------------------------
+    ax_top = fig.add_subplot(gs[0, :])
+
+    # Calculate the spatial average of the expected difference across the grid for t in (0, 1)
+    t_steps = jnp.linspace(0.01, 0.99, 50)
+
+    def eval_grid_mean(t):
+        _, exp_diff = velocity_fn(grid_points, t)
+        return jnp.mean(exp_diff)
+
+    mean_diffs = jax.vmap(eval_grid_mean)(t_steps)
+
+    ax_top.plot(t_steps, mean_diffs, color="#c9e5c6", lw=3)
+
+    ax_top.set_facecolor("#000000")
+    ax_top.tick_params(colors="white")
+    for spine in ax_top.spines.values():
         spine.set_edgecolor("white")
-    ax.set_xlim(grid_min, grid_max)
-    ax.set_ylim(grid_min, grid_max)
-    ax.set_xlabel("Spatial Dimension 1", fontsize=12)
-    ax.set_ylabel("Spatial Dimension 2", fontsize=12)
-    ax.set_title(
-        "Empirical Marginal Velocity Field & Conditional Trajectories ($t=0.5$)",
+    ax_top.set_xlim(0, 1)
+    ax_top.set_xlabel("Flow Time Step (t)", color="white", fontsize=12)
+    ax_top.set_ylabel("Mean Expected Difference", color="white", fontsize=12)
+    ax_top.set_title(
+        "Average Expected Difference Over Spatial Grid vs. Time",
+        color="white",
         fontsize=14,
         fontweight="bold",
-        pad=15,
-        color="white",  # Added white color for visibility against black background
+        pad=10,
     )
-    ax.legend(loc="lower right", framealpha=0.95, edgecolor="black")
+    ax_top.grid(True, color="#333333", linestyle="--", alpha=0.7)
+
+    # ---------------------------------------------------------
+    # BOTTOM ROW: Reuse the exact previous code for three t values
+    # ---------------------------------------------------------
+    t_evals = [0.1, 0.5, 0.9]
+
+    for i, t_eval in enumerate(t_evals):
+        ax = fig.add_subplot(gs[1, i])
+
+        # Evaluate velocity and expected difference
+        _, expected_diff = velocity_fn(grid_points, t_eval)
+        diff_heatmap = expected_diff.reshape(X.shape)
+
+        # Plot the expected difference heatmap
+        mesh = ax.imshow(
+            diff_heatmap,
+            extent=[grid_min, grid_max, grid_min, grid_max],
+            origin="lower",
+            cmap="magma",
+            alpha=0.7,
+            zorder=1,
+        )
+        cbar = fig.colorbar(mesh, ax=ax, fraction=0.046, pad=0.04)
+        cbar.set_label(
+            r"$\mathbb{E}_{x_0|x_t} [\|v(x_t,t) - v(x_t,t \mid x_0)\|]$",
+            color="white",
+        )
+        cbar.ax.yaxis.set_tick_params(color="white", labelcolor="white")
+
+        # plot samples
+        ax.scatter(
+            z[:, 0],
+            z[:, 1],
+            fc="#a8d3e0",
+            ec="#000000",
+            s=40,
+            lw=0.0,
+            alpha=0.8,
+            zorder=5,
+            label=r"Latent $\mathbf{x}_1$",
+        )
+        ax.scatter(
+            data[:, 0],
+            data[:, 1],
+            fc="#f1c6d1",
+            ec="#000000",
+            s=40,
+            lw=0.0,
+            alpha=0.8,
+            zorder=5,
+            label=r"Data $\mathbf{x}_0$",
+        )
+
+        # Formatting
+        ax.set_aspect("equal")
+        ax.set_facecolor("#000000")
+        ax.tick_params(colors="white")
+        for spine in ax.spines.values():
+            spine.set_edgecolor("white")
+        ax.set_xlim(grid_min, grid_max)
+        ax.set_ylim(grid_min, grid_max)
+
+        if i == 0:
+            ax.set_ylabel("Spatial Dimension 2", fontsize=12, color="white")
+        ax.legend(loc="lower right", framealpha=0.95, edgecolor="black")
+        ax.set_xlabel("Spatial Dimension 1", fontsize=12, color="white")
+        ax.set_title(
+            rf"$t={t_eval}$",
+            color="white",
+            fontsize=14,
+            fontweight="bold",
+            pad=15,
+        )
 
     plt.show()
+
     return 0
 
 
