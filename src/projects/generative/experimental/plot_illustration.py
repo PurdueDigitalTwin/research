@@ -6,7 +6,6 @@ import jax
 from jax import numpy as jnp
 from matplotlib import pyplot as plt
 
-
 # Flags
 flags.DEFINE_integer(
     "n_grid_points",
@@ -101,6 +100,7 @@ def _mc_marginal_velocity(
 
 
 # Main entry point
+# Main entry point
 def main(argv: typing.List[str]) -> int:
     del argv  # unused
 
@@ -109,8 +109,9 @@ def main(argv: typing.List[str]) -> int:
     z, data = _create_samples(sample_key, flags.FLAGS.n_samples)
 
     # create a grid of points to evaluate the marginal velocity field
-    xs = jnp.linspace(-3, 8.0, num=flags.FLAGS.n_grid_points)
-    ys = jnp.linspace(-3, 8.0, num=flags.FLAGS.n_grid_points)
+    grid_min, grid_max = -3.0, 8.0
+    xs = jnp.linspace(grid_min, grid_max, num=flags.FLAGS.n_grid_points)
+    ys = jnp.linspace(grid_min, grid_max, num=flags.FLAGS.n_grid_points)
     X, Y = jnp.meshgrid(xs, ys)
     grid_points = jnp.stack([X.ravel(), Y.ravel()], axis=-1)
 
@@ -126,13 +127,12 @@ def main(argv: typing.List[str]) -> int:
     # plotting
     fig, ax = plt.subplots(figsize=(7, 6))
 
-    # Plot the expected difference heatmap
-    mesh = ax.pcolormesh(
-        X,
-        Y,
+    # Plot the expected difference heatmap using imshow
+    mesh = ax.imshow(
         diff_heatmap,
+        extent=[grid_min, grid_max, grid_min, grid_max],
+        origin="lower",
         cmap="magma",
-        shading="auto",
         alpha=0.7,
         zorder=1,
     )
@@ -153,7 +153,7 @@ def main(argv: typing.List[str]) -> int:
         lw=0.0,
         alpha=0.8,
         zorder=5,
-        label=r"Latent samples $\mathbf{x}_1\sim\mathcal{N}(0, \mathbf{I})$",
+        label=r"Latent samples $\mathbf{x}_1\sim\mathcal{N}(0,0.09\mathbf{I})$",
     )
     ax.scatter(
         data[:, 0],
@@ -174,8 +174,8 @@ def main(argv: typing.List[str]) -> int:
     ax.tick_params(colors="white")
     for spine in ax.spines.values():
         spine.set_edgecolor("white")
-    ax.set_xlim(-3, 8)
-    ax.set_ylim(-3, 8)
+    ax.set_xlim(grid_min, grid_max)
+    ax.set_ylim(grid_min, grid_max)
     ax.set_xlabel("Spatial Dimension 1", fontsize=12)
     ax.set_ylabel("Spatial Dimension 2", fontsize=12)
     ax.set_title(
@@ -183,6 +183,7 @@ def main(argv: typing.List[str]) -> int:
         fontsize=14,
         fontweight="bold",
         pad=15,
+        color="white",  # Added white color for visibility against black background
     )
     ax.legend(loc="lower right", framealpha=0.95, edgecolor="black")
 
