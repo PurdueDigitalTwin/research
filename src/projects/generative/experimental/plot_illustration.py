@@ -25,17 +25,22 @@ flags.DEFINE_float(
     help="Radius around the conditional paths for heatmap evaluation.",
 )
 flags.DEFINE_integer(
-    "n_grid_points",
+    name="n_grid_points",
     default=200,
     help="Number of grid points per axis to evaluate the marginal velocity",
 )
 flags.DEFINE_integer(
-    "n_samples",
+    name="n_samples",
     default=100,
     help="Number of Monte Carlo samples to evaluate the marginal velocity",
 )
+flags.DEFINE_boolean(
+    name="show_samples",
+    default=False,
+    help="Whether to show the conditional samples xt on the plot.",
+)
 flags.DEFINE_integer(
-    "seed",
+    name="seed",
     default=42,
     help="Random seed for reproducibility.",
 )
@@ -252,18 +257,19 @@ def main(argv: typing.List[str]) -> int:
         )
 
         # plot the specific current states x_t
-        # ax.scatter(
-        #     x_t_eval[:, 0],
-        #     x_t_eval[:, 1],
-        #     fc="#f4e0b0",
-        #     ec="#000000",
-        #     marker=mpl_markers.MarkerStyle("^", fillstyle="full"),
-        #     s=40,
-        #     lw=0.5,
-        #     alpha=0.6,
-        #     zorder=5,
-        #     label=r"Current State $\mathbf{x}_t$",
-        # )
+        if flags.FLAGS.show_samples:
+            ax.scatter(
+                x_t_eval[:, 0],
+                x_t_eval[:, 1],
+                fc="#f4e0b0",
+                ec="#000000",
+                marker=mpl_markers.MarkerStyle("^", fillstyle="full"),
+                s=40,
+                lw=0.5,
+                alpha=0.6,
+                zorder=5,
+                label=r"Current State $\mathbf{x}_t$",
+            )
 
         # formatting
         ax.set_aspect("equal")
