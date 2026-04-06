@@ -256,3 +256,173 @@ def improved_meanflow_unet_cifar_10() -> _config.ExperimentConfig:
         param_dtype=jax.numpy.float32,
         precision=jax.lax.Precision.HIGHEST,
     )
+
+
+# ==============================================================================
+# Variance-Aware MeanFlow (VaMF)
+def vamf_unet_cifar_10() -> _config.ExperimentConfig:
+    r"""VaMF with EMA tangent and FM anchor."""
+    return _config.ExperimentConfig(
+        project_name="vamf",
+        exp_name="vamf_unet_cifar_10",
+        mode="train",
+        data=_config.DataConfig(
+            module=fdl.Partial(
+                huggingface.CIFAR10DataModule,
+                shuffle_buffer_size=50_000,
+                transform=preprocess.chain(
+                    functools.partial(
+                        preprocess.filter_keys,
+                        keys=["image", "label"],
+                    ),
+                    functools.partial(
+                        preprocess.normalize,
+                        mean=(0.0, 0.0, 0.0),
+                        std=(1.0, 1.0, 1.0),
+                    ),
+                ),
+                use_cache=True,
+            ),
+            batch_size=128,
+            num_workers=2,
+            deterministic=True,
+            drop_remainder=True,
+        ),
+        model=fdl.Partial(
+            meanflow.VAMeanFlowUNetModel,
+            in_channels=3,
+            image_size=32,
+            features=128,
+            dropout_rate=0.2,
+            epsilon=1e-6,
+            skip_scale=math.sqrt(0.5),
+            resample_filter=[1, 3, 3, 1],
+            timestamp_cond="t_and_t_minus_r",
+            timestamp_sampler="logit-normal",
+            timestamp_sampler_kwargs=dict(mean=-0.4, stddev=1.0),
+            timestamp_overlap_rate=0.5,
+            adaptive_weight_power=0.75,
+            fm_anchor_weight=0.5,
+            fm_anchor_delta_min=1e-4,
+            fm_anchor_delta_max=0.01,
+            predict_variance=False,
+        ),
+        metric=fdl.Config(
+            fid.FrechetInceptionDistance,
+            dataset=datasets.load_dataset(
+                path="uoft-cs/cifar10",
+                token=os.getenv("HF_TOKEN", None),
+                revision=("0b2714987fa478483af9968de7c934580d0bb9a2"),
+                split="train",
+            ),
+            image_key="img",
+            batch_size=32,
+        ),
+        trainer=_config.TrainerConfig(
+            num_train_steps=800_000,
+            log_every_n_steps=50,
+            checkpoint_every_n_steps=10_000,
+            eval_every_n_steps=2_500,
+            max_checkpoints_to_keep=3,
+            profile=False,
+        ),
+        optimizer=_config.OptimizerConfig(
+            lr_schedule=fdl.Config(
+                optax.warmup_constant_schedule,
+                init_value=1e-8,
+                peak_value=1e-4,
+                warmup_steps=10_000,
+            ),
+            optimizer=fdl.Partial(optax.adam, b1=0.9, b2=0.999),
+            ema_rate=0.99995,
+        ),
+        seed=42,
+        dtype=jax.numpy.float32,
+        param_dtype=jax.numpy.float32,
+        precision=jax.lax.Precision.HIGHEST,
+    )
+
+
+def vamf_nll_unet_cifar_10() -> _config.ExperimentConfig:
+    r"""VaMF with heteroscedastic variance prediction."""
+    return _config.ExperimentConfig(
+        project_name="vamf",
+        exp_name="vamf_nll_unet_cifar_10",
+        mode="train",
+        data=_config.DataConfig(
+            module=fdl.Partial(
+                huggingface.CIFAR10DataModule,
+                shuffle_buffer_size=50_000,
+                transform=preprocess.chain(
+                    functools.partial(
+                        preprocess.filter_keys,
+                        keys=["image", "label"],
+                    ),
+                    functools.partial(
+                        preprocess.normalize,
+                        mean=(0.0, 0.0, 0.0),
+                        std=(1.0, 1.0, 1.0),
+                    ),
+                ),
+                use_cache=True,
+            ),
+            batch_size=128,
+            num_workers=2,
+            deterministic=True,
+            drop_remainder=True,
+        ),
+        model=fdl.Partial(
+            meanflow.VAMeanFlowUNetModel,
+            in_channels=3,
+            image_size=32,
+            features=128,
+            dropout_rate=0.2,
+            epsilon=1e-6,
+            skip_scale=math.sqrt(0.5),
+            resample_filter=[1, 3, 3, 1],
+            timestamp_cond="t_and_t_minus_r",
+            timestamp_sampler="logit-normal",
+            timestamp_sampler_kwargs=dict(mean=-0.4, stddev=1.0),
+            timestamp_overlap_rate=0.5,
+            adaptive_weight_power=0.0,
+            fm_anchor_weight=0.5,
+            fm_anchor_delta_min=1e-4,
+            fm_anchor_delta_max=0.01,
+            predict_variance=True,
+            variance_floor=1e-4,
+            nll_warmup_steps=10_000,
+        ),
+        metric=fdl.Config(
+            fid.FrechetInceptionDistance,
+            dataset=datasets.load_dataset(
+                path="uoft-cs/cifar10",
+                token=os.getenv("HF_TOKEN", None),
+                revision=("0b2714987fa478483af9968de7c934580d0bb9a2"),
+                split="train",
+            ),
+            image_key="img",
+            batch_size=32,
+        ),
+        trainer=_config.TrainerConfig(
+            num_train_steps=800_000,
+            log_every_n_steps=50,
+            checkpoint_every_n_steps=10_000,
+            eval_every_n_steps=2_500,
+            max_checkpoints_to_keep=3,
+            profile=False,
+        ),
+        optimizer=_config.OptimizerConfig(
+            lr_schedule=fdl.Config(
+                optax.warmup_constant_schedule,
+                init_value=1e-8,
+                peak_value=1e-4,
+                warmup_steps=10_000,
+            ),
+            optimizer=fdl.Partial(optax.adam, b1=0.9, b2=0.999),
+            ema_rate=0.99995,
+        ),
+        seed=42,
+        dtype=jax.numpy.float32,
+        param_dtype=jax.numpy.float32,
+        precision=jax.lax.Precision.HIGHEST,
+    )
