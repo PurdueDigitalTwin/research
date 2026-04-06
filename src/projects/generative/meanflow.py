@@ -6,6 +6,7 @@ import jax
 from jax import numpy as jnp
 from jax._src import typing as jax_typing
 import jaxtyping
+import optax
 import typing_extensions
 
 from src.core import model as _model
@@ -506,7 +507,7 @@ class MeanFlowUNetModel(_model.Model):
         image = batch["image"].astype(jnp.float32)
         assert isinstance(image, jax.Array)
         batch_dims = image.shape[:-3]
-        tr_rng, dropout_rng, a_rng, m_rng, e_rng = jax.random.split(rngs, 5)
+        tr_rng, dp_rng, a_rng, m_rng, e_rng = jax.random.split(local_rng, 5)
 
         # pre-process the inputs
         image = image * 2.0 - 1.0
@@ -560,7 +561,7 @@ class MeanFlowUNetModel(_model.Model):
                     timestamps=timestamps,
                     edm_cond=cond,
                     deterministic=False,
-                    rngs={"dropout": dropout_rng},
+                    rngs={"dropout": dp_rng},
                     **kwargs,
                 )
                 assert isinstance(out, jax.Array)
@@ -732,7 +733,7 @@ class ImprovedMeanFlowUNetModel(MeanFlowUNetModel):
         image = batch["image"].astype(jnp.float32)
         assert isinstance(image, jax.Array)
         batch_dims = image.shape[:-3]
-        tr_rng, dropout_rng, a_rng, m_rng, e_rng = jax.random.split(rngs, 5)
+        tr_rng, dp_rng, a_rng, m_rng, e_rng = jax.random.split(local_rng, 5)
 
         # pre-process the inputs
         image = image * 2.0 - 1.0
@@ -798,7 +799,7 @@ class ImprovedMeanFlowUNetModel(MeanFlowUNetModel):
                     timestamps=timestamps,
                     edm_cond=cond,
                     deterministic=False,
-                    rngs={"dropout": dropout_rng},
+                    rngs={"dropout": dp_rng},
                     **kwargs,
                 )
                 assert isinstance(u_out, jax.Array)
@@ -836,6 +837,7 @@ class ImprovedMeanFlowUNetModel(MeanFlowUNetModel):
 
         grad_fn = jax.value_and_grad(_loss_fn, has_aux=True)
         (loss, velocity_loss), grads = grad_fn(state.params)
+        global_grad_norm = optax.global_norm(grads)
         grads = jax.lax.pmean(grads, axis_name="batch")
         new_state = state.apply_gradients(grads=grads)
 
@@ -843,6 +845,7 @@ class ImprovedMeanFlowUNetModel(MeanFlowUNetModel):
             scalars={
                 "loss": loss.mean(),
                 "velocity_loss": velocity_loss.mean(),
+                "global_grad_norm": global_grad_norm,
             },
             histograms={"t": t, "r": r, "t - r": t - r},
         )
@@ -1174,7 +1177,7 @@ class VAMeanFlowUNetModel(MeanFlowUNetModel):
             m_rng,
             e_rng,
             delta_rng,
-        ) = jax.random.split(rngs, 6)
+        ) = jax.random.split(local_rng, 6)
 
         # pre-process the inputs
         image = image * 2.0 - 1.0
@@ -1328,6 +1331,7 @@ class VAMeanFlowUNetModel(MeanFlowUNetModel):
         grad_fn = jax.value_and_grad(_loss_fn, has_aux=True)
         (total_loss, aux), grads = grad_fn(state.params)
         mf_loss, fm_anchor_loss, velocity_loss, sigma_sq_mean = aux
+        global_grad_norm = optax.global_norm(grads)
         grads = jax.lax.pmean(grads, axis_name="batch")
         new_state = state.apply_gradients(grads=grads)
 
@@ -1336,6 +1340,7 @@ class VAMeanFlowUNetModel(MeanFlowUNetModel):
             "mf_loss": mf_loss,
             "fm_anchor_loss": fm_anchor_loss,
             "velocity_loss": velocity_loss,
+            "global_grad_norm": global_grad_norm,
         }
         if self.predict_variance:
             scalars["sigma_sq_mean"] = sigma_sq_mean
