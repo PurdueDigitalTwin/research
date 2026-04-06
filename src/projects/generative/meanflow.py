@@ -463,7 +463,7 @@ class MeanFlowUNetModel(_model.Model):
             )
 
         dummy_inputs = {
-            "image": jnp.zeros(
+            "inputs": jnp.zeros(
                 (1, self.image_size, self.image_size, self.in_channels),
                 dtype=jnp.float32,
             ),
@@ -472,9 +472,7 @@ class MeanFlowUNetModel(_model.Model):
         }
         variables = self._network.init(
             rngs=rngs,
-            inputs=dummy_inputs["image"],
-            timestamps=dummy_inputs["timestamps"],
-            edm_cond=dummy_inputs["edm_cond"],
+            **dummy_inputs,
             deterministic=True,
         )
 
