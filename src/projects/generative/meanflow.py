@@ -555,19 +555,7 @@ class MeanFlowUNetModel(_model.Model):
                 r_in: jax.Array,
                 t_in: jax.Array,
             ) -> jax.Array:
-                if self.timestamp_cond == "t_and_r":
-                    timestamps = (t_in, r_in)
-                elif self.timestamp_cond == "t_and_t_minus_r":
-                    timestamps = (t_in, t_in - r_in)
-                elif self.timestamp_cond == "t_and_r_and_t_minus_r":
-                    timestamps = (t_in, r_in, t_in - r_in)
-                elif self.timestamp_cond == "t_minus_r":
-                    timestamps = (t_in - r_in,)
-                else:
-                    raise ValueError(
-                        f"Unsupported timestamp conditioning: {self.timestamp_cond}."
-                    )
-
+                timestamps = self._make_timestamps(t_in=t_in, r_in=r_in)
                 out = self._network.apply(
                     variables={"params": params},
                     image=z_t,
@@ -667,20 +655,10 @@ class MeanFlowUNetModel(_model.Model):
             shape=shape,
             dtype=self._network.dtype,
         )
-        r = jnp.zeros(z_1.shape[:-3], dtype=z_1.dtype)
-        t = jnp.ones(z_1.shape[:-3], dtype=z_1.dtype)
-        if self.timestamp_cond == "t_and_r":
-            timestamps = (t, r)
-        elif self.timestamp_cond == "t_and_t_minus_r":
-            timestamps = (t, t - r)
-        elif self.timestamp_cond == "t_and_r_and_t_minus_r":
-            timestamps = (t, r, t - r)
-        elif self.timestamp_cond == "t_minus_r":
-            timestamps = (t - r,)
-        else:
-            raise ValueError(
-                f"Unsupported timestamp conditioning: {self.timestamp_cond}."
-            )
+        timestamps = self._make_timestamps(
+            t_in=jnp.ones(z_1.shape[:-3], dtype=jnp.float32),
+            r_in=jnp.zeros(z_1.shape[:-3], dtype=jnp.float32),
+        )
 
         out = z_1 - self._network.apply(
             variables={"params": params},
@@ -691,6 +669,34 @@ class MeanFlowUNetModel(_model.Model):
         )
 
         return _model.StepOutputs(output=out)
+
+    def _make_timestamps(
+        self,
+        t_in: jax.Array,
+        r_in: jax.Array,
+    ) -> typing.Tuple[jax.Array, ...]:
+        """Constructs timestamp tuple from (t, r).
+
+        Args:
+            t_in (jax.Array): Terminal timesteps.
+            r_in (jax.Array): Start timesteps.
+
+        Returns:
+            Tuple of timestamp arrays for the network.
+        """
+        if self.timestamp_cond == "t_and_r":
+            return (t_in, r_in)
+        elif self.timestamp_cond == "t_and_t_minus_r":
+            return (t_in, t_in - r_in)
+        elif self.timestamp_cond == "t_and_r_and_t_minus_r":
+            return (t_in, r_in, t_in - r_in)
+        elif self.timestamp_cond == "t_minus_r":
+            return (t_in - r_in,)
+        else:
+            raise ValueError(
+                "Unsupported timestamp conditioning: "
+                f"{self.timestamp_cond}."
+            )
 
 
 class ImprovedMeanFlowUNetModel(MeanFlowUNetModel):
@@ -1027,9 +1033,151 @@ class VAMeanFlowUNetModule(nn.Module):
         return u, log_var
 
 
+class VAMeanFlowUNetModel(MeanFlowUNetModel):
+    r"""Variance-Aware MeanFlow with EMA tangent and flow-matching anchor.
+
+    Args:
+        in_channels (int): Number of input image channels.
+        image_size (int): Height and width of the input images.
+        features (int): Dimensionality of the latent feature map.
+        dropout_rate (float): Dropout rate.
+        epsilon (float): GroupNorm epsilon.
+        skip_scale (float): Skip connection scaling factor.
+        resample_filter (Sequence[int]): FIR filter for resampling.
+        timestamp_cond (str): Timestamp conditioning type.
+        timestamp_sampler (str): Distribution for timestamp sampling.
+        timestamp_sampler_kwargs (Dict): Kwargs for the sampler.
+        timestamp_overlap_rate (float): Overlap rate between t and r.
+        adaptive_weight_power (float): Power for adaptive weighting.
+            Set to 0 when using the NLL variant.
+        fm_anchor_weight (float): Weight for FM anchor loss.
+        fm_anchor_delta_min (float): Min interval for FM anchor.
+        fm_anchor_delta_max (float): Max interval for FM anchor.
+        predict_variance (bool): Enable heteroscedastic variance
+            head (NLL variant).
+        variance_floor (float): Minimum variance to prevent
+            collapse.
+        nll_warmup_steps (int): Steps of MSE before NLL activation.
+        dtype (Any): Computation dtype.
+        param_dtype (Any): Parameter dtype.
+        precision (Any): Numerical precision.
+    """
+
+    def __init__(
+        self,
+        in_channels: int,
+        image_size: int,
+        features: int,
+        dropout_rate: float,
+        epsilon: float = 1e-6,
+        skip_scale: float = 1.0,
+        resample_filter: typing.Sequence[int] = [1, 1],
+        timestamp_cond: typing.Literal[
+            "t_and_r",
+            "t_and_t_minus_r",
+            "t_and_r_and_t_minus_r",
+            "t_minus_r",
+        ] = "t_and_t_minus_r",
+        timestamp_sampler: str = "logit-normal",
+        timestamp_sampler_kwargs: typing.Dict[str, typing.Any] = {
+            "mean": -0.4,
+            "stddev": 1.0,
+        },
+        timestamp_overlap_rate: float = 0.75,
+        adaptive_weight_power: float = 1.0,
+        fm_anchor_weight: float = 0.5,
+        fm_anchor_delta_min: float = 1e-4,
+        fm_anchor_delta_max: float = 0.01,
+        predict_variance: bool = False,
+        variance_floor: float = 1e-4,
+        nll_warmup_steps: int = 10_000,
+        dtype: typing.Any = None,
+        param_dtype: typing.Any = None,
+        precision: typing.Any = None,
+    ) -> None:
+        r"""Instantiate a ``VAMeanFlowUNetModel``."""
+        super().__init__(
+            in_channels=in_channels,
+            image_size=image_size,
+            features=features,
+            dropout_rate=dropout_rate,
+            epsilon=epsilon,
+            skip_scale=skip_scale,
+            resample_filter=resample_filter,
+            timestamp_cond=timestamp_cond,
+            timestamp_sampler=timestamp_sampler,
+            timestamp_sampler_kwargs=timestamp_sampler_kwargs,
+            timestamp_overlap_rate=timestamp_overlap_rate,
+            adaptive_weight_power=adaptive_weight_power,
+            dtype=dtype,
+            param_dtype=param_dtype,
+            precision=precision,
+        )
+        self.fm_anchor_weight = fm_anchor_weight
+        self.fm_anchor_delta_min = fm_anchor_delta_min
+        self.fm_anchor_delta_max = fm_anchor_delta_max
+        self.predict_variance = predict_variance
+        self.variance_floor = variance_floor
+        self.nll_warmup_steps = nll_warmup_steps
+
+        # override network when variance head is enabled
+        if predict_variance:
+            self._network = VAMeanFlowUNetModule(
+                features=features,
+                dropout_rate=dropout_rate,
+                epsilon=epsilon,
+                skip_scale=skip_scale,
+                resample_filter=resample_filter,
+                predict_variance=True,
+                name="unet",
+                dtype=dtype,
+                param_dtype=param_dtype,
+                precision=precision,
+            )
+
+    @typing_extensions.override
+    def forward(
+        self,
+        *,
+        rngs: typing.Any,
+        params: typing.Any,
+        shape: typing.Sequence[typing.Union[int, typing.Any]],
+        deterministic: bool = True,
+        **kwargs,
+    ) -> _model.StepOutputs:
+        if not self.predict_variance:
+            return super().forward(
+                rngs=rngs,
+                params=params,
+                shape=shape,
+                deterministic=deterministic,
+                **kwargs,
+            )
+
+        z_1 = jax.random.normal(
+            key=rngs,
+            shape=shape,
+            dtype=jnp.float32,
+        )
+        timestamps = self._make_timestamps(
+            t_in=jnp.ones(z_1.shape[:-3], dtype=jnp.float32),
+            r_in=jnp.zeros(z_1.shape[:-3], dtype=jnp.float32),
+        )
+        u, _ = self._network.apply(
+            variables={"params": params},
+            image=z_1,
+            timestamps=timestamps,
+            edm_cond=None,
+            deterministic=deterministic,
+        )
+
+        return _model.StepOutputs(output=z_1 - u)
+
+
 __all__ = [
     "MeanFlowUNetModule",
     "MeanFlowUNetModel",
     "ImprovedMeanFlowUNetModel",
     "VAMeanFlowUNetModule",
+    "VAMeanFlowUNetModel",
 ]
