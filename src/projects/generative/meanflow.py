@@ -1120,20 +1120,19 @@ class VAMeanFlowUNetModel(MeanFlowUNetModel):
         self.variance_floor = variance_floor
         self.nll_warmup_steps = nll_warmup_steps
 
-        # override network when variance head is enabled
-        if predict_variance:
-            self._network = VAMeanFlowUNetModule(
-                features=features,
-                dropout_rate=dropout_rate,
-                epsilon=epsilon,
-                skip_scale=skip_scale,
-                resample_filter=resample_filter,
-                predict_variance=True,
-                name="unet",
-                dtype=dtype,
-                param_dtype=param_dtype,
-                precision=precision,
-            )
+        # override network with variance-aware version
+        self._network = VAMeanFlowUNetModule(
+            features=features,
+            dropout_rate=dropout_rate,
+            epsilon=epsilon,
+            skip_scale=skip_scale,
+            resample_filter=resample_filter,
+            predict_variance=predict_variance,
+            name="unet",
+            dtype=dtype,
+            param_dtype=param_dtype,
+            precision=precision,
+        )
 
     @typing_extensions.override
     def forward(
@@ -1145,15 +1144,7 @@ class VAMeanFlowUNetModel(MeanFlowUNetModel):
         deterministic: bool = True,
         **kwargs,
     ) -> _model.StepOutputs:
-        if not self.predict_variance:
-            return super().forward(
-                rngs=rngs,
-                params=params,
-                shape=shape,
-                deterministic=deterministic,
-                **kwargs,
-            )
-
+        del kwargs  # unused
         z_1 = jax.random.normal(
             key=rngs,
             shape=shape,
@@ -1172,6 +1163,202 @@ class VAMeanFlowUNetModel(MeanFlowUNetModel):
         )
 
         return _model.StepOutputs(output=z_1 - u)
+
+    @typing_extensions.override
+    def training_step(
+        self,
+        *,
+        batch: typing.Any,
+        state: _train_state.TrainState,
+        rngs: typing.Any,
+        **kwargs,
+    ) -> typing.Tuple[_train_state.TrainState, _model.StepOutputs]:
+        local_rng = jax.random.fold_in(rngs, jax.lax.axis_index("batch"))
+        local_rng = jax.random.fold_in(local_rng, state.step)
+
+        # NOTE: enforce float32 for training stability
+        image = batch["image"].astype(jnp.float32)
+        assert isinstance(image, jax.Array)
+        batch_dims = image.shape[:-3]
+        (
+            tr_rng,
+            dropout_rng,
+            a_rng,
+            m_rng,
+            e_rng,
+            delta_rng,
+        ) = jax.random.split(rngs, 6)
+
+        # pre-process the inputs
+        image = image * 2.0 - 1.0
+        image, cond = self._augment.apply(
+            variables={},
+            images=image,
+            rngs={"augment": a_rng},
+        )
+        assert isinstance(image, jax.Array)
+        assert isinstance(cond, jax.Array)
+
+        # sample begin timestep r and end timestep t
+        t, r = sample_t_r(
+            key=tr_rng,
+            shape=batch_dims,
+            dtype=image.dtype,
+            distribution=self.timestamp_sampler,
+            **self.timestamp_sampler_kwargs,
+        )
+
+        t, r = jnp.maximum(t, r), jnp.minimum(t, r)
+        r_eq_t_mask = jnp.less(
+            jax.random.uniform(
+                key=m_rng,
+                shape=batch_dims,
+                dtype=image.dtype,
+            ),
+            self.timestamp_overlap_rate,
+        )
+        r = jnp.where(r_eq_t_mask, t, r)
+
+        # sample e ~ N(0, I)
+        e = jax.random.normal(key=e_rng, shape=image.shape, dtype=image.dtype)
+
+        # generate z_t = (1-t)*x_0 + t*e
+        z = jnp.add(
+            (1 - t[..., None, None, None]) * image,
+            t[..., None, None, None] * e,
+        )
+
+        # NOTE: evaluate EMA velocity anchor (outside loss_fn)
+        ema_timestamps = self._make_timestamps(t, t)
+        v_tang, _ = self._network.apply(
+            variables={"params": state.ema_params},
+            image=z,
+            timestamps=ema_timestamps,
+            edm_cond=cond,
+            deterministic=True,
+        )
+        v_tang = jax.lax.stop_gradient(v_tang)
+
+        def _loss_fn(
+            params: PyTree,
+        ) -> typing.Tuple[
+            jax.Array,
+            typing.Tuple[jax.Array, jax.Array, jax.Array, jax.Array],
+        ]:
+            def u_fn(
+                z_t: jax.Array,
+                r_in: jax.Array,
+                t_in: jax.Array,
+            ):
+                """Network forward pass."""
+                timestamps = self._make_timestamps(t_in, r_in)
+                return self._network.apply(
+                    variables={"params": params},
+                    image=z_t,
+                    timestamps=timestamps,
+                    edm_cond=cond,
+                    deterministic=False,
+                    rngs={"dropout": dropout_rng},
+                    **kwargs,
+                )
+
+            # compute JVP with EMA tangent anchor
+            drdt = jnp.zeros_like(r)
+            dtdt = jnp.ones_like(t)
+            primals, tangents = jax.jvp(u_fn, (z, r, t), (v_tang, drdt, dtdt))
+
+            u, log_var = primals
+            dudt, _ = tangents
+
+            # compound prediction with stop-gradient on JVP and MeanFlow loss
+            v_pred = jnp.add(
+                u,
+                (t - r)[..., None, None, None] * jax.lax.stop_gradient(dudt),
+            )
+            v_target = jax.lax.stop_gradient(e - image)
+            residual_sq = jnp.sum(
+                jnp.square(v_pred - v_target),
+                axis=(-1, -2, -3),
+            )
+
+            if self.predict_variance:
+                sigma_sq = jax.nn.softplus(log_var) + self.variance_floor
+                d = float(image.shape[-1] * image.shape[-2] * image.shape[-3])
+                nll_loss = residual_sq / (2.0 * sigma_sq)
+                nll_loss = nll_loss + 0.5 * d * jnp.log(sigma_sq)
+                mse_loss = residual_sq
+
+                # MSE during warmup, NLL after
+                mf_loss = jnp.where(
+                    state.step >= self.nll_warmup_steps,
+                    jnp.mean(nll_loss),
+                    jnp.mean(mse_loss),
+                )
+                sigma_sq_mean = jnp.mean(sigma_sq)
+            else:
+                if self.adaptive_weight_power > 0.0:
+                    ada_wt = jnp.power(
+                        residual_sq + 1e-2,
+                        self.adaptive_weight_power,
+                    )
+                    residual_sq = residual_sq / (jax.lax.stop_gradient(ada_wt))
+                mf_loss = jnp.mean(residual_sq)
+                sigma_sq_mean = jnp.zeros(())
+
+            # Flow-Matching anchor loss
+            delta = jax.random.uniform(
+                key=delta_rng,
+                shape=batch_dims,
+                minval=self.fm_anchor_delta_min,
+                maxval=self.fm_anchor_delta_max,
+                dtype=image.dtype,
+            )
+            u_anchor, _ = u_fn(z_t=z, r_in=t - delta, t_in=t)
+            fm_anchor_loss = jnp.mean(
+                jnp.sum(
+                    jnp.square(u_anchor - v_target),
+                    axis=(-1, -2, -3),
+                )
+            )
+
+            total_loss = mf_loss + self.fm_anchor_weight * fm_anchor_loss
+
+            # velocity monitoring at boundary (r == t)
+            velocity_loss = jnp.where(
+                jnp.equal(t, r)[..., None, None, None],
+                jnp.square(u - (e - image)),
+                jnp.zeros_like(u),
+            )
+            velocity_loss = jnp.sum(velocity_loss, axis=(-1, -2, -3)).mean()
+
+            return total_loss, (
+                mf_loss,
+                fm_anchor_loss,
+                velocity_loss,
+                sigma_sq_mean,
+            )
+
+        grad_fn = jax.value_and_grad(_loss_fn, has_aux=True)
+        (total_loss, aux), grads = grad_fn(state.params)
+        mf_loss, fm_anchor_loss, velocity_loss, sigma_sq_mean = aux
+        grads = jax.lax.pmean(grads, axis_name="batch")
+        new_state = state.apply_gradients(grads=grads)
+
+        scalars = {
+            "loss": total_loss,
+            "mf_loss": mf_loss,
+            "fm_anchor_loss": fm_anchor_loss,
+            "velocity_loss": velocity_loss,
+        }
+        if self.predict_variance:
+            scalars["sigma_sq_mean"] = sigma_sq_mean
+
+        outputs = _model.StepOutputs(
+            scalars=scalars,
+            histograms={"t": t, "r": r, "t - r": t - r},
+        )
+
+        return new_state, outputs
 
 
 __all__ = [
