@@ -857,8 +857,179 @@ class ImprovedMeanFlowUNetModel(MeanFlowUNetModel):
         return new_state, outputs
 
 
+# ==============================================================================
+# Variance-Aware Mean Flows
+# ==============================================================================
+class VAMeanFlowUNetModule(nn.Module):
+    r"""Generative model with a NCSN++ backbone trained with ``VaMeanFlow``.
+
+    Attributes:
+        features (int): Number of channels in the latent feature maps.
+        dropout_rate (float): Dropout rate for the attention blocks.
+        epsilon (float): Small constant for numerical stability in `GroupNorm`.
+        skip_scale (float): Scaling factor for skip connections.
+        predict_variance (bool, optional): Whether to predict the variance of
+            the average velocity. Default is ``False``.
+        resample_filter (Optional[Sequence[int]], optional): One-dimensional FIR
+            filter for up/downsampling. Default is :math:`[1, 1]`.
+        deterministic (Optional[bool]): Whether to run deterministically.
+        dtype (Any): The dtype of the computation.
+        param_dtype (Any): The dtype of the parameters.
+        precision (Any): Numerical precision for the computation.
+    """
+
+    features: int
+    dropout_rate: float
+    epsilon: float
+    skip_scale: float
+    predict_variance: bool = False
+    resample_filter: typing.Sequence[int] = (1, 1)
+    deterministic: typing.Optional[bool] = None
+    dtype: typing.Any = None
+    param_dtype: typing.Any = None
+    precision: typing.Any = None
+
+    @nn.compact
+    def __call__(
+        self,
+        inputs: jax.Array,
+        timestep: typing.Tuple[jax.Array, ...],
+        edm_cond: typing.Optional[jax.Array] = None,
+        deterministic: typing.Optional[bool] = None,
+    ) -> typing.Tuple[jax.Array, typing.Optional[jax.Array]]:
+        r"""Forward pas the ``VAMeanFlowUNetModule``.
+
+        Args:
+            inputs (jax.Array): Input data of shape ``(*, D1, D2, ..., C)``.
+            timestep (Tuple[jax.Array, ...]): Time steps of shape ``(*, 1)``.
+            edm_cond (jax.Array, optional): Conditioning embeddings for
+                EDM data augmentation of shape ``(*, 6)``.
+            deterministic (bool, optional): Whether to run deterministically.
+
+        Returns:
+            The predicted average velocity field and optionally the variance
+            of the average velocity field if ``predict_variance=True``.
+        """
+        m_deterministic = nn.merge_param(
+            "deterministic",
+            self.deterministic,
+            deterministic,
+        )
+
+        # encode the time step conditions
+        time_embed = SinusoidalEmbed(self.features * 2, endpoint=True)
+        embed = [time_embed(t) for t in timestep]
+        cond = jnp.concatenate(embed, axis=-1)
+
+        if edm_cond is not None:
+            aug_cond = nn.Dense(
+                features=cond.shape[-1],
+                use_bias=False,
+                kernel_init=jax.nn.initializers.variance_scaling(
+                    scale=1.0,
+                    mode="fan_avg",
+                    distribution="uniform",
+                ),
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                name="aug_fc",
+            )(edm_cond)
+            cond = cond + aug_cond
+
+        cond_in = nn.Dense(
+            features=self.features * 4,
+            kernel_init=jax.nn.initializers.variance_scaling(
+                scale=1.0,
+                mode="fan_avg",
+                distribution="uniform",
+            ),
+            bias_init=jax.nn.initializers.zeros,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="cond_fc_1",
+        )
+        cond = jax.nn.silu(cond_in(cond))
+        cond_out = nn.Dense(
+            features=self.features * 4,
+            kernel_init=jax.nn.initializers.variance_scaling(
+                scale=1.0,
+                mode="fan_avg",
+                distribution="uniform",
+            ),
+            bias_init=jax.nn.initializers.zeros,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="cond_fc_2",
+        )
+        cond = jax.nn.silu(cond_out(cond))
+
+        # pass through the backbone U-Net
+        backbone = unet.SongNetwork(
+            features=self.features,
+            ch_mults=[2, 2, 2],
+            dropout_rate=self.dropout_rate,
+            epsilon=self.epsilon,
+            skip_scale=self.skip_scale,
+            resample_filter=self.resample_filter,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            precision=self.precision,
+            name="backbone",
+        )
+        h = backbone(
+            inputs=inputs,
+            cond=cond,
+            deterministic=m_deterministic,
+            with_head=False,
+        )
+
+        # shared normalization + activation
+        norm_out = nn.GroupNorm(
+            num_groups=32,
+            epsilon=self.epsilon,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="norm_out",
+        )
+        h_act = jax.nn.silu(norm_out(h))
+
+        # mean head: Conv(C_in, 3x3) -> average velocity
+        conv_out = nn.Conv(
+            features=inputs.shape[-1],
+            kernel_size=(3, 3),
+            strides=(1, 1),
+            padding=(1, 1),
+            kernel_init=jax.nn.initializers.variance_scaling(
+                scale=1e-10,
+                mode="fan_avg",
+                distribution="uniform",
+            ),
+            bias_init=jax.nn.initializers.zeros,
+            dtype=self.dtype,
+            name="conv_out",
+        )
+        u = conv_out(h_act)
+
+        # variance head: spatial pool -> Dense(1) -> scalar
+        if self.predict_variance:
+            var_head = nn.Dense(
+                features=inputs.shape[-1],
+                kernel_init=jax.nn.initializers.zeros,
+                bias_init=jax.nn.initializers.zeros,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                name="var_head",
+            )
+            log_var = var_head(h).squeeze(-1)
+        else:
+            log_var = None
+
+        return u, log_var
+
+
 __all__ = [
     "MeanFlowUNetModule",
     "MeanFlowUNetModel",
     "ImprovedMeanFlowUNetModel",
+    "VAMeanFlowUNetModule",
 ]
