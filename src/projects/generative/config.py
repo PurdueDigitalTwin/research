@@ -263,7 +263,7 @@ def improved_meanflow_unet_cifar_10() -> _config.ExperimentConfig:
 def vamf_unet_cifar_10() -> _config.ExperimentConfig:
     r"""VaMF with EMA tangent and FM anchor."""
     return _config.ExperimentConfig(
-        project_name="vamf",
+        project_name="meanflow",
         exp_name="vamf_unet_cifar_10",
         mode="train",
         data=_config.DataConfig(
@@ -346,7 +346,7 @@ def vamf_unet_cifar_10() -> _config.ExperimentConfig:
 def vamf_nll_unet_cifar_10() -> _config.ExperimentConfig:
     r"""VaMF with heteroscedastic variance prediction."""
     return _config.ExperimentConfig(
-        project_name="vamf",
+        project_name="meanflow",
         exp_name="vamf_nll_unet_cifar_10",
         mode="train",
         data=_config.DataConfig(
