@@ -181,7 +181,7 @@ class FrechetInceptionDistance:
                 assert isinstance(item, typing.Dict)
                 image = item.get(image_key, None)
                 if image is None:
-                    raise ValueError(f"'{image_key}' not found in dataset.")
+                    raise ValueError(f"'{image_key}' not in dataset.")
                 image = self.process(np.array(image))
                 ref_images.append(image)
                 if pbar is not None:
