@@ -334,25 +334,6 @@ def train_and_evaluate(
             while step < exp_config.trainer.num_train_steps:
                 train_metrics = collections.defaultdict(list)
                 for train_batch in datamodule.train_dataloader():
-                    if (
-                        step % exp_config.trainer.eval_every_n_steps == 0
-                        or step == exp_config.trainer.num_train_steps
-                    ):
-                        logging.rank_zero_info("Running evaluation...")
-                        outputs = evaluation_fn(params=state.ema_params)
-                        logging.rank_zero_info("Evaluation done.")
-                        _log_step_outputs(
-                            outputs=outputs,
-                            prefix="eval",
-                            step=step,
-                        )
-                        if outputs.scalars is not None and pbar is not None:
-                            scalar_str = ", ".join(
-                                f"{k}={jax.device_get(v).mean():.4f}"
-                                for k, v in outputs.scalars.items()
-                            )
-                            pbar.write(f"[eval end]: {scalar_str}")
-
                     train_batch = training.shard(train_batch)
                     with jax.profiler.StepTraceAnnotation(
                         name="train",
@@ -378,6 +359,25 @@ def train_and_evaluate(
                             step=step,
                             suffix="_step",
                         )
+
+                    if (
+                        step % exp_config.trainer.eval_every_n_steps == 0
+                        or step == exp_config.trainer.num_train_steps
+                    ):
+                        logging.rank_zero_info("Running evaluation...")
+                        outputs = evaluation_fn(params=state.ema_params)
+                        logging.rank_zero_info("Evaluation done.")
+                        _log_step_outputs(
+                            outputs=outputs,
+                            prefix="eval",
+                            step=step,
+                        )
+                        if outputs.scalars is not None and pbar is not None:
+                            scalar_str = ", ".join(
+                                f"{k}={jax.device_get(v).mean():.4f}"
+                                for k, v in outputs.scalars.items()
+                            )
+                            pbar.write(f"[eval end]: {scalar_str}")
 
                     # update step and progress bar
                     step += 1
