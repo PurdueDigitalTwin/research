@@ -667,8 +667,8 @@ class MeanFlowUNetModel(_model.Model):
         """Constructs timestamp tuple from (t, r).
 
         Args:
-            t_in (jax.Array): Terminal timesteps.
-            r_in (jax.Array): Start timesteps.
+            t_in (jax.Array): Terminal timestamp.
+            r_in (jax.Array): Start timestamp.
 
         Returns:
             Tuple of timestamp arrays for the network.
@@ -888,7 +888,7 @@ class VAMeanFlowUNetModule(nn.Module):
     def __call__(
         self,
         inputs: jax.Array,
-        timestep: typing.Tuple[jax.Array, ...],
+        timestamps: typing.Tuple[jax.Array, ...],
         edm_cond: typing.Optional[jax.Array] = None,
         deterministic: typing.Optional[bool] = None,
     ) -> typing.Tuple[jax.Array, typing.Optional[jax.Array]]:
@@ -896,7 +896,7 @@ class VAMeanFlowUNetModule(nn.Module):
 
         Args:
             inputs (jax.Array): Input data of shape ``(*, D1, D2, ..., C)``.
-            timestep (Tuple[jax.Array, ...]): Time steps of shape ``(*, 1)``.
+            timestamps (Tuple[jax.Array, ...]): Time steps of shape ``(*, 1)``.
             edm_cond (jax.Array, optional): Conditioning embeddings for
                 EDM data augmentation of shape ``(*, 6)``.
             deterministic (bool, optional): Whether to run deterministically.
@@ -913,7 +913,7 @@ class VAMeanFlowUNetModule(nn.Module):
 
         # encode the time step conditions
         time_embed = SinusoidalEmbed(self.features * 2, endpoint=True)
-        embed = [time_embed(t) for t in timestep]
+        embed = [time_embed(t) for t in timestamps]
         cond = jnp.concatenate(embed, axis=-1)
 
         if edm_cond is not None:
