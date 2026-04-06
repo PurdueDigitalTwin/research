@@ -600,6 +600,7 @@ class MeanFlowUNetModel(_model.Model):
 
         grad_fn = jax.value_and_grad(_loss_fn, has_aux=True)
         (loss, velocity_loss), grads = grad_fn(state.params)
+        global_grad_norm = optax.global_norm(grads)
         grads = jax.lax.pmean(grads, axis_name="batch")
         new_state = state.apply_gradients(grads=grads)
 
@@ -607,6 +608,7 @@ class MeanFlowUNetModel(_model.Model):
             scalars={
                 "loss": loss.mean(),
                 "velocity_loss": velocity_loss.mean(),
+                "global_grad_norm": global_grad_norm,
             },
             histograms={"t": t, "r": r, "t - r": t - r},
         )
@@ -1336,10 +1338,10 @@ class VAMeanFlowUNetModel(MeanFlowUNetModel):
         new_state = state.apply_gradients(grads=grads)
 
         scalars = {
-            "loss": total_loss,
-            "mf_loss": mf_loss,
-            "fm_anchor_loss": fm_anchor_loss,
-            "velocity_loss": velocity_loss,
+            "loss": total_loss.mean(),
+            "mf_loss": mf_loss.mean(),
+            "fm_anchor_loss": fm_anchor_loss.mean(),
+            "velocity_loss": velocity_loss.mean(),
             "global_grad_norm": global_grad_norm,
         }
         if self.predict_variance:
