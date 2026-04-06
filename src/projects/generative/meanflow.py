@@ -1040,8 +1040,14 @@ class VAMeanFlowUNetModel(MeanFlowUNetModel):
         timestamp_sampler (str): Distribution for timestamp sampling.
         timestamp_sampler_kwargs (Dict): Kwargs for the sampler.
         timestamp_overlap_rate (float): Overlap rate between t and r.
-        adaptive_weight_power (float): Power for adaptive weighting.
-            Set to 0 when using the NLL variant.
+        adaptive_weight_power (float): Inherited from the parent class
+            but unused by VaMF. The MSE variant uses the SNR schedule
+            ``w(t) = (1-t)^2 / (t^2 + snr_epsilon)`` per the paper's
+            Algorithm 2; the NLL variant uses the variance head as
+            automatic per-sample weighting per Proposition 5.
+        snr_epsilon (float): Stabilizer in the SNR weight denominator
+            for the MSE variant. Only active when
+            ``predict_variance=False``.
         fm_anchor_weight (float): Weight for FM anchor loss.
         fm_anchor_delta_min (float): Min interval for FM anchor.
         fm_anchor_delta_max (float): Max interval for FM anchor.
@@ -1076,7 +1082,8 @@ class VAMeanFlowUNetModel(MeanFlowUNetModel):
             "stddev": 1.0,
         },
         timestamp_overlap_rate: float = 0.75,
-        adaptive_weight_power: float = 1.0,
+        adaptive_weight_power: float = 0.0,
+        snr_epsilon: float = 1e-2,
         fm_anchor_weight: float = 0.5,
         fm_anchor_delta_min: float = 1e-4,
         fm_anchor_delta_max: float = 0.01,
@@ -1105,6 +1112,7 @@ class VAMeanFlowUNetModel(MeanFlowUNetModel):
             param_dtype=param_dtype,
             precision=precision,
         )
+        self.snr_epsilon = snr_epsilon
         self.fm_anchor_weight = fm_anchor_weight
         self.fm_anchor_delta_min = fm_anchor_delta_min
         self.fm_anchor_delta_max = fm_anchor_delta_max
@@ -1288,13 +1296,17 @@ class VAMeanFlowUNetModel(MeanFlowUNetModel):
                 )
                 sigma_sq_mean = jnp.mean(sigma_sq)
             else:
-                if self.adaptive_weight_power > 0.0:
-                    ada_wt = jnp.power(
-                        residual_sq + 1e-2,
-                        self.adaptive_weight_power,
-                    )
-                    residual_sq = residual_sq / (jax.lax.stop_gradient(ada_wt))
-                mf_loss = jnp.mean(residual_sq)
+                # SNR weighting per paper Algorithm 2:
+                #   w(t) = (1 - t)^2 / (t^2 + snr_epsilon)
+                # Downweights high-variance timesteps near t=1.
+                # Replaces the inherited MeanFlow Karras adaptive weighting
+                # so that mf_loss and fm_anchor_loss share the same
+                # raw `||.||^2` scale and `fm_anchor_weight` actually
+                # balances the two terms.
+                snr_wt = jnp.square(1.0 - t) / (
+                    jnp.square(t) + self.snr_epsilon
+                )
+                mf_loss = jnp.mean(snr_wt * residual_sq)
                 sigma_sq_mean = jnp.zeros(())
 
             # Flow-Matching anchor loss
