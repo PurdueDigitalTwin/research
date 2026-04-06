@@ -258,7 +258,7 @@ class MeanFlowUNetModule(nn.Module):
     @nn.compact
     def __call__(
         self,
-        image: jax.Array,
+        inputs: jax.Array,
         timestamps: typing.Tuple[jax.Array],
         edm_cond: typing.Optional[jax.Array] = None,
         deterministic: typing.Optional[bool] = None,
@@ -344,7 +344,7 @@ class MeanFlowUNetModule(nn.Module):
             name="backbone",
         )
         output = backbone(
-            inputs=image,
+            inputs=inputs,
             cond=cond,
             deterministic=m_deterministic,
         )
@@ -472,7 +472,7 @@ class MeanFlowUNetModel(_model.Model):
         }
         variables = self._network.init(
             rngs=rngs,
-            image=dummy_inputs["image"],
+            inputs=dummy_inputs["image"],
             timestamps=dummy_inputs["timestamps"],
             edm_cond=dummy_inputs["edm_cond"],
             deterministic=True,
@@ -558,7 +558,7 @@ class MeanFlowUNetModel(_model.Model):
                 timestamps = self._make_timestamps(t_in=t_in, r_in=r_in)
                 out = self._network.apply(
                     variables={"params": params},
-                    image=z_t,
+                    inputs=z_t,
                     timestamps=timestamps,
                     edm_cond=cond,
                     deterministic=False,
@@ -575,17 +575,6 @@ class MeanFlowUNetModel(_model.Model):
             v = e - image
             u, dudt = jax.jvp(u_fn, (z, r, t), (v, drdt, dtdt))
             u_target = v - (t - r)[..., None, None, None] * dudt
-
-            # NOTE: following the symmetric meanflow
-            # drdt = jnp.ones_like(r)
-            # dtdt = jnp.negative(jnp.ones_like(t))
-            # u, dudt = jax.jvp(u_fn, (z, r, t), (-v, drdt, dtdt))
-            # u_target = jax.lax.stop_gradient(
-            #     v
-            #     - jnp.clip(t - r, a_min=0.0, a_max=1.0)[..., None, None, None]
-            #     * dudt
-            #     * 0.5
-            # )
 
             # computes the target
             # NOTE: sum over all the pixels, following official implementation
@@ -662,7 +651,7 @@ class MeanFlowUNetModel(_model.Model):
 
         out = z_1 - self._network.apply(
             variables={"params": params},
-            image=z_1,
+            inputs=z_1,
             timestamps=timestamps,
             edm_cond=None,
             deterministic=deterministic,
@@ -807,7 +796,7 @@ class ImprovedMeanFlowUNetModel(MeanFlowUNetModel):
 
                 u_out = self._network.apply(
                     variables={"params": params},
-                    image=z_t,
+                    inputs=z_t,
                     timestamps=timestamps,
                     edm_cond=cond,
                     deterministic=False,
@@ -1156,7 +1145,7 @@ class VAMeanFlowUNetModel(MeanFlowUNetModel):
         )
         u, _ = self._network.apply(
             variables={"params": params},
-            image=z_1,
+            inputs=z_1,
             timestamps=timestamps,
             edm_cond=None,
             deterministic=deterministic,
@@ -1232,7 +1221,7 @@ class VAMeanFlowUNetModel(MeanFlowUNetModel):
         ema_timestamps = self._make_timestamps(t, t)
         v_tang, _ = self._network.apply(
             variables={"params": state.ema_params},
-            image=z,
+            inputs=z,
             timestamps=ema_timestamps,
             edm_cond=cond,
             deterministic=True,
@@ -1254,7 +1243,7 @@ class VAMeanFlowUNetModel(MeanFlowUNetModel):
                 timestamps = self._make_timestamps(t_in, r_in)
                 return self._network.apply(
                     variables={"params": params},
-                    image=z_t,
+                    inputs=z_t,
                     timestamps=timestamps,
                     edm_cond=cond,
                     deterministic=False,
