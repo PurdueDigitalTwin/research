@@ -320,7 +320,7 @@ def vamf_unet_cifar_10() -> _config.ExperimentConfig:
             batch_size=32,
         ),
         trainer=_config.TrainerConfig(
-            num_train_steps=800_000,
+            num_train_steps=150_000,
             log_every_n_steps=50,
             checkpoint_every_n_steps=10_000,
             eval_every_n_steps=2_500,
@@ -392,6 +392,7 @@ def vamf_nll_unet_cifar_10() -> _config.ExperimentConfig:
             predict_variance=True,
             variance_floor=1e-4,
             nll_warmup_steps=10_000,
+            nll_ramp_steps=2_000,
         ),
         metric=fdl.Config(
             fid.FrechetInceptionDistance,
@@ -405,7 +406,7 @@ def vamf_nll_unet_cifar_10() -> _config.ExperimentConfig:
             batch_size=32,
         ),
         trainer=_config.TrainerConfig(
-            num_train_steps=800_000,
+            num_train_steps=150_000,
             log_every_n_steps=50,
             checkpoint_every_n_steps=10_000,
             eval_every_n_steps=2_500,
