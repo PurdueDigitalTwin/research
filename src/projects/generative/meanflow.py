@@ -1008,7 +1008,12 @@ class VAMeanFlowUNetModule(nn.Module):
         )
         u = conv_out(h_act)
 
-        # variance head: spatial pool -> Dense(1) -> scalar
+        # variance head: per-location Dense(C) -> per-pixel-per-channel
+        # log-variance ``(B, H, W, C)``. Each pixel's variance is a
+        # linear projection of the shared post-norm+silu activation,
+        # capturing spatial heteroscedasticity. Paired with the
+        # per-pixel diagonal Gaussian NLL in
+        # ``VAMeanFlowUNetModel._loss_fn``.
         if self.predict_variance:
             var_head = nn.Dense(
                 features=inputs.shape[-1],
@@ -1018,7 +1023,7 @@ class VAMeanFlowUNetModule(nn.Module):
                 param_dtype=self.param_dtype,
                 name="var_head",
             )
-            log_var = var_head(h).squeeze(-1)
+            log_var = var_head(h_act)
         else:
             log_var = None
 
@@ -1055,7 +1060,14 @@ class VAMeanFlowUNetModel(MeanFlowUNetModel):
             head (NLL variant).
         variance_floor (float): Minimum variance to prevent
             collapse.
-        nll_warmup_steps (int): Steps of MSE before NLL activation.
+        nll_warmup_steps (int): End of the MSE->NLL linear ramp. For
+            steps ``< nll_warmup_steps - nll_ramp_steps`` the loss is
+            pure MSE; for steps ``>= nll_warmup_steps`` the loss is
+            pure per-pixel diagonal Gaussian NLL; in between the two
+            are linearly interpolated.
+        nll_ramp_steps (int): Number of steps over which the MSE->NLL
+            transition is linearly ramped, ending at
+            ``nll_warmup_steps``. Default 2_000.
         dtype (Any): Computation dtype.
         param_dtype (Any): Parameter dtype.
         precision (Any): Numerical precision.
@@ -1090,6 +1102,7 @@ class VAMeanFlowUNetModel(MeanFlowUNetModel):
         predict_variance: bool = False,
         variance_floor: float = 1e-4,
         nll_warmup_steps: int = 10_000,
+        nll_ramp_steps: int = 2_000,
         dtype: typing.Any = None,
         param_dtype: typing.Any = None,
         precision: typing.Any = None,
@@ -1119,6 +1132,7 @@ class VAMeanFlowUNetModel(MeanFlowUNetModel):
         self.predict_variance = predict_variance
         self.variance_floor = variance_floor
         self.nll_warmup_steps = nll_warmup_steps
+        self.nll_ramp_steps = nll_ramp_steps
 
         # override network with variance-aware version
         self._network = VAMeanFlowUNetModule(
@@ -1243,7 +1257,9 @@ class VAMeanFlowUNetModel(MeanFlowUNetModel):
             params: PyTree,
         ) -> typing.Tuple[
             jax.Array,
-            typing.Tuple[jax.Array, jax.Array, jax.Array, jax.Array],
+            typing.Tuple[
+                jax.Array, jax.Array, jax.Array, jax.Array, jax.Array
+            ],
         ]:
             def u_fn(
                 z_t: jax.Array,
@@ -1276,25 +1292,45 @@ class VAMeanFlowUNetModel(MeanFlowUNetModel):
                 (t - r)[..., None, None, None] * jax.lax.stop_gradient(dudt),
             )
             v_target = jax.lax.stop_gradient(e - image)
+            residual_per_pixel = jnp.square(v_pred - v_target)  # (B,H,W,C)
             residual_sq = jnp.sum(
-                jnp.square(v_pred - v_target),
+                residual_per_pixel,
                 axis=(-1, -2, -3),
-            )
+            )  # (B,)
 
             if self.predict_variance:
-                sigma_sq = jax.nn.softplus(log_var) + self.variance_floor
-                d = float(image.shape[-1] * image.shape[-2] * image.shape[-3])
-                nll_loss = residual_sq / (2.0 * sigma_sq)
-                nll_loss = nll_loss + 0.5 * d * jnp.log(sigma_sq)
-                mse_loss = residual_sq
-
-                # MSE during warmup, NLL after
-                mf_loss = jnp.where(
-                    state.step >= self.nll_warmup_steps,
-                    jnp.mean(nll_loss),
-                    jnp.mean(mse_loss),
+                # Per-pixel diagonal Gaussian NLL
+                #   l_NLL = 0.5 * sum_i [r_i^2 / sigma_i^2 + log sigma_i^2]
+                # with sigma_i^2 = softplus(log_var_i) + variance_floor
+                # per pixel per channel. See
+                # docs/generative/vamf/reviews/nll-audit-2026-04-06.md
+                # Revision 1 (P0 fix).
+                sigma_sq = (
+                    jax.nn.softplus(log_var) + self.variance_floor
+                )  # (B,H,W,C)
+                nll_per_pixel = 0.5 * (
+                    residual_per_pixel / sigma_sq + jnp.log(sigma_sq)
                 )
+                nll_loss = jnp.sum(nll_per_pixel, axis=(-1, -2, -3))  # (B,)
+                mse_loss = residual_sq  # (B,)
+
+                # Linear MSE -> NLL ramp ending at nll_warmup_steps
+                # (P2 fix). For steps < warmup_end - ramp the loss is
+                # pure MSE; for steps >= warmup_end it is pure NLL; in
+                # between the two are linearly interpolated so the
+                # variance head receives non-zero gradient during the
+                # transition.
+                warmup_end = jnp.float32(self.nll_warmup_steps)
+                warmup_start = warmup_end - jnp.float32(self.nll_ramp_steps)
+                alpha = jnp.clip(
+                    (jnp.float32(state.step) - warmup_start)
+                    / jnp.maximum(warmup_end - warmup_start, 1.0),
+                    0.0,
+                    1.0,
+                )
+                mf_loss = jnp.mean((1.0 - alpha) * mse_loss + alpha * nll_loss)
                 sigma_sq_mean = jnp.mean(sigma_sq)
+                log_var_std = jnp.std(jnp.log(sigma_sq))
             else:
                 # SNR weighting per paper Algorithm 2:
                 #   w(t) = (1 - t)^2 / (t^2 + snr_epsilon)
@@ -1308,6 +1344,7 @@ class VAMeanFlowUNetModel(MeanFlowUNetModel):
                 )
                 mf_loss = jnp.mean(snr_wt * residual_sq)
                 sigma_sq_mean = jnp.zeros(())
+                log_var_std = jnp.zeros(())
 
             # Flow-Matching anchor loss
             delta = jax.random.uniform(
@@ -1317,13 +1354,31 @@ class VAMeanFlowUNetModel(MeanFlowUNetModel):
                 maxval=self.fm_anchor_delta_max,
                 dtype=image.dtype,
             )
-            u_anchor, _ = u_fn(z_t=z, r_in=t - delta, t_in=t)
-            fm_anchor_loss = jnp.mean(
-                jnp.sum(
-                    jnp.square(u_anchor - v_target),
-                    axis=(-1, -2, -3),
+            u_anchor, log_var_anchor = u_fn(z_t=z, r_in=t - delta, t_in=t)
+            fm_residual_per_pixel = jnp.square(
+                u_anchor - v_target
+            )  # (B,H,W,C)
+
+            if self.predict_variance:
+                # Per-pixel NLL-consistent FM anchor using the variance
+                # head at the anchor point (P1 fix, Option A). Keeps
+                # mf_loss and fm_anchor_loss on the same per-pixel NLL
+                # scale so fm_anchor_weight has a consistent meaning
+                # across training and across the MSE/NLL variants.
+                sigma_sq_anchor = (
+                    jax.nn.softplus(log_var_anchor) + self.variance_floor
+                )  # (B,H,W,C)
+                fm_nll_per_pixel = 0.5 * (
+                    fm_residual_per_pixel / sigma_sq_anchor
+                    + jnp.log(sigma_sq_anchor)
                 )
-            )
+                fm_anchor_loss = jnp.mean(
+                    jnp.sum(fm_nll_per_pixel, axis=(-1, -2, -3))
+                )
+            else:
+                fm_anchor_loss = jnp.mean(
+                    jnp.sum(fm_residual_per_pixel, axis=(-1, -2, -3))
+                )
 
             total_loss = mf_loss + self.fm_anchor_weight * fm_anchor_loss
 
@@ -1340,14 +1395,32 @@ class VAMeanFlowUNetModel(MeanFlowUNetModel):
                 fm_anchor_loss,
                 velocity_loss,
                 sigma_sq_mean,
+                log_var_std,
             )
 
         grad_fn = jax.value_and_grad(_loss_fn, has_aux=True)
         (total_loss, aux), grads = grad_fn(state.params)
-        mf_loss, fm_anchor_loss, velocity_loss, sigma_sq_mean = aux
+        (
+            mf_loss,
+            fm_anchor_loss,
+            velocity_loss,
+            sigma_sq_mean,
+            log_var_std,
+        ) = aux
         global_grad_norm = optax.global_norm(grads)
         grads = jax.lax.pmean(grads, axis_name="batch")
         new_state = state.apply_gradients(grads=grads)
+
+        # Relative magnitude of the weighted FM anchor term to the MF
+        # loss (absolute value, since the per-pixel NLL can go negative
+        # when the mean head over-fits). Values >> 1 signal that the
+        # FM anchor is drowning out the MF signal and fm_anchor_weight
+        # needs tuning.
+        fm_mf_ratio = (
+            self.fm_anchor_weight
+            * jnp.abs(fm_anchor_loss)
+            / (jnp.abs(mf_loss) + 1e-8)
+        )
 
         scalars = {
             "loss": total_loss.mean(),
@@ -1355,9 +1428,11 @@ class VAMeanFlowUNetModel(MeanFlowUNetModel):
             "fm_anchor_loss": fm_anchor_loss.mean(),
             "velocity_loss": velocity_loss.mean(),
             "global_grad_norm": global_grad_norm,
+            "fm_mf_ratio": fm_mf_ratio,
         }
         if self.predict_variance:
             scalars["sigma_sq_mean"] = sigma_sq_mean
+            scalars["log_var_std"] = log_var_std
 
         outputs = _model.StepOutputs(
             scalars=scalars,
