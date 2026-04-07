@@ -1068,6 +1068,18 @@ class VAMeanFlowUNetModel(MeanFlowUNetModel):
         nll_ramp_steps (int): Number of steps over which the MSE->NLL
             transition is linearly ramped, ending at
             ``nll_warmup_steps``. Default 2_000.
+        no_fm_anchor (bool): Ablation flag. When ``True``, skip the
+            flow-matching anchor branch entirely: no anchor forward
+            pass, ``fm_anchor_loss`` reported as 0, and ``total_loss``
+            collapses to ``mf_loss``. Used by the R5a/R5d ablations to
+            isolate the FM anchor's contribution. Default ``False``.
+        boundary_tangent (bool): Ablation flag. When ``True``, replace
+            the EMA tangent ``u_{theta-bar}(z, t, t)`` with the
+            current model's own boundary prediction
+            ``u_theta(z, t, t)`` (still under ``stop_gradient``). This
+            isolates the contribution of EMA averaging vs. simply
+            having a deterministic boundary tangent. Used by the R5b
+            ablation. Default ``False``.
         dtype (Any): Computation dtype.
         param_dtype (Any): Parameter dtype.
         precision (Any): Numerical precision.
@@ -1103,6 +1115,8 @@ class VAMeanFlowUNetModel(MeanFlowUNetModel):
         variance_floor: float = 1e-4,
         nll_warmup_steps: int = 10_000,
         nll_ramp_steps: int = 2_000,
+        no_fm_anchor: bool = False,
+        boundary_tangent: bool = False,
         dtype: typing.Any = None,
         param_dtype: typing.Any = None,
         precision: typing.Any = None,
@@ -1133,6 +1147,8 @@ class VAMeanFlowUNetModel(MeanFlowUNetModel):
         self.variance_floor = variance_floor
         self.nll_warmup_steps = nll_warmup_steps
         self.nll_ramp_steps = nll_ramp_steps
+        self.no_fm_anchor = no_fm_anchor
+        self.boundary_tangent = boundary_tangent
 
         # override network with variance-aware version
         self._network = VAMeanFlowUNetModule(
@@ -1242,10 +1258,20 @@ class VAMeanFlowUNetModel(MeanFlowUNetModel):
             t[..., None, None, None] * e,
         )
 
-        # NOTE: evaluate EMA velocity anchor (outside loss_fn)
+        # NOTE: evaluate the boundary velocity anchor (outside loss_fn).
+        # By default, use the EMA model parameters per VaMF (D1).
+        # When the ``boundary_tangent`` ablation flag is set, use the
+        # current model's own boundary prediction instead — this drops
+        # the EMA averaging and isolates whether the deterministic
+        # tangent alone is sufficient. ``stop_gradient`` is required
+        # in both cases since the JVP tangent must not propagate
+        # gradients back into ``params``.
         ema_timestamps = self._make_timestamps(t, t)
+        tangent_params = (
+            state.params if self.boundary_tangent else state.ema_params
+        )
         v_tang, _ = self._network.apply(
-            variables={"params": state.ema_params},
+            variables={"params": tangent_params},
             inputs=z,
             timestamps=ema_timestamps,
             edm_cond=cond,
@@ -1346,41 +1372,50 @@ class VAMeanFlowUNetModel(MeanFlowUNetModel):
                 sigma_sq_mean = jnp.zeros(())
                 log_var_std = jnp.zeros(())
 
-            # Flow-Matching anchor loss
-            delta = jax.random.uniform(
-                key=delta_rng,
-                shape=batch_dims,
-                minval=self.fm_anchor_delta_min,
-                maxval=self.fm_anchor_delta_max,
-                dtype=image.dtype,
-            )
-            u_anchor, log_var_anchor = u_fn(z_t=z, r_in=t - delta, t_in=t)
-            fm_residual_per_pixel = jnp.square(
-                u_anchor - v_target
-            )  # (B,H,W,C)
-
-            if self.predict_variance:
-                # Per-pixel NLL-consistent FM anchor using the variance
-                # head at the anchor point (P1 fix, Option A). Keeps
-                # mf_loss and fm_anchor_loss on the same per-pixel NLL
-                # scale so fm_anchor_weight has a consistent meaning
-                # across training and across the MSE/NLL variants.
-                sigma_sq_anchor = (
-                    jax.nn.softplus(log_var_anchor) + self.variance_floor
-                )  # (B,H,W,C)
-                fm_nll_per_pixel = 0.5 * (
-                    fm_residual_per_pixel / sigma_sq_anchor
-                    + jnp.log(sigma_sq_anchor)
-                )
-                fm_anchor_loss = jnp.mean(
-                    jnp.sum(fm_nll_per_pixel, axis=(-1, -2, -3))
-                )
+            # Flow-Matching anchor loss. Skipped entirely under the
+            # ``no_fm_anchor`` ablation: no second forward pass, the
+            # scalar is reported as 0, and ``total_loss`` collapses to
+            # ``mf_loss``. Used by the R5a/R5d ablations.
+            if self.no_fm_anchor:
+                fm_anchor_loss = jnp.zeros(())
+                total_loss = mf_loss
             else:
-                fm_anchor_loss = jnp.mean(
-                    jnp.sum(fm_residual_per_pixel, axis=(-1, -2, -3))
+                delta = jax.random.uniform(
+                    key=delta_rng,
+                    shape=batch_dims,
+                    minval=self.fm_anchor_delta_min,
+                    maxval=self.fm_anchor_delta_max,
+                    dtype=image.dtype,
                 )
+                u_anchor, log_var_anchor = u_fn(z_t=z, r_in=t - delta, t_in=t)
+                fm_residual_per_pixel = jnp.square(
+                    u_anchor - v_target
+                )  # (B,H,W,C)
 
-            total_loss = mf_loss + self.fm_anchor_weight * fm_anchor_loss
+                if self.predict_variance:
+                    # Per-pixel NLL-consistent FM anchor using the
+                    # variance head at the anchor point (P1 fix,
+                    # Option A). Keeps ``mf_loss`` and
+                    # ``fm_anchor_loss`` on the same per-pixel NLL
+                    # scale so ``fm_anchor_weight`` has a consistent
+                    # meaning across training and across the MSE/NLL
+                    # variants.
+                    sigma_sq_anchor = (
+                        jax.nn.softplus(log_var_anchor) + self.variance_floor
+                    )  # (B,H,W,C)
+                    fm_nll_per_pixel = 0.5 * (
+                        fm_residual_per_pixel / sigma_sq_anchor
+                        + jnp.log(sigma_sq_anchor)
+                    )
+                    fm_anchor_loss = jnp.mean(
+                        jnp.sum(fm_nll_per_pixel, axis=(-1, -2, -3))
+                    )
+                else:
+                    fm_anchor_loss = jnp.mean(
+                        jnp.sum(fm_residual_per_pixel, axis=(-1, -2, -3))
+                    )
+
+                total_loss = mf_loss + self.fm_anchor_weight * fm_anchor_loss
 
             # velocity monitoring at boundary (r == t)
             velocity_loss = jnp.where(

@@ -43,7 +43,11 @@ _FEATURES = 64
 
 
 def _build_model(
-    *, predict_variance: bool, nll_warmup_steps: int = 3
+    *,
+    predict_variance: bool,
+    nll_warmup_steps: int = 3,
+    no_fm_anchor: bool = False,
+    boundary_tangent: bool = False,
 ) -> meanflow.VAMeanFlowUNetModel:
     """Construct a small ``VAMeanFlowUNetModel`` for tests."""
     return meanflow.VAMeanFlowUNetModel(
@@ -59,6 +63,8 @@ def _build_model(
         fm_anchor_delta_min=1e-4,
         fm_anchor_delta_max=0.01,
         timestamp_overlap_rate=0.5,
+        no_fm_anchor=no_fm_anchor,
+        boundary_tangent=boundary_tangent,
     )
 
 
@@ -220,6 +226,67 @@ def test_training_step_finite(predict_variance: bool) -> None:
             assert jnp.all(
                 jnp.isfinite(val)
             ), f"{key} is not finite after warmup: {val}"
+
+
+@pytest.mark.parametrize(
+    "no_fm_anchor,boundary_tangent",
+    [
+        (True, False),  # R5a/R5d-style: FM anchor disabled
+        (False, True),  # R5b-style: boundary tangent (no EMA)
+        (True, True),  # both flags on (sanity check)
+    ],
+)
+def test_ablation_flags_finite(
+    no_fm_anchor: bool, boundary_tangent: bool
+) -> None:
+    """Ablation flags must compile and produce finite losses.
+
+    Smoke test for the R5a/R5b/R5d ablations from the submission
+    plan: ``no_fm_anchor=True`` (skip the FM anchor branch entirely)
+    and ``boundary_tangent=True`` (use the current model's own
+    boundary prediction as the JVP tangent instead of the EMA model).
+    Both flags target the MSE variant; we exercise them on the MSE
+    variant since the NLL variant adds orthogonal complexity already
+    covered by ``test_training_step_finite``.
+
+    When ``no_fm_anchor=True`` we additionally assert that
+    ``fm_anchor_loss`` is exactly zero, since the branch should
+    short-circuit before any forward pass.
+    """
+    model = _build_model(
+        predict_variance=False,
+        no_fm_anchor=no_fm_anchor,
+        boundary_tangent=boundary_tangent,
+    )
+    init_rng, train_rng = jax.random.split(jax.random.PRNGKey(0))
+    state = _init_state(model, init_rng)
+    batch = _make_batch()
+
+    p_step = jax.pmap(
+        functools.partial(model.training_step, rngs=train_rng),
+        axis_name="batch",
+    )
+
+    _, outputs = p_step(state=state, batch=batch)
+
+    for key in ("loss", "mf_loss", "fm_anchor_loss", "velocity_loss"):
+        val = jnp.asarray(outputs.scalars[key])
+        assert jnp.all(
+            jnp.isfinite(val)
+        ), f"{key} is not finite with flags={no_fm_anchor},{boundary_tangent}: {val}"
+
+    if no_fm_anchor:
+        fm_val = jnp.asarray(outputs.scalars["fm_anchor_loss"])
+        assert jnp.all(
+            fm_val == 0.0
+        ), f"fm_anchor_loss must be zero under no_fm_anchor, got {fm_val}"
+        # When the anchor is disabled total_loss == mf_loss exactly.
+        loss_val = jnp.asarray(outputs.scalars["loss"])
+        mf_val = jnp.asarray(outputs.scalars["mf_loss"])
+        assert jnp.allclose(loss_val, mf_val), (
+            "total loss must equal mf_loss under no_fm_anchor; "
+            f"got loss={loss_val}, mf_loss={mf_val}"
+        )
 
 
 if __name__ == "__main__":
