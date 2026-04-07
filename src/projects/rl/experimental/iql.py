@@ -22,7 +22,7 @@ import typing_extensions
 
 from src.core import model as _model
 from src.core import train_state as _train_state
-from src.projects.rl import policy
+from src.projects.rl.experimental import policy
 from src.projects.rl import structure
 
 
@@ -56,16 +56,19 @@ class IQLModel(_model.Model):
             features=256,
             out_features=1,
             num_layers=2,
+            activation=nn.relu,
         )
         self._q_network = policy.MlpPolicy(
             features=256,
             out_features=action_space_dim,
             num_layers=2,
+            activation=nn.relu,
         )
         self._policy_network = policy.MlpPolicy(
             features=256,
             out_features=action_space_dim,
             num_layers=2,
+            activation=nn.tanh,
         )
     
 
@@ -239,7 +242,8 @@ class IQLModel(_model.Model):
         
         value_loss, value_grads = jax.value_and_grad(_value_loss_fn)(value_params)
         q_loss, q_grads = jax.value_and_grad(_q_loss_fn)(q_params)
-        policy_loss, policy_grads = jax.value_and_grad(_policy_loss_fn)(policy_params)
+        policy_loss, policy_grads = \
+            jax.value_and_grad(_policy_loss_fn)(policy_params)
 
         value_grads = jax.lax.pmean(value_grads, axis_name="batch")
         q_grads = jax.lax.pmean(q_grads, axis_name="batch")
