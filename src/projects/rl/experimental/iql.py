@@ -181,8 +181,10 @@ class IQLModel(_model.Model):
             value_output = self._value_network.apply(value_params, batch.state)
             value_output = typing.cast(jax.Array, value_output)
 
-            q1_target = self._q_network.apply(target_params[0], batch.state, batch.action)
-            q2_target = self._q_network.apply(target_params[1], batch.state, batch.action)
+            q1_target = self._q_network.apply(target_params[0], batch.state, \
+                                              batch.action)
+            q2_target = self._q_network.apply(target_params[1], batch.state, \
+                                              batch.action)
             q1_target = typing.cast(jax.Array, q1_target)
             q2_target = typing.cast(jax.Array, q2_target)
 
@@ -211,3 +213,51 @@ class IQLModel(_model.Model):
             q_loss = jnp.mean((q_output - target_q) ** 2)
 
             return q_loss
+        
+        def _policy_loss_fn(policy_params: jaxtyping.PyTree) -> jax.Array:
+            policy_output = self._policy_network.apply(policy_params, batch.state)
+            policy_output = typing.cast(jax.Array, policy_output)
+
+            q1_target = self._q_network.apply(target_params[0], batch.state, \
+                                              batch.action)
+            q2_target = self._q_network.apply(target_params[1], batch.state, \
+                                              batch.action)
+            q1_target = typing.cast(jax.Array, q1_target)
+            q2_target = typing.cast(jax.Array, q2_target)
+
+            q_policy_min = jnp.minimum(q1_target, q2_target)
+
+            value_output = self._value_network.apply(value_params, batch.state)
+            value_output = typing.cast(jax.Array, value_output)
+
+            # Compute policy loss based on advantage-weighted regression
+            advantage = q_policy_min - value_output
+            policy_loss = -jnp.mean(jnp.exp(self._beta * advantage) * \
+                                    jnp.log(policy_output))
+
+            return policy_loss
+        
+        value_loss, value_grads = jax.value_and_grad(_value_loss_fn)(value_params)
+        q_loss, q_grads = jax.value_and_grad(_q_loss_fn)(q_params)
+        policy_loss, policy_grads = jax.value_and_grad(_policy_loss_fn)(policy_params)
+
+        value_grads = jax.lax.pmean(value_grads, axis_name="batch")
+        q_grads = jax.lax.pmean(q_grads, axis_name="batch")
+        policy_grads = jax.lax.pmean(policy_grads, axis_name="batch")
+
+        new_value_train_state = train_state.apply_gradients(grads=value_grads)
+        new_q_train_state = train_state.apply_gradients(grads=q_grads)
+        new_policy_train_state = train_state.apply_gradients(grads=policy_grads)
+
+        outputs = _model.StepOutputs(
+            scalars={
+                "value_loss": value_loss.mean(),
+                "q_loss": q_loss.mean(),
+                "policy_loss": policy_loss.mean(),
+            }
+        )
+
+        new_train_state = (new_value_train_state, new_q_train_state, \
+                           new_policy_train_state)
+
+        return new_train_state, outputs
