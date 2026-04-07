@@ -1068,6 +1068,21 @@ class VAMeanFlowUNetModel(MeanFlowUNetModel):
         nll_ramp_steps (int): Number of steps over which the MSE->NLL
             transition is linearly ramped, ending at
             ``nll_warmup_steps``. Default 2_000.
+        nll_beta (float): β-NLL weighting exponent per Seitzer et al.,
+            "On the Pitfalls of Heteroscedastic Uncertainty Estimation
+            with Probabilistic Neural Networks", ICLR 2022. The
+            per-pixel NLL is multiplied by
+            ``stop_gradient(sigma_sq ** nll_beta)`` so that the
+            mean-head gradient wrt ``v_pred`` becomes
+            ``stop_gradient(sigma_sq ** (nll_beta - 1)) * (v_pred -
+            v_target)``. With ``nll_beta=1.0`` the mean head sees a
+            plain MSE-scale gradient regardless of ``sigma_sq``, which
+            prevents the ``1/sigma_sq`` amplification failure mode
+            observed on run ``hz3dpmz4`` (audit Revision 3, P1c).
+            ``nll_beta=0.0`` recovers the plain NLL (the known
+            pitfall). ``stop_gradient`` ensures the variance head's
+            fixed point ``sigma_sq* = E[r^2]`` is preserved for all
+            values of ``nll_beta``. Default 1.0.
         no_fm_anchor (bool): Ablation flag. When ``True``, skip the
             flow-matching anchor branch entirely: no anchor forward
             pass, ``fm_anchor_loss`` reported as 0, and ``total_loss``
@@ -1115,6 +1130,7 @@ class VAMeanFlowUNetModel(MeanFlowUNetModel):
         variance_floor: float = 1e-4,
         nll_warmup_steps: int = 10_000,
         nll_ramp_steps: int = 2_000,
+        nll_beta: float = 1.0,
         no_fm_anchor: bool = False,
         boundary_tangent: bool = False,
         dtype: typing.Any = None,
@@ -1147,6 +1163,7 @@ class VAMeanFlowUNetModel(MeanFlowUNetModel):
         self.variance_floor = variance_floor
         self.nll_warmup_steps = nll_warmup_steps
         self.nll_ramp_steps = nll_ramp_steps
+        self.nll_beta = nll_beta
         self.no_fm_anchor = no_fm_anchor
         self.boundary_tangent = boundary_tangent
 
@@ -1325,18 +1342,44 @@ class VAMeanFlowUNetModel(MeanFlowUNetModel):
             )  # (B,)
 
             if self.predict_variance:
-                # Per-pixel diagonal Gaussian NLL
-                #   l_NLL = 0.5 * sum_i [r_i^2 / sigma_i^2 + log sigma_i^2]
-                # with sigma_i^2 = softplus(log_var_i) + variance_floor
-                # per pixel per channel. See
-                # docs/generative/vamf/reviews/nll-audit-2026-04-06.md
-                # Revision 1 (P0 fix).
+                # Per-pixel diagonal Gaussian NLL with β-NLL weighting
+                # (Seitzer et al., ICLR 2022, "On the Pitfalls of
+                # Heteroscedastic Uncertainty Estimation with
+                # Probabilistic Neural Networks"):
+                #   l_βNLL = sg(σ²^β) · 0.5 · sum_i
+                #            [r_i² / σ_i² + log σ_i²]
+                # with σ_i² = softplus(log_var_i) + variance_floor per
+                # pixel per channel.
+                #
+                # See docs/generative/vamf/reviews/
+                # nll-audit-2026-04-06.md Revision 1 (P0 per-pixel
+                # form) and Revision 3 (P1c β-NLL decoupling).
+                #
+                # Why β-NLL: with plain NLL the mean-head gradient
+                # wrt v_pred is (v_pred - v_target) / σ², so once
+                # σ² converges near the residual scale (~0.13 on
+                # CIFAR-10 mid-training) the effective mean-head
+                # learning rate is amplified ~8× vs plain MSE. The
+                # mean head drifts into a training-loss-optimal but
+                # FID-suboptimal basin — observed on run hz3dpmz4.
+                # Multiplying by stop_gradient(σ²^β) makes the
+                # mean-head gradient stop_gradient(σ²^(β-1)) ·
+                # (v_pred - v_target); with self.nll_beta = 1 that
+                # is exactly MSE. The stop_gradient blocks the
+                # weight from back-propagating, so the variance
+                # head's fixed point σ²* = E[r²] is unchanged for
+                # all β — only the mean head's effective LR
+                # decouples from σ².
                 sigma_sq = (
                     jax.nn.softplus(log_var) + self.variance_floor
                 )  # (B,H,W,C)
-                nll_per_pixel = 0.5 * (
+                nll_per_pixel_raw = 0.5 * (
                     residual_per_pixel / sigma_sq + jnp.log(sigma_sq)
                 )
+                nll_weight = jax.lax.stop_gradient(
+                    sigma_sq**self.nll_beta
+                )  # (B,H,W,C)
+                nll_per_pixel = nll_weight * nll_per_pixel_raw
                 nll_loss = jnp.sum(nll_per_pixel, axis=(-1, -2, -3))  # (B,)
                 mse_loss = residual_sq  # (B,)
 
@@ -1420,10 +1463,19 @@ class VAMeanFlowUNetModel(MeanFlowUNetModel):
                     fm_mse_loss = jnp.mean(
                         jnp.sum(fm_residual_per_pixel, axis=(-1, -2, -3))
                     )
-                    fm_nll_per_pixel = 0.5 * (
+                    # Same β-NLL weighting as mf_loss above. The
+                    # stop_gradient(σ²_anchor^β) weight keeps the
+                    # mean-head gradient at MSE scale while leaving
+                    # the variance head's fixed point intact. See
+                    # audit Revision 3 (P1c).
+                    fm_nll_per_pixel_raw = 0.5 * (
                         fm_residual_per_pixel / sigma_sq_anchor
                         + jnp.log(sigma_sq_anchor)
                     )
+                    fm_nll_weight = jax.lax.stop_gradient(
+                        sigma_sq_anchor**self.nll_beta
+                    )  # (B,H,W,C)
+                    fm_nll_per_pixel = fm_nll_weight * fm_nll_per_pixel_raw
                     fm_nll_loss = jnp.mean(
                         jnp.sum(fm_nll_per_pixel, axis=(-1, -2, -3))
                     )
