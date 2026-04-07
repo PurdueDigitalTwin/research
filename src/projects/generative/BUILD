@@ -1,4 +1,9 @@
-load("//third_party:defs.bzl", "ml_py_binary", "ml_py_library")
+load(
+    "//third_party:defs.bzl",
+    "ml_py_binary",
+    "ml_py_library",
+    "ml_py_test",
+)
 
 package(default_visibility = ["//src/projects/generative:__subpackages__"])
 
@@ -44,6 +49,18 @@ ml_py_library(
         "//src/core:train_state",
         "//src/projects/generative/model:unet",
         "//src/projects/generative/pipeline:augment",
+    ],
+)
+
+ml_py_test(
+    name = "test_vamf",
+    srcs = ["test_vamf.py"],
+    deps = [
+        "flax",
+        "jax",
+        "optax",
+        ":meanflow",
+        "//src/core:train_state",
     ],
 )
 
