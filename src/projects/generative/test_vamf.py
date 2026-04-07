@@ -210,6 +210,27 @@ def test_training_step_finite(predict_variance: bool) -> None:
                 jnp.isfinite(val)
             ), f"{key} is not finite on step 0: {val}"
 
+        # PR (d) regression guard for the sign-inversion bug
+        # observed on run ``apjbrvz2``. At step 0 the MSE->NLL
+        # ramp is at ``alpha = 0`` so *both* ``mf_loss`` and
+        # ``fm_anchor_loss`` must be pure per-sample sums of
+        # squared residuals — strictly non-negative. Prior to
+        # PR (d), the FM anchor used per-pixel NLL from step 0
+        # regardless of ``alpha``, training the variance head
+        # exclusively via the anchor during pre-warmup and
+        # driving ``sigma^2`` downward until the sign of
+        # ``0.5*log sigma^2`` flipped the whole loss.
+        fm_val = jnp.asarray(outputs.scalars["fm_anchor_loss"])
+        assert jnp.all(fm_val >= 0.0), (
+            "fm_anchor_loss must be >= 0 at step 0 (alpha=0, "
+            f"pure MSE) under predict_variance=True; got {fm_val}"
+        )
+        mf_val_step0 = jnp.asarray(outputs.scalars["mf_loss"])
+        assert jnp.all(mf_val_step0 >= 0.0), (
+            "mf_loss must be >= 0 at step 0 (alpha=0, pure "
+            f"MSE) under predict_variance=True; got {mf_val_step0}"
+        )
+
         # Advance past the warmup end (step=3) so alpha clamps to 1
         # and the loss is pure per-pixel NLL. This is the regime
         # where the original P0 bug would have crashed.

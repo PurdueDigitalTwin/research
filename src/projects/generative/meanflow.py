@@ -1400,16 +1400,36 @@ class VAMeanFlowUNetModel(MeanFlowUNetModel):
                     # scale so ``fm_anchor_weight`` has a consistent
                     # meaning across training and across the MSE/NLL
                     # variants.
+                    #
+                    # PR (d) correction (audit Revision 2): the FM
+                    # anchor must respect the same MSE->NLL alpha
+                    # ramp applied to ``mf_loss`` above. Without
+                    # the ramp here, during pre-warmup (``alpha=0``
+                    # → pure MSE for ``mf_loss``) the variance head
+                    # was being trained *exclusively* by the FM
+                    # anchor's NLL term. The optimizer drove
+                    # ``sigma^2`` downward to shrink
+                    # ``0.5 * log sigma^2``, and once ``alpha``
+                    # ramped up ``mf_loss`` inherited a
+                    # already-shrunk variance head and flipped
+                    # sign. Observed on run ``apjbrvz2`` (killed
+                    # 2026-04-07 at step ~17k).
                     sigma_sq_anchor = (
                         jax.nn.softplus(log_var_anchor) + self.variance_floor
                     )  # (B,H,W,C)
+                    fm_mse_loss = jnp.mean(
+                        jnp.sum(fm_residual_per_pixel, axis=(-1, -2, -3))
+                    )
                     fm_nll_per_pixel = 0.5 * (
                         fm_residual_per_pixel / sigma_sq_anchor
                         + jnp.log(sigma_sq_anchor)
                     )
-                    fm_anchor_loss = jnp.mean(
+                    fm_nll_loss = jnp.mean(
                         jnp.sum(fm_nll_per_pixel, axis=(-1, -2, -3))
                     )
+                    fm_anchor_loss = (
+                        1.0 - alpha
+                    ) * fm_mse_loss + alpha * fm_nll_loss
                 else:
                     fm_anchor_loss = jnp.mean(
                         jnp.sum(fm_residual_per_pixel, axis=(-1, -2, -3))
