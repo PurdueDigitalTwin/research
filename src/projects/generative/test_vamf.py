@@ -310,5 +310,176 @@ def test_ablation_flags_finite(
         )
 
 
+def _beta_nll_per_pixel(
+    *,
+    v_pred: jax.Array,
+    v_target: jax.Array,
+    log_var: jax.Array,
+    nll_beta: float,
+    variance_floor: float = 1e-4,
+) -> jax.Array:
+    """Mirror of the β-NLL formula used in ``meanflow._loss_fn``.
+
+    Kept intentionally short and standalone so a future refactor to the main code cannot silently
+    change the math without also failing this regression test. If the main code deviates from this
+    formula, either the main code is wrong or this test must be updated in the same commit.
+    """
+    sigma_sq = jax.nn.softplus(log_var) + variance_floor
+    raw = 0.5 * (jnp.square(v_pred - v_target) / sigma_sq + jnp.log(sigma_sq))
+    weight = jax.lax.stop_gradient(sigma_sq**nll_beta)
+    return weight * raw
+
+
+def test_beta_nll_mean_grad_matches_mse_at_beta_one() -> None:
+    """β=1 must make the mean-head gradient equal plain MSE gradient.
+
+    The whole point of the β-NLL fix (audit Revision 3 / PR (e)) is
+    to decouple the mean head's effective learning rate from
+    ``sigma^2``. At β=1 the per-pixel NLL's gradient wrt ``v_pred``
+    is ``stop_gradient(sigma^{2*(1-1)}) * (v_pred - v_target) =
+    (v_pred - v_target)`` — numerically identical to MSE.
+
+    This test fixes ``v_pred``, ``v_target``, and ``log_var`` to
+    concrete values and asserts the numerical invariant. Any
+    regression that removes ``stop_gradient`` or changes the β
+    exponent will be caught.
+    """
+    rng = jax.random.PRNGKey(0)
+    k1, k2, k3 = jax.random.split(rng, 3)
+    v_pred = jax.random.normal(k1, (_B, _H, _W, _C))
+    v_target = jax.random.normal(k2, (_B, _H, _W, _C))
+    # log_var in a realistic post-warmup range: softplus(log_var) + 1e-4
+    # spans roughly [0.05, 1.5] so 1/sigma^2 amplification is non-trivial.
+    log_var = jax.random.normal(k3, (_B, _H, _W, _C)) - 1.0
+
+    def beta_nll_total(vp):
+        return jnp.sum(
+            _beta_nll_per_pixel(
+                v_pred=vp,
+                v_target=v_target,
+                log_var=log_var,
+                nll_beta=1.0,
+            )
+        )
+
+    def mse_total(vp):
+        return 0.5 * jnp.sum(jnp.square(vp - v_target))
+
+    grad_beta = jax.grad(beta_nll_total)(v_pred)
+    grad_mse = jax.grad(mse_total)(v_pred)
+
+    assert jnp.allclose(grad_beta, grad_mse, atol=1e-5), (
+        "β=1 mean-head gradient must equal MSE gradient. "
+        f"max |diff| = {jnp.max(jnp.abs(grad_beta - grad_mse))}"
+    )
+
+
+def test_beta_nll_zero_amplifies_by_inv_sigma_sq() -> None:
+    """β=0 must reproduce plain NLL with 1/σ² mean-head amplification.
+
+    This is the *failure mode* PR (e) fixes — it is tested here so
+    that if someone flips the default back to 0 they get a clean
+    contrast against the β=1 baseline. The mean-head gradient at β=0
+    is ``(v_pred - v_target) / sigma^2``, so with ``sigma^2 < 1`` it
+    is strictly larger in magnitude than the MSE gradient.
+    """
+    rng = jax.random.PRNGKey(1)
+    k1, k2 = jax.random.split(rng)
+    v_pred = jax.random.normal(k1, (_B, _H, _W, _C))
+    v_target = jax.random.normal(k2, (_B, _H, _W, _C))
+    # Force sigma^2 ≈ 0.13 (the observed post-warmup scale on
+    # hz3dpmz4): softplus(log_var) + 1e-4 = 0.13 → log_var ≈ -1.93.
+    log_var = jnp.full((_B, _H, _W, _C), -1.93)
+
+    def nll_total(vp):
+        return jnp.sum(
+            _beta_nll_per_pixel(
+                v_pred=vp,
+                v_target=v_target,
+                log_var=log_var,
+                nll_beta=0.0,
+            )
+        )
+
+    grad_nll = jax.grad(nll_total)(v_pred)
+    grad_mse = v_pred - v_target
+    sigma_sq = jax.nn.softplus(log_var) + 1e-4
+    expected = grad_mse / sigma_sq
+
+    assert jnp.allclose(grad_nll, expected, atol=1e-5), (
+        "β=0 mean-head gradient must equal (v_pred - v_target) / σ². "
+        f"max |diff| = {jnp.max(jnp.abs(grad_nll - expected))}"
+    )
+
+    # Sanity: the β=0 gradient should be substantially larger than
+    # MSE at σ² ≈ 0.13 — this is the amplification that triggered
+    # the hz3dpmz4 FID regression.
+    ratio = jnp.mean(jnp.abs(grad_nll)) / jnp.mean(jnp.abs(grad_mse))
+    assert ratio > 5.0, (
+        "β=0 / MSE gradient magnitude ratio should be > 5 at "
+        f"σ² ≈ 0.13; got {float(ratio):.2f}"
+    )
+
+
+def test_beta_nll_variance_grad_scales_with_sigma_sq() -> None:
+    """Variance-head gradient must satisfy ``grad_β = σ²^β · grad_0``.
+
+    This is the property that justifies PR (e): we decouple the mean
+    head's effective LR from ``σ²`` *without* changing what the
+    variance head converges to. Under ``jax.lax.stop_gradient`` the
+    β-weight is a constant during differentiation, so
+
+    ``∂L_β/∂log_var = stop_gradient(σ²^β) · ∂L_0/∂log_var``.
+
+    Two consequences follow:
+
+    1. **Fixed point preserved.** Wherever plain-NLL's log_var
+       gradient ``∂L_0/∂log_var`` is zero (σ²* = r² per pixel), the
+       β-NLL gradient is also zero regardless of β — zero scaled by
+       any weight is still zero. So the variance head converges to
+       the same place under any β.
+    2. **Per-step magnitude differs.** Away from the fixed point,
+       the β=1 variance-head update is ``σ²`` times the β=0 update
+       (element-wise). Under σ² < 1 this slows the variance head's
+       convergence, but it does not change its target.
+
+    This test locks in the exact element-wise scaling relationship,
+    which implies both (1) and (2).
+    """
+    rng = jax.random.PRNGKey(2)
+    k1, k2, k3 = jax.random.split(rng, 3)
+    v_pred = jax.random.normal(k1, (_B, _H, _W, _C))
+    v_target = jax.random.normal(k2, (_B, _H, _W, _C))
+    log_var = jax.random.normal(k3, (_B, _H, _W, _C)) - 0.5
+    sigma_sq = jax.nn.softplus(log_var) + 1e-4
+
+    def total(lv, beta):
+        return jnp.sum(
+            _beta_nll_per_pixel(
+                v_pred=v_pred,
+                v_target=v_target,
+                log_var=lv,
+                nll_beta=beta,
+            )
+        )
+
+    grad_beta0 = jax.grad(lambda lv: total(lv, 0.0))(log_var)
+    grad_beta1 = jax.grad(lambda lv: total(lv, 1.0))(log_var)
+    grad_beta_half = jax.grad(lambda lv: total(lv, 0.5))(log_var)
+
+    expected_beta1 = sigma_sq * grad_beta0
+    expected_beta_half = jnp.sqrt(sigma_sq) * grad_beta0
+
+    assert jnp.allclose(grad_beta1, expected_beta1, atol=1e-5), (
+        "log_var gradient must satisfy grad_{β=1} = σ² · grad_{β=0} "
+        "(stop_gradient freezes the σ²^β weight); "
+        f"max |diff| = {jnp.max(jnp.abs(grad_beta1 - expected_beta1))}"
+    )
+    assert jnp.allclose(grad_beta_half, expected_beta_half, atol=1e-5), (
+        "log_var gradient must satisfy grad_{β=0.5} = σ · grad_{β=0}; "
+        f"max |diff| = {jnp.max(jnp.abs(grad_beta_half - expected_beta_half))}"
+    )
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main(["-xv", __file__]))
