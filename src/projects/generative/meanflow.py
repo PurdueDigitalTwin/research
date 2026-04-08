@@ -1046,13 +1046,15 @@ class VAMeanFlowUNetModel(MeanFlowUNetModel):
         timestamp_sampler_kwargs (Dict): Kwargs for the sampler.
         timestamp_overlap_rate (float): Overlap rate between t and r.
         adaptive_weight_power (float): Inherited from the parent class
-            but unused by VaMF. The MSE variant uses the SNR schedule
+            but unused by VaMF. Both variants use the SNR schedule
             ``w(t) = (1-t)^2 / (t^2 + snr_epsilon)`` per the paper's
-            Algorithm 2; the NLL variant uses the variance head as
-            automatic per-sample weighting per Proposition 5.
+            Algorithm 2 as the per-sample timestep weighting. The
+            NLL variant applies it on top of the β-NLL per-pixel
+            term; see PR (f.1) / audit Revision 4 (P1d) for why
+            relying on the variance head alone is insufficient.
         snr_epsilon (float): Stabilizer in the SNR weight denominator
-            for the MSE variant. Only active when
-            ``predict_variance=False``.
+            ``w(t) = (1 - t)^2 / (t^2 + snr_epsilon)``. Active in
+            both the MSE and NLL variants.
         fm_anchor_weight (float): Weight for FM anchor loss.
         fm_anchor_delta_min (float): Min interval for FM anchor.
         fm_anchor_delta_max (float): Max interval for FM anchor.
@@ -1341,6 +1343,31 @@ class VAMeanFlowUNetModel(MeanFlowUNetModel):
                 axis=(-1, -2, -3),
             )  # (B,)
 
+            # SNR weighting per paper Algorithm 2:
+            #   w(t) = (1 - t)^2 / (t^2 + snr_epsilon)
+            # Downweights high-variance timesteps near t=1. Shared
+            # by both the MSE and NLL variants so the mean head
+            # focuses on low-t samples (which FID is sensitive to)
+            # in both paths. Replaces the inherited MeanFlow Karras
+            # adaptive weighting.
+            #
+            # PR (f.1) (audit Revision 4, P1d): the NLL variant
+            # initially omitted this weighting on the assumption
+            # that the variance head would provide automatic
+            # per-sample weighting. In practice the per-pixel
+            # diagonal Gaussian NLL has no explicit t-dependence,
+            # and once σ² converged to the residual scale the mean
+            # head spent uniform gradient across all t. On run
+            # ``rpj8lacb`` this decoupled the training-loss
+            # landscape from FID: mf_loss / velocity_loss /
+            # grad_norm all decreased monotonically through the
+            # kill point while FID regressed +12.50 at step 15k.
+            # Applying snr_wt restores t-dependent weighting on top
+            # of the β-NLL σ²-decoupling.
+            snr_wt = jnp.square(1.0 - t) / (
+                jnp.square(t) + self.snr_epsilon
+            )  # (B,)
+
             if self.predict_variance:
                 # Per-pixel diagonal Gaussian NLL with β-NLL weighting
                 # (Seitzer et al., ICLR 2022, "On the Pitfalls of
@@ -1353,7 +1380,8 @@ class VAMeanFlowUNetModel(MeanFlowUNetModel):
                 #
                 # See docs/generative/vamf/reviews/
                 # nll-audit-2026-04-06.md Revision 1 (P0 per-pixel
-                # form) and Revision 3 (P1c β-NLL decoupling).
+                # form), Revision 3 (P1c β-NLL decoupling), and
+                # Revision 4 (P1d SNR timestep weighting).
                 #
                 # Why β-NLL: with plain NLL the mean-head gradient
                 # wrt v_pred is (v_pred - v_target) / σ², so once
@@ -1397,20 +1425,17 @@ class VAMeanFlowUNetModel(MeanFlowUNetModel):
                     0.0,
                     1.0,
                 )
-                mf_loss = jnp.mean((1.0 - alpha) * mse_loss + alpha * nll_loss)
+                # Apply SNR weighting to the per-sample loss (both
+                # the MSE term during warmup and the β-NLL term
+                # post-warmup). snr_wt has shape (B,); mse_loss and
+                # nll_loss are per-sample (B,), so the product is a
+                # simple per-sample reweighting.
+                mf_loss = jnp.mean(
+                    snr_wt * ((1.0 - alpha) * mse_loss + alpha * nll_loss)
+                )
                 sigma_sq_mean = jnp.mean(sigma_sq)
                 log_var_std = jnp.std(jnp.log(sigma_sq))
             else:
-                # SNR weighting per paper Algorithm 2:
-                #   w(t) = (1 - t)^2 / (t^2 + snr_epsilon)
-                # Downweights high-variance timesteps near t=1.
-                # Replaces the inherited MeanFlow Karras adaptive weighting
-                # so that mf_loss and fm_anchor_loss share the same
-                # raw `||.||^2` scale and `fm_anchor_weight` actually
-                # balances the two terms.
-                snr_wt = jnp.square(1.0 - t) / (
-                    jnp.square(t) + self.snr_epsilon
-                )
                 mf_loss = jnp.mean(snr_wt * residual_sq)
                 sigma_sq_mean = jnp.zeros(())
                 log_var_std = jnp.zeros(())
