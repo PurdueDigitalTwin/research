@@ -24,6 +24,7 @@ from src.core import model as _model
 from src.core import train_state as _train_state
 from src.projects.rl.experimental import policy
 from src.projects.rl import structure
+from src.utilities import logging
 
 
 # Define the IQLModel class by extending the base Model class
@@ -58,9 +59,10 @@ class IQLModel(_model.Model):
             num_layers=2,
             activation=nn.relu,
         )
+        # for Q network, input: s, a; output: Q(s, a)
         self._q_network = policy.MlpPolicy(
             features=256,
-            out_features=action_space_dim,
+            out_features=1,
             num_layers=2,
             activation=nn.relu,
         )
@@ -90,17 +92,27 @@ class IQLModel(_model.Model):
             A tuple of (value_params, q_params, policy_params).
         """
         del kwargs
-        value_params = self._value_network.init(rngs, batch.state)
-        q_params = self._q_network.init(rngs, batch.state)
-        policy_params = self._policy_network.init(rngs, batch.state)
+        rng_v, rng_q1, rng_q2, rng_p = jax.random.split(rngs, 4)
+
+        value_params = self._value_network.init(rng_v, batch.state)
+
+        if batch.state is None or batch.action is None:
+            raise ValueError("State and Action must not be None for IQL updates.")
+        q_input = jnp.concatenate([batch.state, batch.action], axis=-1)
+        q1_params = self._q_network.init(rng_q1, q_input)
+        q2_params = self._q_network.init(rng_q2, q_input)
+        q_params = (q1_params, q2_params)
+        policy_params = self._policy_network.init(rng_p, batch.state)
 
         # Print the model summary for analysis
         print("Value Network Summary:")
-        print(self._value_network.tabulate(rngs, batch.state))
-        print("Q Network Summary:")
-        print(self._q_network.tabulate(rngs, batch.state))
+        print(self._value_network.tabulate(rng_v, batch.state))
+        print("Q1 Network Summary:")
+        print(self._q_network.tabulate(rng_q1, q_input))
+        print("Q2 Network Summary:")
+        print(self._q_network.tabulate(rng_q2, q_input))
         print("Policy Network Summary:")
-        print(self._policy_network.tabulate(rngs, batch.state))
+        print(self._policy_network.tabulate(rng_p, batch.state))
 
         return value_params, q_params, policy_params
     
@@ -128,7 +140,13 @@ class IQLModel(_model.Model):
         value_params, q_params, policy_params = params
 
         value_output = self._value_network.apply(value_params, batch.state)
-        q_output = self._q_network.apply(q_params, batch.state)
+
+        assert batch.state is not None, "State data is required for Q-network \
+            forward pass."
+        assert batch.action is not None, "Action data is required for Q-network \
+            forward pass."
+        q_input = jnp.concatenate([batch.state, batch.action], axis=-1)
+        q_output = self._q_network.apply(q_params, q_input)
         policy_output = self._policy_network.apply(policy_params, batch.state)
 
         # May add some assertions here to check the outputs
@@ -176,18 +194,22 @@ class IQLModel(_model.Model):
         Returns:
             A tuple of (value_loss, q_loss, policy_loss).
         """
-        del kwargs
+        del kwargs, rngs
 
         value_params, q_params, policy_params = params
+
+        if batch.state is None or batch.action is None:
+            raise ValueError("State and Action must not be None for IQL updates.")
+        q_input = jnp.concatenate([batch.state, batch.action], axis=-1)
 
         def _value_loss_fn(value_params: jaxtyping.PyTree) -> jax.Array:
             value_output = self._value_network.apply(value_params, batch.state)
             value_output = typing.cast(jax.Array, value_output)
 
-            q1_target = self._q_network.apply(target_params[0], batch.state, \
-                                              batch.action)
-            q2_target = self._q_network.apply(target_params[1], batch.state, \
-                                              batch.action)
+            # target params have same structure as q_params, which is a tuple of 
+            # (value_params, q_params, policy_params)
+            q1_target = self._q_network.apply(target_params[1][0], q_input)
+            q2_target = self._q_network.apply(target_params[1][1], q_input)
             q1_target = typing.cast(jax.Array, q1_target)
             q2_target = typing.cast(jax.Array, q2_target)
 
@@ -201,7 +223,8 @@ class IQLModel(_model.Model):
             return jnp.mean(value_loss)
         
         def _q_loss_fn(q_params: jaxtyping.PyTree) -> jax.Array:
-            q_output = self._q_network.apply(q_params, batch.state)
+            # NOTE: I use q1 network params here for simplicity.
+            q_output = self._q_network.apply(q_params[0], q_input)
             q_output = typing.cast(jax.Array, q_output)
 
             next_value_output = self._value_network.apply(
@@ -221,10 +244,8 @@ class IQLModel(_model.Model):
             policy_output = self._policy_network.apply(policy_params, batch.state)
             policy_output = typing.cast(jax.Array, policy_output)
 
-            q1_target = self._q_network.apply(target_params[0], batch.state, \
-                                              batch.action)
-            q2_target = self._q_network.apply(target_params[1], batch.state, \
-                                              batch.action)
+            q1_target = self._q_network.apply(target_params[1][0], q_input)
+            q2_target = self._q_network.apply(target_params[1][1], q_input)
             q1_target = typing.cast(jax.Array, q1_target)
             q2_target = typing.cast(jax.Array, q2_target)
 
@@ -234,9 +255,10 @@ class IQLModel(_model.Model):
             value_output = typing.cast(jax.Array, value_output)
 
             # Compute policy loss based on advantage-weighted regression
+            # TODO: check this logic
             advantage = q_policy_min - value_output
             policy_loss = -jnp.mean(jnp.exp(self._beta * advantage) * \
-                                    jnp.log(policy_output))
+                                    jnp.square(policy_output - batch.action))
 
             return policy_loss
         
@@ -244,10 +266,6 @@ class IQLModel(_model.Model):
         q_loss, q_grads = jax.value_and_grad(_q_loss_fn)(q_params)
         policy_loss, policy_grads = \
             jax.value_and_grad(_policy_loss_fn)(policy_params)
-
-        value_grads = jax.lax.pmean(value_grads, axis_name="batch")
-        q_grads = jax.lax.pmean(q_grads, axis_name="batch")
-        policy_grads = jax.lax.pmean(policy_grads, axis_name="batch")
 
         new_value_train_state = train_state.apply_gradients(grads=value_grads)
         new_q_train_state = train_state.apply_gradients(grads=q_grads)
