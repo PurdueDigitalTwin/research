@@ -330,6 +330,16 @@ def _beta_nll_per_pixel(
     return weight * raw
 
 
+def _snr_weight(t: jax.Array, snr_epsilon: float = 1e-2) -> jax.Array:
+    """Mirror of the SNR timestep weight ``(1-t)² / (t² + snr_epsilon)``.
+
+    Same "shadow mirror" convention as ``_beta_nll_per_pixel``: if the main code in
+    ``meanflow._loss_fn`` diverges from this formula, either the main code is wrong or this helper
+    must be updated in the same commit.
+    """
+    return jnp.square(1.0 - t) / (jnp.square(t) + snr_epsilon)
+
+
 def test_beta_nll_mean_grad_matches_mse_at_beta_one() -> None:
     """β=1 must make the mean-head gradient equal plain MSE gradient.
 
@@ -478,6 +488,159 @@ def test_beta_nll_variance_grad_scales_with_sigma_sq() -> None:
     assert jnp.allclose(grad_beta_half, expected_beta_half, atol=1e-5), (
         "log_var gradient must satisfy grad_{β=0.5} = σ · grad_{β=0}; "
         f"max |diff| = {jnp.max(jnp.abs(grad_beta_half - expected_beta_half))}"
+    )
+
+
+def test_snr_weighted_beta_nll_mean_grad_scales_with_snr_wt() -> None:
+    """Per-sample mean-head gradient must scale with ``snr_wt(t)``.
+
+    PR (f.1) (audit Revision 4 / P1d) applies the Algorithm 2 SNR
+    schedule ``w(t) = (1-t)² / (t² + snr_epsilon)`` as a per-sample
+    reweighting on top of the β-NLL formula:
+
+        mf_loss = mean_b( snr_wt(t_b) · sum_{hwc}( β-NLL_{bhwc} ) )
+
+    Because ``snr_wt`` is a pure function of ``t`` (independent of
+    ``v_pred``), its gradient contribution is a per-sample scalar
+    multiplier. For each sample ``b`` the gradient wrt ``v_pred[b]``
+    must be ``snr_wt(t_b)`` times what it would be without the
+    weighting. This test fixes two samples with very different t
+    values (``t=0.1`` and ``t=0.9``) and verifies the ratio of their
+    per-sample gradient norms matches ``snr_wt(0.1) / snr_wt(0.9)``.
+
+    Regression guard for removing ``snr_wt *`` from the NLL path.
+    Without PR (f.1) both samples would produce identical gradient
+    magnitudes (on the same distributional assumption of the
+    residual), which is exactly the bug observed on run
+    ``rpj8lacb``.
+    """
+    rng = jax.random.PRNGKey(3)
+    k1, k2, k3 = jax.random.split(rng, 3)
+    # Two samples: one at t=0.1 (low variance, high snr_wt), one at
+    # t=0.9 (high variance, low snr_wt).
+    t = jnp.asarray([0.1, 0.9], dtype=jnp.float32)
+    # CRITICAL: use *identical* residuals for both samples, so that
+    # the only difference in per-sample gradient magnitude comes from
+    # snr_wt(t). If v_pred/v_target/log_var differ across the batch
+    # dim, the residual L2 norm itself varies per-sample and the
+    # grad-norm ratio is not a clean test of snr_wt. Broadcast a
+    # single (H, W, C) sample to both batch slots.
+    v_pred_single = jax.random.normal(k1, (_H, _W, _C))
+    v_target_single = jax.random.normal(k2, (_H, _W, _C))
+    log_var_single = jax.random.normal(k3, (_H, _W, _C)) - 1.0
+    v_pred = jnp.broadcast_to(v_pred_single[None, ...], (2, _H, _W, _C))
+    v_target = jnp.broadcast_to(v_target_single[None, ...], (2, _H, _W, _C))
+    log_var = jnp.broadcast_to(log_var_single[None, ...], (2, _H, _W, _C))
+
+    def mf_loss_total(vp):
+        per_pixel = _beta_nll_per_pixel(
+            v_pred=vp,
+            v_target=v_target,
+            log_var=log_var,
+            nll_beta=1.0,
+        )
+        per_sample = jnp.sum(per_pixel, axis=(-1, -2, -3))  # (2,)
+        return jnp.mean(_snr_weight(t) * per_sample)
+
+    grad = jax.grad(mf_loss_total)(v_pred)  # (2, H, W, C)
+
+    # Per-sample gradient norm: the (1/B) from jnp.mean is constant
+    # across samples, so it cancels in the ratio.
+    per_sample_grad_norm = jnp.sqrt(
+        jnp.sum(jnp.square(grad), axis=(-1, -2, -3))
+    )  # (2,)
+    grad_ratio = per_sample_grad_norm[0] / per_sample_grad_norm[1]
+    expected_ratio = _snr_weight(t)[0] / _snr_weight(t)[1]
+
+    assert jnp.allclose(grad_ratio, expected_ratio, rtol=1e-4), (
+        "Per-sample gradient magnitude ratio must equal "
+        "snr_wt(t_0) / snr_wt(t_1). If this test fails, PR (f.1)'s "
+        "SNR weighting has been removed from the NLL mf_loss path. "
+        f"got ratio={float(grad_ratio):.4f}, "
+        f"expected={float(expected_ratio):.4f}"
+    )
+
+
+def test_snr_weighted_beta_nll_integration() -> None:
+    """End-to-end: ``snr_epsilon`` must actually affect NLL ``mf_loss``.
+
+    Complements the static gradient test above with a black-box
+    check that the live ``VAMeanFlowUNetModel.training_step`` path
+    for ``predict_variance=True`` reads ``snr_epsilon`` from the
+    model config and uses it to reweight the NLL loss. Two models
+    are built with identical params (same init seed) but different
+    ``snr_epsilon`` values; the ``mf_loss`` scalar they report on
+    the same batch must differ.
+
+    If PR (f.1) were reverted (SNR weighting dropped from the NLL
+    path), ``mf_loss`` would be invariant to ``snr_epsilon`` and
+    this test would fail. Regression guard for audit Revision 4 /
+    P1d.
+    """
+    rng = jax.random.PRNGKey(4)
+    init_rng, step_rng = jax.random.split(rng)
+
+    def _build_with_snr_epsilon(snr_epsilon: float):
+        model = meanflow.VAMeanFlowUNetModel(
+            in_channels=_C,
+            image_size=_H,
+            features=_FEATURES,
+            dropout_rate=0.0,
+            predict_variance=True,
+            variance_floor=1e-4,
+            # Put us past the ramp so alpha=1 (pure β-NLL path).
+            nll_warmup_steps=0,
+            nll_ramp_steps=0,
+            nll_beta=1.0,
+            snr_epsilon=snr_epsilon,
+            fm_anchor_weight=0.5,
+            fm_anchor_delta_min=1e-4,
+            fm_anchor_delta_max=0.01,
+            timestamp_overlap_rate=0.5,
+        )
+        return model
+
+    batch = _make_batch()
+
+    # Two wildly different snr_epsilon values. At snr_epsilon=1e-4
+    # the weight denominator is dominated by t², so snr_wt ranges
+    # roughly from ~O(1) to ~O(1e4). At snr_epsilon=1e4 the weight
+    # is approximately constant ((1-t)²/1e4), so the per-sample
+    # weighting degenerates to a constant.
+    model_a = _build_with_snr_epsilon(1e-4)
+    model_b = _build_with_snr_epsilon(1e4)
+
+    state_a = _init_state(model_a, init_rng)
+    state_b = _init_state(model_b, init_rng)
+
+    # Same rng per step so the sampled t values match across models.
+    step_fn_a = jax.pmap(
+        functools.partial(model_a.training_step, rngs=step_rng),
+        axis_name="batch",
+    )
+    step_fn_b = jax.pmap(
+        functools.partial(model_b.training_step, rngs=step_rng),
+        axis_name="batch",
+    )
+
+    _, outputs_a = step_fn_a(state=state_a, batch=batch)
+    _, outputs_b = step_fn_b(state=state_b, batch=batch)
+
+    mf_a = float(jnp.asarray(outputs_a.scalars["mf_loss"]).mean())
+    mf_b = float(jnp.asarray(outputs_b.scalars["mf_loss"]).mean())
+
+    assert jnp.isfinite(mf_a) and jnp.isfinite(mf_b), (
+        f"mf_loss must be finite under both snr_epsilon values; "
+        f"got mf_a={mf_a}, mf_b={mf_b}"
+    )
+    # The two losses must differ substantially — if they were
+    # within float-roundoff the SNR weight would have no effect on
+    # mf_loss and PR (f.1) would be silently broken.
+    assert not jnp.isclose(mf_a, mf_b, rtol=1e-3, atol=1e-6), (
+        "NLL mf_loss must respond to snr_epsilon. If this fails, "
+        "SNR weighting has been dropped from the NLL path. "
+        f"got mf_a={mf_a:.6f} (snr_eps=1e-4), "
+        f"mf_b={mf_b:.6f} (snr_eps=1e4)"
     )
 
 
