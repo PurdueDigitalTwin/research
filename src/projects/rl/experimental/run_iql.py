@@ -5,8 +5,6 @@
 # environment
 # Reference: https://arxiv.org/abs/2110.06169
 ################################################
-# NOTE: directly read data from .hdf5 is slow. We can first load the data 
-# into memory and then create a replay buffer.
 # NOTE: Alghough it's offline RL, we still need an environment to evaluate
 # the performance of the agent periodically during training.
 
@@ -28,6 +26,7 @@ import matplotlib.pyplot as plt
 import optax
 import minari
 
+from src.core import model
 from src.core import train_state as _train_state
 from src.projects.rl.experimental import iql
 from src.projects.rl import replay_buffer as _buffer
@@ -47,6 +46,12 @@ flags.DEFINE_integer(
     default=1_000_000, # total steps in (minari show mujoco/halfcheetah/medium-v0)
     required=False,
     help="Maximum number of experiences to store in the replay buffer.",
+)
+flags.DEFINE_integer(
+    name="batch_size",
+    default=256,
+    required=False,
+    help="Number of transitions to sample in each training batch.",
 )
 flags.DEFINE_integer(
     name="eval_every_n_episodes",
@@ -77,6 +82,12 @@ flags.DEFINE_float(
     default=3e-4,
     required=False,
     help="Learning rate for the optimizer.",
+)
+flags.DEFINE_float(
+    name="alpha",
+    default=0.005,
+    required=False,
+    help="Soft update coefficient for target network updates.",
 )
 flags.DEFINE_string(
     name="work_dir",
@@ -141,16 +152,53 @@ def normalize_states(data: _struct.StepTuple) -> _struct.StepTuple:
     )
 
 
+def sample_batch(
+        rng: typing.Any,
+        *,
+        batch_size: int,
+        num_samples: int,
+        flat_data: _struct.StepTuple
+    ) -> _struct.StepTuple:
+    r"""Samples a batch of transitions from the flattened dataset.
+
+    Args:
+        rng_key: A JAX random key for reproducibility.
+        batch_size: Number of transitions to sample in the batch.
+        num_samples: Total number of transitions in the flattened dataset.
+        flat_data: A StepTuple containing the flattened dataset.
+
+    Returns:
+        A StepTuple containing the sampled batch of transitions.
+    """
+    assert flat_data.state is not None, "State data is required for sampling."
+    assert flat_data.next_state is not None, "Next state data is required for \
+        sampling."
+    assert flat_data.action is not None, "Action data is required for sampling."
+    assert flat_data.reward is not None, "Reward data is required for sampling."
+    assert flat_data.done is not None, "Done data is required for sampling."
+
+    indices = jax.random.choice(rng, num_samples, (batch_size,), replace=False)
+
+    return _struct.StepTuple(
+        state=flat_data.state[indices],
+        action=flat_data.action[indices],
+        reward=flat_data.reward[indices],
+        next_state=flat_data.next_state[indices],
+        done=flat_data.done[indices],
+    )
+
+
 def main(argv: typing.List[str]) -> None:
     del argv  # Unused.
 
     # NOTE: refer to minari documentation on the difference between simple,
     # medium, and expert datasets.
     dataset = minari.load_dataset("mujoco/halfcheetah/medium-v0")
-    flat_data = flatten_data(dataset)
 
-    # Normalize the state
+    # Preprocessing: flatten the dataset and normalize the states.
+    flat_data = flatten_data(dataset)
     flat_data = normalize_states(flat_data)
+    assert flat_data.state is not None, "State data is required for training."
 
     # Create a gym environment for evaluation.
     env = gym.make("HalfCheetah-v4")
@@ -167,13 +215,6 @@ def main(argv: typing.List[str]) -> None:
         action_size,
     )
 
-    # Create a replay buffer and load the dataset into the buffer.
-    replay_buffer = _buffer.ReplayBuffer(
-        capacity=flags.FLAGS.buffer_capacity,
-        state_size=state_size,
-        action_size=action_size,
-    )
-
     # Create an IQL agent using IQL model and policy.
     agent = iql.IQLModel(
         action_space_dim=action_size[0],
@@ -187,23 +228,112 @@ def main(argv: typing.List[str]) -> None:
     # dataset into transitions before loading it into the replay buffer.
     rngs = jax.random.PRNGKey(42) # Use seed 42 for the training and evaluation.
     rngs, init_rng = jax.random.split(rngs)
-    params = agent.init(
-        batch=_struct.StepTuple(state=jnp.zeros((1, *state_size))),
+    v_params, q_params, p_params = agent.init(
+        batch=_struct.StepTuple(
+            state=jnp.zeros((1, *state_size)),
+            action=jnp.zeros((1, *action_size)),
+            reward=jnp.zeros((1, 1)),
+            next_state=jnp.zeros((1, *state_size)),
+            done=jnp.zeros((1, 1)),
+        ),
         rngs=init_rng,
     )
 
     # Create a trainstate instance for the agent.
-    optimizer = optax.adam(learning_rate=flags.FLAGS.learning_rate)
-    train_state = _train_state.TrainState.create(
-        params=params,
-        tx=optimizer,
+    # optimizer = optax.adam(learning_rate=flags.FLAGS.learning_rate)
+    
+    # Create a train state for each network (value, q, policy) in the IQL model.
+    v_state = _train_state.TrainState.create(
+        # apply_fn=model.
+        params=v_params,
+        tx=optax.adam(learning_rate=flags.FLAGS.learning_rate),
     )
-    target_params = copy.deepcopy(train_state.params)
+    q_state = _train_state.TrainState.create(
+        # apply_fn=model._q_network.apply,
+        params=q_params,
+        tx=optax.adam(learning_rate=flags.FLAGS.learning_rate),
+    )
+    p_state = _train_state.TrainState.create(
+        # apply_fn=model._policy_network.apply,
+        params=p_params,
+        tx=optax.adam(learning_rate=flags.FLAGS.learning_rate),
+    )
+
+    train_state = (v_state, q_state, p_state)
+
+    target_params = copy.deepcopy(train_state[1].params)
 
     # log loss and reward for analysis
     loss_log , reward_log = [], []
+ 
+    # Main loop: Sample batches from the dataset and train the agent.
+    num_samples = flat_data.state.shape[0]
 
+    for episode in range(1, flags.FLAGS.num_episodes + 1):
+        rngs, sample_rng = jax.random.split(rngs)
+        batch = sample_batch(
+            rng=sample_rng,
+            batch_size=flags.FLAGS.batch_size,
+            num_samples=num_samples,
+            flat_data=flat_data,
+        )
 
+        # We may set different larning rates for different trainstate
+        v_train_state, step_outputs = agent.training_step(
+            params=train_state[0].params,
+            batch=batch,
+            train_state=train_state[0],
+            target_params=target_params,
+            rngs=rngs,
+        )
+
+        q_train_state, step_outputs = agent.training_step(
+            params=train_state[1].params,
+            batch=batch,
+            train_state=train_state[1],
+            target_params=target_params,
+            rngs=rngs,
+        )
+
+        p_train_state, step_outputs = agent.training_step(
+            params=train_state[2].params,
+            batch=batch,
+            train_state=train_state[2],
+            target_params=target_params,
+            rngs=rngs,
+        )
+
+        # Soft update target params
+        target_params = jax.tree_util.tree_map(
+            lambda tp, p: tp * (1 - flags.FLAGS.alpha) + p * flags.FLAGS.alpha,
+            target_params,
+            train_state[1].params,
+        )
+
+        loss_log.append(step_outputs.output)
+        logging.rank_zero_info(
+            "Episode %d: Loss = %.4f",
+            episode,
+            step_outputs.output,
+        )
+
+        # Periodically evaluate the agent's performance in the environment.
+        if episode % flags.FLAGS.eval_every_n_episodes == 0:
+            pass
+            # total_reward = training.evaluate_agent(
+            #     env=env,
+            #     agent=agent,
+            #     params=train_state.params[2], # policy params
+            #     num_episodes=5, # evaluate for 5 episodes and average the reward
+            #     max_steps_per_episode=1000, # max steps per episode
+            #     rngs=rngs,
+            # )
+            # reward_log.append(total_reward)
+            # logging.rank_zero_info(
+            #     "Episode %d: Average Reward = %.2f",
+            #     episode,
+            #     total_reward,
+            # )
 
 
 if __name__ == "__main__":
