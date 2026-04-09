@@ -10,6 +10,7 @@
 # Reference: https://arxiv.org/pdf/1802.09477
 
 
+import functools
 import typing
 
 from flax import linen as nn
@@ -173,8 +174,9 @@ class IQLModel(_model.Model):
         return weight * (diff ** 2)
     
 
-    @typing_extensions.override
-    def training_step(
+    # @typing_extensions.override
+    @functools.partial(jax.jit, static_argnames=["self"])
+    def training_v_step(
         self,
         *,
         params: typing.Any,
@@ -196,7 +198,7 @@ class IQLModel(_model.Model):
         """
         del kwargs, rngs
 
-        value_params, q_params, policy_params = params
+        v_params, q_params, p_params = params
 
         if batch.state is None or batch.action is None:
             raise ValueError("State and Action must not be None for IQL updates.")
@@ -208,8 +210,8 @@ class IQLModel(_model.Model):
 
             # target params have same structure as q_params, which is a tuple of 
             # (value_params, q_params, policy_params)
-            q1_target = self._q_network.apply(target_params[1][0], q_input)
-            q2_target = self._q_network.apply(target_params[1][1], q_input)
+            q1_target = self._q_network.apply(target_params[0], q_input)
+            q2_target = self._q_network.apply(target_params[1], q_input)
             q1_target = typing.cast(jax.Array, q1_target)
             q2_target = typing.cast(jax.Array, q2_target)
 
@@ -222,6 +224,36 @@ class IQLModel(_model.Model):
 
             return jnp.mean(value_loss)
         
+        v_loss, v_grads = jax.value_and_grad(_value_loss_fn)(v_params)
+        new_v_train_state = train_state.apply_gradients(grads=v_grads)
+
+        outputs = _model.StepOutputs(
+            scalars={
+                "value_loss": v_loss.mean(),
+            }
+        )
+
+        return new_v_train_state, outputs
+    
+    @functools.partial(jax.jit, static_argnames=["self"])
+    def training_q_step(
+        self,
+        *,
+        params: typing.Any,
+        batch: structure.StepTuple,
+        train_state: _train_state.TrainState,
+        target_params: typing.Any,
+        rngs: typing.Any,
+        **kwargs,
+    ) -> typing.Any:
+        del kwargs, rngs
+
+        value_params, q_params, policy_params = params
+
+        if batch.state is None or batch.action is None:
+            raise ValueError("State and Action must not be None for IQL updates.")
+        q_input = jnp.concatenate([batch.state, batch.action], axis=-1)
+
         def _q_loss_fn(q_params: jaxtyping.PyTree) -> jax.Array:
             # NOTE: I use q1 network params here for simplicity.
             q_output = self._q_network.apply(q_params[0], q_input)
@@ -240,12 +272,42 @@ class IQLModel(_model.Model):
 
             return q_loss
         
+        q_loss, q_grads = jax.value_and_grad(_q_loss_fn)(q_params)
+        new_q_train_state = train_state.apply_gradients(grads=q_grads)
+
+        outputs = _model.StepOutputs(
+            scalars={
+                "q_loss": q_loss.mean(),
+            }
+        )
+
+        return new_q_train_state, outputs
+    
+    @functools.partial(jax.jit, static_argnames=["self"])
+    def training_p_step(
+        self,
+        *,
+        params: typing.Any,
+        batch: structure.StepTuple,
+        train_state: _train_state.TrainState,
+        target_params: typing.Any,
+        rngs: typing.Any,
+        **kwargs,
+    ) -> typing.Any:
+        del kwargs, rngs
+
+        value_params, q_params, policy_params = params
+
+        if batch.state is None or batch.action is None:
+            raise ValueError("State and Action must not be None for IQL updates.")
+        q_input = jnp.concatenate([batch.state, batch.action], axis=-1)
+
         def _policy_loss_fn(policy_params: jaxtyping.PyTree) -> jax.Array:
             policy_output = self._policy_network.apply(policy_params, batch.state)
             policy_output = typing.cast(jax.Array, policy_output)
 
-            q1_target = self._q_network.apply(target_params[1][0], q_input)
-            q2_target = self._q_network.apply(target_params[1][1], q_input)
+            q1_target = self._q_network.apply(target_params[0], q_input)
+            q2_target = self._q_network.apply(target_params[1], q_input)
             q1_target = typing.cast(jax.Array, q1_target)
             q2_target = typing.cast(jax.Array, q2_target)
 
@@ -257,29 +319,18 @@ class IQLModel(_model.Model):
             # Compute policy loss based on advantage-weighted regression
             # TODO: check this logic
             advantage = q_policy_min - value_output
-            policy_loss = -jnp.mean(jnp.exp(self._beta * advantage) * \
+            policy_loss = jnp.mean(jnp.exp(self._beta * advantage) * \
                                     jnp.square(policy_output - batch.action))
 
             return policy_loss
-        
-        value_loss, value_grads = jax.value_and_grad(_value_loss_fn)(value_params)
-        q_loss, q_grads = jax.value_and_grad(_q_loss_fn)(q_params)
-        policy_loss, policy_grads = \
-            jax.value_and_grad(_policy_loss_fn)(policy_params)
 
-        new_value_train_state = train_state.apply_gradients(grads=value_grads)
-        new_q_train_state = train_state.apply_gradients(grads=q_grads)
-        new_policy_train_state = train_state.apply_gradients(grads=policy_grads)
+        p_loss, policy_grads = jax.value_and_grad(_policy_loss_fn)(policy_params)
+        new_p_train_state = train_state.apply_gradients(grads=policy_grads)
 
         outputs = _model.StepOutputs(
             scalars={
-                "value_loss": value_loss.mean(),
-                "q_loss": q_loss.mean(),
-                "policy_loss": policy_loss.mean(),
+                "policy_loss": p_loss.mean(),
             }
         )
 
-        new_train_state = (new_value_train_state, new_q_train_state, \
-                           new_policy_train_state)
-
-        return new_train_state, outputs
+        return new_p_train_state, outputs

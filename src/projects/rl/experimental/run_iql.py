@@ -25,6 +25,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import optax
 import minari
+from wandb import agent
 
 from src.core import model
 from src.core import train_state as _train_state
@@ -37,7 +38,7 @@ from src.utilities import training
 # Running flags
 flags.DEFINE_integer(
     name="num_episodes",
-    default=10_000,
+    default=500,
     required=False,
     help="Total number of episodes for training.",
 )
@@ -124,14 +125,19 @@ def flatten_data(dataset: minari.MinariDataset) -> _struct.StepTuple:
     )
 
 
-def normalize_states(data: _struct.StepTuple) -> _struct.StepTuple:
+def normalize_states(
+        data: _struct.StepTuple
+    ) -> typing.Tuple[jax.Array, jax.Array, _struct.StepTuple]:
     r"""Normalizes the state observations in the dataset for better performance.
 
     Args:
         data: A tuple of (states, actions, rewards, next_states, dones).
 
     Returns:
-        A StepTuple with normalized states and next_states.
+        A tuple of (state_mean, state_std, normalized_data) where:
+        - state_mean: The mean of the state observations.
+        - state_std: The standard deviation of the state observations.
+        - normalized_data: A StepTuple with normalized states and next_states.
     """
     assert data.state is not None, "State data is required for normalization."
     assert data.next_state is not None, \
@@ -143,13 +149,15 @@ def normalize_states(data: _struct.StepTuple) -> _struct.StepTuple:
     normalized_state = (data.state - state_mean) / state_std
     normalized_next_state = (data.next_state - state_mean) / state_std
 
-    return _struct.StepTuple(
+    normalized_data = _struct.StepTuple(
         state=normalized_state,
         action=data.action,
         reward=data.reward,
         next_state=normalized_next_state,
         done=data.done,
     )
+
+    return state_mean, state_std, normalized_data
 
 
 def sample_batch(
@@ -188,6 +196,59 @@ def sample_batch(
     )
 
 
+def evaluate_agent(
+        env: gym.Env,
+        agent: iql.IQLModel,
+        policy_params: typing.Any,
+        state_mean: jax.Array,
+        state_std: jax.Array,
+        num_episodes: int = 5,
+    ) -> float:
+    r"""Evaluates the agent's performance in the environment.
+
+    Args:
+        env: The gym environment to evaluate in.
+        agent: The IQL agent to evaluate.
+        policy_params: The parameters of the agent's policy network.
+        state_mean: The mean used for normalizing states during training.
+        state_std: The standard deviation used for normalizing states during training.
+        num_episodes: Number of episodes to run for evaluation.
+    
+    Returns:
+        The average reward obtained over the evaluation episodes.
+    """
+    episode_rewards = []
+    
+    @jax.jit
+    def get_action(params, s):
+        # Forward pass the policy network to get the action for the given state.
+        # The range of the action for tanh activation is [-1, 1], which matches 
+        # the action space of HalfCheetah-v4.
+        return agent._policy_network.apply(params, s)
+
+    for _ in range(num_episodes):
+        obs, _ = env.reset()
+        done = False
+        truncated = False
+        total_reward = 0.0
+        
+        while not (done or truncated):
+            # Normalize the observation using the same mean and std as during 
+            # training.
+            norm_obs = (jnp.array(obs) - state_mean) / state_std
+            
+            # Get action from the policy network and step in the environment.
+            action = get_action(policy_params, norm_obs[None, :])
+            action = np.array(action).squeeze()
+            
+            obs, reward, done, truncated, _ = env.step(action)
+            total_reward += float(reward)
+            
+        episode_rewards.append(total_reward)
+    
+    return float(np.mean(episode_rewards))
+
+
 def main(argv: typing.List[str]) -> None:
     del argv  # Unused.
 
@@ -197,7 +258,7 @@ def main(argv: typing.List[str]) -> None:
 
     # Preprocessing: flatten the dataset and normalize the states.
     flat_data = flatten_data(dataset)
-    flat_data = normalize_states(flat_data)
+    state_mean, state_std, flat_data = normalize_states(flat_data)
     assert flat_data.state is not None, "State data is required for training."
 
     # Create a gym environment for evaluation.
@@ -269,6 +330,8 @@ def main(argv: typing.List[str]) -> None:
     # Main loop: Sample batches from the dataset and train the agent.
     num_samples = flat_data.state.shape[0]
 
+    # Stsge 1: Train the value and q networks using the sampled batches.
+    logging.rank_zero_info("Starting Stage 1: Critic Training (V & Q)...")
     for episode in range(1, flags.FLAGS.num_episodes + 1):
         rngs, sample_rng = jax.random.split(rngs)
         batch = sample_batch(
@@ -278,30 +341,27 @@ def main(argv: typing.List[str]) -> None:
             flat_data=flat_data,
         )
 
+        # Update value and q networks using the sampled batch.
         # We may set different larning rates for different trainstate
-        v_train_state, step_outputs = agent.training_step(
-            params=train_state[0].params,
+        params = tuple(s.params for s in train_state)
+
+        v_train_state, v_outputs = agent.training_v_step(
+            params=params,
             batch=batch,
             train_state=train_state[0],
             target_params=target_params,
             rngs=rngs,
         )
 
-        q_train_state, step_outputs = agent.training_step(
-            params=train_state[1].params,
+        q_train_state, q_outputs = agent.training_q_step(
+            params=params,
             batch=batch,
             train_state=train_state[1],
             target_params=target_params,
             rngs=rngs,
         )
 
-        p_train_state, step_outputs = agent.training_step(
-            params=train_state[2].params,
-            batch=batch,
-            train_state=train_state[2],
-            target_params=target_params,
-            rngs=rngs,
-        )
+        train_state = (v_train_state, q_train_state, train_state[2])
 
         # Soft update target params
         target_params = jax.tree_util.tree_map(
@@ -310,30 +370,109 @@ def main(argv: typing.List[str]) -> None:
             train_state[1].params,
         )
 
-        loss_log.append(step_outputs.output)
-        logging.rank_zero_info(
-            "Episode %d: Loss = %.4f",
-            episode,
-            step_outputs.output,
+        # log the loss for analysis
+        loss_log.append((v_outputs.scalars["value_loss"], \
+                         q_outputs.scalars["q_loss"]))
+        
+        # logging every 10 episodes for better visibility
+        if episode % 10 == 0:
+            logging.rank_zero_info(
+                "Episode %d: Value Loss = %.4f, Q Loss = %.4f",
+                episode,
+                v_outputs.scalars["value_loss"],
+                q_outputs.scalars["q_loss"],
+            )
+
+    # Stage 2: Extract policy network using the sampled batches and the trained
+    # value and q networks.
+    logging.rank_zero_info("Starting Stage 2: Policy Extraction...")
+    for episode in range(1, flags.FLAGS.num_episodes + 1):
+        rngs, sample_rng = jax.random.split(rngs)
+        batch = sample_batch(
+            rng=sample_rng,
+            batch_size=flags.FLAGS.batch_size,
+            num_samples=num_samples,
+            flat_data=flat_data,
         )
+
+        # Update policy network using the sampled batch.
+        params = tuple(s.params for s in train_state)
+
+        p_train_state, p_outputs = agent.training_p_step(
+            params=params,
+            batch=batch,
+            train_state=train_state[2],
+            target_params=target_params,
+            rngs=rngs,
+        )
+
+        train_state = (train_state[0], train_state[1], p_train_state)
+
+        # log the loss for analysis
+        loss_log.append(p_outputs.scalars["policy_loss"])
+
+        # logging every 10 episodes for better visibility
+        if episode % 10 == 0:
+            logging.rank_zero_info(
+                "Episode %d: Policy Loss = %.4f",
+                episode,
+                p_outputs.scalars["policy_loss"],
+            )
 
         # Periodically evaluate the agent's performance in the environment.
         if episode % flags.FLAGS.eval_every_n_episodes == 0:
-            pass
-            # total_reward = training.evaluate_agent(
-            #     env=env,
-            #     agent=agent,
-            #     params=train_state.params[2], # policy params
-            #     num_episodes=5, # evaluate for 5 episodes and average the reward
-            #     max_steps_per_episode=1000, # max steps per episode
-            #     rngs=rngs,
-            # )
-            # reward_log.append(total_reward)
-            # logging.rank_zero_info(
-            #     "Episode %d: Average Reward = %.2f",
-            #     episode,
-            #     total_reward,
-            # )
+            avg_reward = evaluate_agent(
+                env=env,
+                agent=agent,
+                policy_params=train_state[2].params,
+                state_mean=state_mean,  
+                state_std=state_std,
+                num_episodes=5,
+            )
+
+            reward_log.append(avg_reward)
+            logging.rank_zero_info(
+                "Episode %d: Average Reward = %.4f",
+                episode,
+                avg_reward,
+            )
+    
+    # Plot the training loss and reward curves for analysis.
+    # Plot four figures in 2*2
+    fig, axs = plt.subplots(2, 2, figsize=(12, 10))
+
+    # Plot the value loss curve
+    v_loss = [l[0] for l in loss_log if isinstance(l, tuple)]
+    axs[0, 0].plot(v_loss)
+    axs[0, 0].set_title("Value Loss Curve")
+    axs[0, 0].set_xlabel("Episode")
+    axs[0, 0].set_ylabel("Value Loss")
+
+    # Plot the q loss curve
+    q_loss = [l[1] for l in loss_log if isinstance(l, tuple)]
+    axs[0, 1].plot(q_loss)
+    axs[0, 1].set_title("Q Loss Curve")
+    axs[0, 1].set_xlabel("Episode")
+    axs[0, 1].set_ylabel("Q Loss")
+
+    # Plot the policy loss curve
+    p_loss = [l for l in loss_log if not isinstance(l, tuple)]
+    axs[1, 0].plot(p_loss)
+    axs[1, 0].set_title("Policy Loss Curve")
+    axs[1, 0].set_xlabel("Episode")
+    axs[1, 0].set_ylabel("Policy Loss")
+    
+    # Plot the reward curve
+    axs[1, 1].plot(reward_log)
+    axs[1, 1].set_title("Reward Curve")
+    axs[1, 1].set_xlabel("Episode (x10)")
+    axs[1, 1].set_ylabel("Average Reward")
+
+    # Save the figure to the working directory
+    fig_path = os.path.join(flags.FLAGS.work_dir, "iql_training_curves.png")
+    plt.savefig(fig_path)
+    plt.close()
+    logging.rank_zero_info("Saved training curves to %s", fig_path)
 
 
 if __name__ == "__main__":
