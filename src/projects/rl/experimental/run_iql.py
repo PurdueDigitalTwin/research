@@ -2,11 +2,14 @@
 # Implicit Q-Learning (IQL) implementation for offline RL.
 ################################################
 # framework: jax + flax linen
-# environment
+# environment: mujoco/halfcheetah/medium-v0 from minari
 # Reference: https://arxiv.org/abs/2110.06169
 ################################################
 # NOTE: Alghough it's offline RL, we still need an environment to evaluate
 # the performance of the agent periodically during training.
+
+import os
+os.environ['MINARI_DATASETS_PATH'] = os.path.join(os.getcwd(), 'data')
 
 
 import copy
@@ -35,10 +38,11 @@ from src.projects.rl import structure as _struct
 from src.utilities import logging
 from src.utilities import training
 
+
 # Running flags
 flags.DEFINE_integer(
     name="num_episodes",
-    default=500,
+    default=5000,
     required=False,
     help="Total number of episodes for training.",
 )
@@ -50,7 +54,7 @@ flags.DEFINE_integer(
 )
 flags.DEFINE_integer(
     name="batch_size",
-    default=256,
+    default=512,
     required=False,
     help="Number of transitions to sample in each training batch.",
 )
@@ -224,7 +228,8 @@ def evaluate_agent(
         # Forward pass the policy network to get the action for the given state.
         # The range of the action for tanh activation is [-1, 1], which matches 
         # the action space of HalfCheetah-v4.
-        return agent._policy_network.apply(params, s)
+        mean, _ = agent._policy_network.apply(params, s)
+        return mean
 
     for _ in range(num_episodes):
         obs, _ = env.reset()
@@ -470,6 +475,7 @@ def main(argv: typing.List[str]) -> None:
 
     # Save the figure to the working directory
     fig_path = os.path.join(flags.FLAGS.work_dir, "iql_training_curves.png")
+    plt.title("IQL Training Curves")
     plt.savefig(fig_path)
     plt.close()
     logging.rank_zero_info("Saved training curves to %s", fig_path)

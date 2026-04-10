@@ -2,7 +2,7 @@
 # Implicit Q-Learning (IQL) implementation for offline RL.
 ################################################
 # framework: jax + flax linen
-# environment
+# environment: mujoco/halfcheetah/medium-v0 from minari
 # Reference: https://arxiv.org/abs/2110.06169
 ################################################
 # NOTE: We might need to use clipped double Q-learning similar to TD3
@@ -67,7 +67,7 @@ class IQLModel(_model.Model):
             num_layers=2,
             activation=nn.relu,
         )
-        self._policy_network = policy.MlpPolicy(
+        self._policy_network = policy.GaussianPolicy(
             features=256,
             out_features=action_space_dim,
             num_layers=2,
@@ -255,9 +255,10 @@ class IQLModel(_model.Model):
         q_input = jnp.concatenate([batch.state, batch.action], axis=-1)
 
         def _q_loss_fn(q_params: jaxtyping.PyTree) -> jax.Array:
-            # NOTE: I use q1 network params here for simplicity.
-            q_output = self._q_network.apply(q_params[0], q_input)
-            q_output = typing.cast(jax.Array, q_output)
+            q1_output = self._q_network.apply(q_params[0], q_input)
+            q2_output = self._q_network.apply(q_params[1], q_input)
+            q1_output = typing.cast(jax.Array, q1_output)
+            q2_output = typing.cast(jax.Array, q2_output)
 
             next_value_output = self._value_network.apply(
                 value_params,
@@ -268,7 +269,8 @@ class IQLModel(_model.Model):
             # Compute Q-loss based on TD error
             target_q = batch.reward + self._gamma * \
                 (1 - jnp.asarray(batch.done)) * next_value_output
-            q_loss = jnp.mean((q_output - target_q) ** 2)
+            q_loss = jnp.mean((q1_output - target_q) ** 2) + \
+                jnp.mean((q2_output - target_q) ** 2)
 
             return q_loss
         
@@ -303,25 +305,33 @@ class IQLModel(_model.Model):
         q_input = jnp.concatenate([batch.state, batch.action], axis=-1)
 
         def _policy_loss_fn(policy_params: jaxtyping.PyTree) -> jax.Array:
-            policy_output = self._policy_network.apply(policy_params, batch.state)
-            policy_output = typing.cast(jax.Array, policy_output)
+            # For discrete action space the output is the logits of a categorical 
+            # distribution, and for continuous action space the output is the mean 
+            # of a Gaussian distribution.
+            mean, log_std = self._policy_network.apply(policy_params, batch.state)
+            mean = typing.cast(jax.Array, mean)
+            log_std = typing.cast(jax.Array, log_std)
+
+            std = jnp.exp(log_std)
+            log_prob = -0.5 * (((batch.action - mean) / std) ** 2 + 2 * log_std + \
+                               jnp.log(2 * jnp.pi))
+            log_prob = jnp.sum(log_prob, axis=-1)
 
             q1_target = self._q_network.apply(target_params[0], q_input)
             q2_target = self._q_network.apply(target_params[1], q_input)
             q1_target = typing.cast(jax.Array, q1_target)
             q2_target = typing.cast(jax.Array, q2_target)
 
-            q_policy_min = jnp.minimum(q1_target, q2_target)
+            q_target = jnp.minimum(q1_target, q2_target)
 
             value_output = self._value_network.apply(value_params, batch.state)
             value_output = typing.cast(jax.Array, value_output)
 
-            # Compute policy loss based on advantage-weighted regression
-            # TODO: check this logic
-            advantage = q_policy_min - value_output
-            policy_loss = jnp.mean(jnp.exp(self._beta * advantage) * \
-                                    jnp.square(policy_output - batch.action))
-
+            advantage = q_target - value_output
+            weights = jnp.exp(self._beta * advantage)
+            # clip weights to avoid instability
+            weights = jnp.clip(weights, a_max=100.0)  
+            policy_loss = -jnp.mean(weights * log_prob)
             return policy_loss
 
         p_loss, policy_grads = jax.value_and_grad(_policy_loss_fn)(policy_params)
