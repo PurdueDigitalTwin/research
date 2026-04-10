@@ -307,6 +307,8 @@ def vamf_unet_cifar_10() -> _config.ExperimentConfig:
             fm_anchor_delta_min=1e-4,
             fm_anchor_delta_max=0.01,
             predict_variance=False,
+            no_fm_anchor=False,
+            boundary_tangent=False,
         ),
         metric=fdl.Config(
             fid.FrechetInceptionDistance,
@@ -393,6 +395,8 @@ def vamf_nll_unet_cifar_10() -> _config.ExperimentConfig:
             variance_floor=1e-4,
             nll_warmup_steps=10_000,
             nll_ramp_steps=2_000,
+            no_fm_anchor=False,
+            boundary_tangent=False,
         ),
         metric=fdl.Config(
             fid.FrechetInceptionDistance,
