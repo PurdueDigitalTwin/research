@@ -39,7 +39,7 @@ ml_py_binary(
         "numpy",
         "optax",
         ":iql",
-        "//src/core:trian_state",
+        "//src/core:train_state",
         "//src/projects/rl:structure",
         "//src/utilities:logging",
     ],
