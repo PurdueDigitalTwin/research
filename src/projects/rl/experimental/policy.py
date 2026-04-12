@@ -66,7 +66,7 @@ class MlpPolicy(nn.Module):
             bias_init=jax.nn.initializers.zeros,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            name=f"fc_out",
+            name="fc_out",
         )
         out = fc_out(out)
 
@@ -133,7 +133,7 @@ class GaussianPolicy(nn.Module):
             bias_init=jax.nn.initializers.zeros,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            name=f"fc_out",
+            name="fc_out",
         )
         out = fc_out(out)
         mean, log_std = jnp.split(
