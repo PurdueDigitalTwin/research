@@ -255,28 +255,40 @@ class IQLModel(_model.Model):
                 "State and Action must not be None for IQL updates."
             )
         q_input = jnp.concatenate([batch.state, batch.action], axis=-1)
+        batch_dims = q_input.shape[:-1]
 
         def _q_loss_fn(q_params: jaxtyping.PyTree) -> jax.Array:
             q1_output = self._q_network.apply(q_params[0], q_input)
             q2_output = self._q_network.apply(q_params[1], q_input)
-            q1_output = typing.cast(jax.Array, q1_output)
-            q2_output = typing.cast(jax.Array, q2_output)
+            q1_output = typing.cast(jax.Array, q1_output).squeeze(-1)
+            q2_output = typing.cast(jax.Array, q2_output).squeeze(-1)
 
             next_value_output = self._value_network.apply(
                 value_params,
                 batch.next_state,
             )
             next_value_output = typing.cast(jax.Array, next_value_output)
+            next_value_output = next_value_output.squeeze(-1)
 
             # Compute Q-loss based on TD error
+            # NOTE: `batch.reward` and `batch.done` have a shape of `(B,)`,
+            # while `next_value_output` has a shape of `(B, 1)`. This can cause
+            # broadcasing issue. We need to ensure shape compatibility here.
+            chex.assert_equal_shape(
+                [batch.reward, batch.done, next_value_output]
+            )
             target_q = (
                 batch.reward
                 + self._gamma
                 * (1 - jnp.asarray(batch.done))
                 * next_value_output
             )
-            q_loss = jnp.mean((q1_output - target_q) ** 2) + jnp.mean(
-                (q2_output - target_q) ** 2
+            chex.assert_shape(target_q, batch_dims)
+
+            chex.assert_equal_shape([q1_output, q2_output, target_q])
+            q_loss = jnp.add(
+                jnp.mean((q1_output - target_q) ** 2),
+                jnp.mean((q2_output - target_q) ** 2),
             )
 
             return q_loss
