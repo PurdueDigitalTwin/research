@@ -35,12 +35,12 @@ class MlpPolicy(nn.Module):
         """
         out = inputs.astype(self.dtype)
 
-        kernel_init=jax.nn.initializers.variance_scaling(
-                    scale=1.0,
-                    mode="fan_avg",  # fan_avg means average of fan_in and fan_out
-                    # fan_in means input dim, fan_out means output dim
-                    distribution="uniform",  # uniform means uniform distribution
-                )
+        kernel_init = jax.nn.initializers.variance_scaling(
+            scale=1.0,
+            mode="fan_avg",  # fan_avg means average of fan_in and fan_out
+            # fan_in means input dim, fan_out means output dim
+            distribution="uniform",  # uniform means uniform distribution
+        )
 
         for i in range(self.num_layers - 1):
             fc = nn.Dense(
@@ -59,7 +59,6 @@ class MlpPolicy(nn.Module):
             out = fc(out)
             out = self.activation(out)
 
-
         fc_out = nn.Dense(
             features=self.out_features,
             kernel_init=kernel_init,
@@ -72,7 +71,7 @@ class MlpPolicy(nn.Module):
         out = fc_out(out)
 
         return out
-    
+
 
 class GaussianPolicy(nn.Module):
     r"""Gaussian Policy Network for continuous action spaces.
@@ -89,7 +88,9 @@ class GaussianPolicy(nn.Module):
     param_dtype: typing.Any = None
 
     @nn.compact
-    def __call__(self, inputs: jax.Array) -> typing.Tuple[jax.Array, jax.Array]:
+    def __call__(
+        self, inputs: jax.Array
+    ) -> typing.Tuple[jax.Array, jax.Array]:
         r"""Forward pass the Gaussian policy network `\pi(a|s;\theta)`
 
         Args:
@@ -100,19 +101,20 @@ class GaussianPolicy(nn.Module):
         """
         out = inputs.astype(self.dtype)
 
-        kernel_init=jax.nn.initializers.variance_scaling(
-                    scale=1.0,
-                    mode="fan_avg",  # fan_avg means average of fan_in and fan_out
-                    # fan_in means input dim, fan_out means output dim
-                    distribution="uniform",  # uniform means uniform distribution
-                )
+        kernel_init = jax.nn.initializers.variance_scaling(
+            scale=1.0,
+            mode="fan_avg",  # fan_avg means average of fan_in and fan_out
+            # fan_in means input dim, fan_out means output dim
+            distribution="uniform",  # uniform means uniform distribution
+        )
 
         for i in range(self.num_layers - 1):
             fc = nn.Dense(
                 features=(
                     self.features
                     if i != self.num_layers - 1
-                    else self.out_features * 2  # output mean and log_std together
+                    else self.out_features
+                    * 2  # output mean and log_std together
                 ),
                 kernel_init=kernel_init,
                 use_bias=True,  # use bias term
@@ -134,7 +136,11 @@ class GaussianPolicy(nn.Module):
             name=f"fc_out",
         )
         out = fc_out(out)
-        mean, log_std = jnp.split(out, 2, axis=-1)  # split into mean and log_std
-        log_std = jnp.clip(log_std, -5.0, 2.0)  # clip log_std for numerical stability
+        mean, log_std = jnp.split(
+            out, 2, axis=-1
+        )  # split into mean and log_std
+        log_std = jnp.clip(
+            log_std, -5.0, 2.0
+        )  # clip log_std for numerical stability
 
         return mean, log_std
