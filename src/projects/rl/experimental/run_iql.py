@@ -255,7 +255,8 @@ def main(argv: typing.List[str]) -> None:
     # NOTE: refer to minari documentation on the difference between simple,
     # medium, and expert datasets.
     dataset = minari.load_dataset(
-        "mujoco/halfcheetah/medium-v0", download=True
+        "mujoco/halfcheetah/medium-v0",
+        download=True,
     )
 
     # Preprocessing: flatten the dataset and normalize the states.
