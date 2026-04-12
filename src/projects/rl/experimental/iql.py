@@ -196,13 +196,14 @@ class IQLModel(_model.Model):
         """
         del kwargs, rngs
 
-        v_params, q_params, p_params = params
+        v_params, _, _ = params
 
         if batch.state is None or batch.action is None:
             raise ValueError(
                 "State and Action must not be None for IQL updates."
             )
         q_input = jnp.concatenate([batch.state, batch.action], axis=-1)
+        batch_dims = q_input.shape[:-1]
 
         def _value_loss_fn(value_params: jaxtyping.PyTree) -> jax.Array:
             value_output = self._value_network.apply(value_params, batch.state)
@@ -212,8 +213,8 @@ class IQLModel(_model.Model):
             # (value_params, q_params, policy_params)
             q1_target = self._q_network.apply(target_params[0], q_input)
             q2_target = self._q_network.apply(target_params[1], q_input)
-            q1_target = typing.cast(jax.Array, q1_target)
-            q2_target = typing.cast(jax.Array, q2_target)
+            q1_target = typing.cast(jax.Array, q1_target).squeeze(-1)
+            q2_target = typing.cast(jax.Array, q2_target).squeeze(-1)
 
             q_target_min = jnp.minimum(q1_target, q2_target)
 
@@ -221,6 +222,7 @@ class IQLModel(_model.Model):
             # NOTE: Optax has no exceptile loss, so we manually define one.
             # NOTE: how we compute the expectation over data samples?
             value_loss = self._expectile_loss(value_output, q_target_min)
+            chex.assert_shape(value_loss, batch_dims)
 
             return jnp.mean(value_loss)
 
