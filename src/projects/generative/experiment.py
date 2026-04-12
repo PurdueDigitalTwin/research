@@ -78,7 +78,7 @@ def evaluate(
     rngs: jax.Array,
     model: _model.Model,
     batch: typing.Dict[str, typing.Any],
-    fid_metric: fid.FrechetInceptionDistance,
+    fid_metric: typing.Optional[fid.FrechetInceptionDistance],
     **kwargs,
 ) -> _model.StepOutputs:
     r"""Conduct a single evaluation step and compute metrics.
@@ -145,7 +145,7 @@ def evaluate(
     outputs = _model.StepOutputs()
     images = jnp.concatenate(images, axis=0)
 
-    if jax.process_index() == 0:
+    if jax.process_index() == 0 and fid_metric is not None:
         # NOTE: only compute FID metric on process 0
         fid_score = fid_metric(images=jax.device_get(images[0:50_000]))
         outputs.scalars = {"fid": fid_score}
@@ -296,16 +296,18 @@ def train_and_evaluate(
         logging.rank_zero_error("Resuming from checkpoint not implemented.")
         return 1
 
-    fid_metric = fdl.build(exp_config.metric)
-    if not isinstance(fid_metric, fid.FrechetInceptionDistance):
-        logging.rank_zero_error(
-            (
-                "Expect metric to be of an `FrechetInceptionDistance` "
-                "instance, but got %s."
-            ),
-            type(fid_metric),
-        )
-        return 1
+    if jax.process_index() == 0:
+        fid_metric = fdl.build(exp_config.metric)
+        if not isinstance(fid_metric, fid.FrechetInceptionDistance):
+            logging.rank_zero_error(
+                "Expect metric to be of an "
+                "`FrechetInceptionDistance` instance, "
+                "but got %s.",
+                type(fid_metric),
+            )
+            return 1
+    else:
+        fid_metric = None
 
     if exp_config.mode == "train":
         logging.rank_zero_info("Compiling training step functions...")
