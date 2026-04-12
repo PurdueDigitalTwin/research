@@ -207,7 +207,7 @@ class IQLModel(_model.Model):
 
         def _value_loss_fn(value_params: jaxtyping.PyTree) -> jax.Array:
             value_output = self._value_network.apply(value_params, batch.state)
-            value_output = typing.cast(jax.Array, value_output)
+            value_output = typing.cast(jax.Array, value_output).squeeze(-1)
 
             # target params have same structure as q_params, which is a tuple of
             # (value_params, q_params, policy_params)
