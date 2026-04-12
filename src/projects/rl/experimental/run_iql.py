@@ -5,39 +5,27 @@
 # environment: mujoco/halfcheetah/medium-v0 from minari
 # Reference: https://arxiv.org/abs/2110.06169
 ################################################
-# NOTE: Alghough it's offline RL, we still need an environment to evaluate
+# NOTE: Although it's offline RL, we still need an environment to evaluate
 # the performance of the agent periodically during training.
 
-import os
-os.environ['MINARI_DATASETS_PATH'] = os.path.join(os.getcwd(), 'data')
-
-
 import copy
-import functools
 import os
 import typing
 
 from absl import app
 from absl import flags
-from flax import jax_utils
-from flax import serialization
 import gymnasium as gym
 import jax
 from jax import numpy as jnp
-import numpy as np
 import matplotlib.pyplot as plt
-import optax
 import minari
-from wandb import agent
+import numpy as np
+import optax
 
-from src.core import model
 from src.core import train_state as _train_state
-from src.projects.rl.experimental import iql
-from src.projects.rl import replay_buffer as _buffer
 from src.projects.rl import structure as _struct
+from src.projects.rl.experimental import iql
 from src.utilities import logging
-from src.utilities import training
-
 
 # Running flags
 flags.DEFINE_integer(
@@ -48,7 +36,7 @@ flags.DEFINE_integer(
 )
 flags.DEFINE_integer(
     name="buffer_capacity",
-    default=1_000_000, # total steps in (minari show mujoco/halfcheetah/medium-v0)
+    default=1_000_000,  # total steps in (minari show mujoco/halfcheetah/medium-v0)
     required=False,
     help="Maximum number of experiences to store in the replay buffer.",
 )
@@ -114,10 +102,10 @@ def flatten_data(dataset: minari.MinariDataset) -> _struct.StepTuple:
     states, actions, rewards, next_states, dones = [], [], [], [], []
 
     for episode in dataset.iterate_episodes():
-        states.append(episode.observations[:-1]) # [s0, s1, s2, s3]
+        states.append(episode.observations[:-1])  # [s0, s1, s2, s3]
         actions.append(episode.actions)
         rewards.append(episode.rewards)
-        next_states.append(episode.observations[1:]) # [s1, s2, s3, s4]
+        next_states.append(episode.observations[1:])  # [s1, s2, s3, s4]
         dones.append(episode.terminations)
 
     return _struct.StepTuple(
@@ -130,8 +118,8 @@ def flatten_data(dataset: minari.MinariDataset) -> _struct.StepTuple:
 
 
 def normalize_states(
-        data: _struct.StepTuple
-    ) -> typing.Tuple[jax.Array, jax.Array, _struct.StepTuple]:
+    data: _struct.StepTuple,
+) -> typing.Tuple[jax.Array, jax.Array, _struct.StepTuple]:
     r"""Normalizes the state observations in the dataset for better performance.
 
     Args:
@@ -144,8 +132,9 @@ def normalize_states(
         - normalized_data: A StepTuple with normalized states and next_states.
     """
     assert data.state is not None, "State data is required for normalization."
-    assert data.next_state is not None, \
-        "Next state data is required for normalization."
+    assert (
+        data.next_state is not None
+    ), "Next state data is required for normalization."
 
     state_mean = jnp.mean(data.state, axis=0)
     state_std = jnp.std(data.state, axis=0) + 1e-8
@@ -165,12 +154,12 @@ def normalize_states(
 
 
 def sample_batch(
-        rng: typing.Any,
-        *,
-        batch_size: int,
-        num_samples: int,
-        flat_data: _struct.StepTuple
-    ) -> _struct.StepTuple:
+    rng: typing.Any,
+    *,
+    batch_size: int,
+    num_samples: int,
+    flat_data: _struct.StepTuple,
+) -> _struct.StepTuple:
     r"""Samples a batch of transitions from the flattened dataset.
 
     Args:
@@ -183,10 +172,16 @@ def sample_batch(
         A StepTuple containing the sampled batch of transitions.
     """
     assert flat_data.state is not None, "State data is required for sampling."
-    assert flat_data.next_state is not None, "Next state data is required for \
+    assert (
+        flat_data.next_state is not None
+    ), "Next state data is required for \
         sampling."
-    assert flat_data.action is not None, "Action data is required for sampling."
-    assert flat_data.reward is not None, "Reward data is required for sampling."
+    assert (
+        flat_data.action is not None
+    ), "Action data is required for sampling."
+    assert (
+        flat_data.reward is not None
+    ), "Reward data is required for sampling."
     assert flat_data.done is not None, "Done data is required for sampling."
 
     indices = jax.random.choice(rng, num_samples, (batch_size,), replace=False)
@@ -201,13 +196,13 @@ def sample_batch(
 
 
 def evaluate_agent(
-        env: gym.Env,
-        agent: iql.IQLModel,
-        policy_params: typing.Any,
-        state_mean: jax.Array,
-        state_std: jax.Array,
-        num_episodes: int = 5,
-    ) -> float:
+    env: gym.Env,
+    agent: iql.IQLModel,
+    policy_params: typing.Any,
+    state_mean: jax.Array,
+    state_std: jax.Array,
+    num_episodes: int = 5,
+) -> float:
     r"""Evaluates the agent's performance in the environment.
 
     Args:
@@ -217,16 +212,16 @@ def evaluate_agent(
         state_mean: The mean used for normalizing states during training.
         state_std: The standard deviation used for normalizing states during training.
         num_episodes: Number of episodes to run for evaluation.
-    
+
     Returns:
         The average reward obtained over the evaluation episodes.
     """
     episode_rewards = []
-    
+
     @jax.jit
     def get_action(params, s):
         # Forward pass the policy network to get the action for the given state.
-        # The range of the action for tanh activation is [-1, 1], which matches 
+        # The range of the action for tanh activation is [-1, 1], which matches
         # the action space of HalfCheetah-v4.
         mean, _ = agent._policy_network.apply(params, s)
         return mean
@@ -236,21 +231,21 @@ def evaluate_agent(
         done = False
         truncated = False
         total_reward = 0.0
-        
+
         while not (done or truncated):
-            # Normalize the observation using the same mean and std as during 
+            # Normalize the observation using the same mean and std as during
             # training.
             norm_obs = (jnp.array(obs) - state_mean) / state_std
-            
+
             # Get action from the policy network and step in the environment.
             action = get_action(policy_params, norm_obs[None, :])
             action = np.array(action).squeeze()
-            
+
             obs, reward, done, truncated, _ = env.step(action)
             total_reward += float(reward)
-            
+
         episode_rewards.append(total_reward)
-    
+
     return float(np.mean(episode_rewards))
 
 
@@ -259,7 +254,9 @@ def main(argv: typing.List[str]) -> None:
 
     # NOTE: refer to minari documentation on the difference between simple,
     # medium, and expert datasets.
-    dataset = minari.load_dataset("mujoco/halfcheetah/medium-v0")
+    dataset = minari.load_dataset(
+        "mujoco/halfcheetah/medium-v0", download=True
+    )
 
     # Preprocessing: flatten the dataset and normalize the states.
     flat_data = flatten_data(dataset)
@@ -290,9 +287,11 @@ def main(argv: typing.List[str]) -> None:
     )
 
     # initialize agent's parameters using a batch of data from the replay buffer
-    # NOTE: Minari dataset is collected in episodes, so we need to flatten the 
+    # NOTE: Minari dataset is collected in episodes, so we need to flatten the
     # dataset into transitions before loading it into the replay buffer.
-    rngs = jax.random.PRNGKey(42) # Use seed 42 for the training and evaluation.
+    rngs = jax.random.PRNGKey(
+        42
+    )  # Use seed 42 for the training and evaluation.
     rngs, init_rng = jax.random.split(rngs)
     v_params, q_params, p_params = agent.init(
         batch=_struct.StepTuple(
@@ -307,7 +306,7 @@ def main(argv: typing.List[str]) -> None:
 
     # Create a trainstate instance for the agent.
     # optimizer = optax.adam(learning_rate=flags.FLAGS.learning_rate)
-    
+
     # Create a train state for each network (value, q, policy) in the IQL model.
     v_state = _train_state.TrainState.create(
         # apply_fn=model.
@@ -330,8 +329,8 @@ def main(argv: typing.List[str]) -> None:
     target_params = copy.deepcopy(train_state[1].params)
 
     # log loss and reward for analysis
-    loss_log , reward_log = [], []
- 
+    loss_log, reward_log = [], []
+
     # Main loop: Sample batches from the dataset and train the agent.
     num_samples = flat_data.state.shape[0]
 
@@ -376,9 +375,10 @@ def main(argv: typing.List[str]) -> None:
         )
 
         # log the loss for analysis
-        loss_log.append((v_outputs.scalars["value_loss"], \
-                         q_outputs.scalars["q_loss"]))
-        
+        loss_log.append(
+            (v_outputs.scalars["value_loss"], q_outputs.scalars["q_loss"])
+        )
+
         # logging every 10 episodes for better visibility
         if episode % 10 == 0:
             logging.rank_zero_info(
@@ -430,7 +430,7 @@ def main(argv: typing.List[str]) -> None:
                 env=env,
                 agent=agent,
                 policy_params=train_state[2].params,
-                state_mean=state_mean,  
+                state_mean=state_mean,
                 state_std=state_std,
                 num_episodes=5,
             )
@@ -441,7 +441,7 @@ def main(argv: typing.List[str]) -> None:
                 episode,
                 avg_reward,
             )
-    
+
     # Plot the training loss and reward curves for analysis.
     # Plot four figures in 2*2
     fig, axs = plt.subplots(2, 2, figsize=(12, 10))
@@ -466,7 +466,7 @@ def main(argv: typing.List[str]) -> None:
     axs[1, 0].set_title("Policy Loss Curve")
     axs[1, 0].set_xlabel("Episode")
     axs[1, 0].set_ylabel("Policy Loss")
-    
+
     # Plot the reward curve
     axs[1, 1].plot(reward_log)
     axs[1, 1].set_title("Reward Curve")
