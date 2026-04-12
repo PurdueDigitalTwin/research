@@ -15,6 +15,7 @@ ml_py_library(
     name = "iql",
     srcs = ["iql.py"],
     deps = [
+        "chex",
         "flax",
         "jax",
         "jaxtyping",

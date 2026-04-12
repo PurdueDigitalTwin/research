@@ -13,6 +13,7 @@
 import functools
 import typing
 
+import chex
 from flax import linen as nn
 import jax
 from jax import lax
@@ -313,11 +314,12 @@ class IQLModel(_model.Model):
         q_input = jnp.concatenate([batch.state, batch.action], axis=-1)
 
         def _policy_loss_fn(policy_params: jaxtyping.PyTree) -> jax.Array:
-            # For discrete action space the output is the logits of a categorical
-            # distribution, and for continuous action space the output is the mean
-            # of a Gaussian distribution.
+            # For discrete action space the output is the categorical logits
+            # distribution, and for continuous action space the output is the
+            # mean of a Gaussian distribution.
             mean, log_std = self._policy_network.apply(
-                policy_params, batch.state
+                policy_params,
+                batch.state,
             )
             mean = typing.cast(jax.Array, mean)
             log_std = typing.cast(jax.Array, log_std)
@@ -343,8 +345,13 @@ class IQLModel(_model.Model):
             advantage = q_target - value_output
             weights = jnp.exp(self._beta * advantage)
             # clip weights to avoid instability
-            weights = jnp.clip(weights, a_max=100.0)
+            weights = jnp.clip(weights.squeeze(-1), a_max=100.0)
+
+            # NOTE: `log_prob` has a shape of `(B,)` while `weights` has a
+            # shape of `(B, 1)`. This can cause broadcasing issue.
+            chex.assert_equal_shape([log_prob, weights])
             policy_loss = -jnp.mean(weights * log_prob)
+
             return policy_loss
 
         p_loss, policy_grads = jax.value_and_grad(_policy_loss_fn)(
