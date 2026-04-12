@@ -5,7 +5,8 @@ chex==0.1.90
 datasets==4.4.1
 flax==0.10.4
 fiddle==0.3.0
-gymnasium==1.2.3
+gymnasium[mujoco]==1.2.3
+ImageIO==2.37.3
 jax[tpu]==0.5.0
 jaxlib==0.5.0
 jaxtyping==0.3.3
@@ -14,10 +15,12 @@ libtpu==0.0.8
 libtpu-nightly==0.1.dev20241010+nightly.cleanup
 matplotlib==3.7.1
 minari[all]==0.5.3
+mujoco==3.6.0
 numpy<2.0.0,>=1.20.0
 opencv-python-headless>=4.8.0
 optax==0.2.5
 orbax-checkpoint==0.11.23
+packaging==26.0
 requests
 scipy<=1.12.0,>=1.6.0
 setuptools==67.6.0
