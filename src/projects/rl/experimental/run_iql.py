@@ -448,21 +448,21 @@ def main(argv: typing.List[str]) -> None:
     fig, axs = plt.subplots(2, 2, figsize=(12, 10))
 
     # Plot the value loss curve
-    v_loss = [l[0] for l in loss_log if isinstance(l, tuple)]
+    v_loss = [loss[0] for loss in loss_log if isinstance(loss, tuple)]
     axs[0, 0].plot(v_loss)
     axs[0, 0].set_title("Value Loss Curve")
     axs[0, 0].set_xlabel("Episode")
     axs[0, 0].set_ylabel("Value Loss")
 
     # Plot the q loss curve
-    q_loss = [l[1] for l in loss_log if isinstance(l, tuple)]
+    q_loss = [loss[1] for loss in loss_log if isinstance(loss, tuple)]
     axs[0, 1].plot(q_loss)
     axs[0, 1].set_title("Q Loss Curve")
     axs[0, 1].set_xlabel("Episode")
     axs[0, 1].set_ylabel("Q Loss")
 
     # Plot the policy loss curve
-    p_loss = [l for l in loss_log if not isinstance(l, tuple)]
+    p_loss = [loss for loss in loss_log if not isinstance(loss, tuple)]
     axs[1, 0].plot(p_loss)
     axs[1, 0].set_title("Policy Loss Curve")
     axs[1, 0].set_xlabel("Episode")
