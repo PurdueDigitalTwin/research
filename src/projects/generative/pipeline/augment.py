@@ -766,7 +766,7 @@ class EDMAugmentor(nn.Module):
                 height - 1 - (height - 1 - (y + ty) % (height * 2 - 2))
             )
             images = images.flatten()
-            images = images[(((b * channels) + c) * height + y) * width + x]
+            images = images[((b * height + y) * width + x) * channels + c]
             labels += [
                 jnp.divide(tx, (width * self.translate_int_max)),
                 jnp.divide(ty, (height * self.translate_int_max)),
@@ -866,7 +866,7 @@ class EDMAugmentor(nn.Module):
         )
 
         # Upsample with polyphase filter
-        conv_weight_up = Hz[::-1][None, :, None, None]
+        conv_weight_up = Hz[None, :, None, None]
         conv_weight_up = jnp.tile(conv_weight_up, (1, 1, 1, 3))
         pad_0 = (len(Hz) - 1) // 2
         pad_1 = len(Hz) - pad_0
