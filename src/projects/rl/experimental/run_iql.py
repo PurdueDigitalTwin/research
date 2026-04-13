@@ -28,6 +28,12 @@ from src.projects.rl.experimental import iql
 from src.utilities import logging
 
 # Running flags
+flags.DEFINE_string(
+    name="dataset_name",
+    default="minari/halfcheetah/medium-v0",
+    required=False,
+    help="Name of the Minari dataset to load.",
+)
 flags.DEFINE_integer(
     name="num_episodes",
     default=5000,
@@ -255,7 +261,7 @@ def main(argv: typing.List[str]) -> None:
     # NOTE: refer to minari documentation on the difference between simple,
     # medium, and expert datasets.
     dataset = minari.load_dataset(
-        "mujoco/halfcheetah/medium-v0",
+        flags.FLAGS.dataset_name,
         download=True,
     )
 
