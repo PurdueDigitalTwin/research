@@ -127,11 +127,13 @@ class FrechetInceptionDistance:
 
     def __init__(
         self,
-        dataset: datasets.Dataset,
+        dataset: typing.Union[datasets.Dataset, typing.Callable],
         image_key: str = "image",
         batch_size: int = 32,
         mode: str = "tensorflow",
     ) -> None:
+        if callable(dataset) and not isinstance(dataset, datasets.Dataset):
+            dataset = dataset()
         self._batch_size = batch_size
 
         if mode not in ["tensorflow", "clean"]:
