@@ -335,7 +335,7 @@ def main(argv: typing.List[str]) -> None:
     # Main loop: Sample batches from the dataset and train the agent.
     num_samples = flat_data.state.shape[0]
 
-    # Stsge 1: Train the value and q networks using the sampled batches.
+    # Stage 1: Train the value and q networks using the sampled batches.
     logging.rank_zero_info("Starting Stage 1: Critic Training (V & Q)...")
     for episode in range(1, flags.FLAGS.num_episodes + 1):
         rngs, sample_rng = jax.random.split(rngs)
@@ -446,37 +446,33 @@ def main(argv: typing.List[str]) -> None:
     # Plot the training loss and reward curves for analysis.
     # Plot four figures in 2*2
     fig, axs = plt.subplots(2, 2, figsize=(12, 10))
+    fig.suptitle("IQL Training Curves", fontsize=16)
 
     # Plot the value loss curve
     v_loss = [loss[0] for loss in loss_log if isinstance(loss, tuple)]
-    axs[0, 0].plot(v_loss)
-    axs[0, 0].set_title("Value Loss Curve")
+    axs[0, 0].plot(v_loss, color="blue", label="Value Loss")
     axs[0, 0].set_xlabel("Episode")
     axs[0, 0].set_ylabel("Value Loss")
 
     # Plot the q loss curve
     q_loss = [loss[1] for loss in loss_log if isinstance(loss, tuple)]
-    axs[0, 1].plot(q_loss)
-    axs[0, 1].set_title("Q Loss Curve")
+    axs[0, 1].plot(q_loss, color="orange", label="Q Loss")
     axs[0, 1].set_xlabel("Episode")
     axs[0, 1].set_ylabel("Q Loss")
 
     # Plot the policy loss curve
     p_loss = [loss for loss in loss_log if not isinstance(loss, tuple)]
-    axs[1, 0].plot(p_loss)
-    axs[1, 0].set_title("Policy Loss Curve")
+    axs[1, 0].plot(p_loss, color="green", label="Policy Loss")
     axs[1, 0].set_xlabel("Episode")
     axs[1, 0].set_ylabel("Policy Loss")
 
     # Plot the reward curve
-    axs[1, 1].plot(reward_log)
-    axs[1, 1].set_title("Reward Curve")
+    axs[1, 1].plot(reward_log, color="red", label="Average Reward")
     axs[1, 1].set_xlabel("Episode (x10)")
     axs[1, 1].set_ylabel("Average Reward")
 
     # Save the figure to the working directory
     fig_path = os.path.join(flags.FLAGS.work_dir, "iql_training_curves.png")
-    plt.title("IQL Training Curves")
     plt.savefig(fig_path)
     plt.close()
     logging.rank_zero_info("Saved training curves to %s", fig_path)
