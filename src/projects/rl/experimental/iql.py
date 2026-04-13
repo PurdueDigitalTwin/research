@@ -334,7 +334,7 @@ class IQLModel(_model.Model):
             mean, log_std = self._policy_network.apply(
                 policy_params,
                 batch.state,
-            )
+            ) # mean, log_std have a shape of (B, action_dim)
             mean = typing.cast(jax.Array, mean)
             log_std = typing.cast(jax.Array, log_std)
 
