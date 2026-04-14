@@ -85,6 +85,7 @@ class OptimizerConfig:
     grad_clip_method: typing.Optional[typing.Literal["norm", "value"]] = None
     grad_clip_value: float = 1.0
     ema_rate: float = 0.0
+    ema_update_period: int = 1
 
     def __repr__(self) -> str:
         """Custom repr string for better readability."""
