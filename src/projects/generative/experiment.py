@@ -263,6 +263,9 @@ def train_and_evaluate(
         params=params,
         tx=tx,
         ema_rate=exp_config.optimizer.ema_rate,
+        ema_update_period=getattr(
+            exp_config.optimizer, "ema_update_period", 1
+        ),
     )
     jax.block_until_ready(state)
     logging.rank_zero_info("Building train state... DONE!")
