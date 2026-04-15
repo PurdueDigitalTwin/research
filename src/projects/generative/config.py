@@ -141,8 +141,14 @@ def meanflow_unet_cifar_10() -> _config.ExperimentConfig:
             resample_filter=[1, 3, 3, 1],
             timestamp_cond="t_and_t_minus_r",
             timestamp_sampler="logit-normal",
-            timestamp_sampler_kwargs=dict(mean=-2.0, stddev=2.0),
+            timestamp_sampler_kwargs=dict(
+                mean=-0.6,
+                stddev=1.6,
+                r_mean=-4.0,
+                r_stddev=1.6,
+            ),
             timestamp_overlap_rate=0.25,
+            timestamp_sampler_version="v1",
             adaptive_weight_power=0.75,
         ),
         metric=fdl.Config(
