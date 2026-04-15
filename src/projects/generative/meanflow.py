@@ -76,6 +76,8 @@ def sample_t_r(
 
         mean = kwargs.get("mean", -0.4)
         stddev = kwargs.get("stddev", 1.0)
+        r_mean = kwargs.get("r_mean", mean)
+        r_stddev = kwargs.get("r_stddev", stddev)
         t = _logit_normal(
             key=t_key,
             shape=shape,
@@ -87,8 +89,8 @@ def sample_t_r(
             key=r_key,
             shape=shape,
             dtype=dtype,
-            mean=mean,
-            stddev=stddev,
+            mean=r_mean,
+            stddev=r_stddev,
         )
     else:
         raise ValueError(
@@ -399,6 +401,7 @@ class MeanFlowUNetModel(_model.Model):
             "stddev": 1.0,
         },
         timestamp_overlap_rate: float = 0.75,
+        timestamp_sampler_version: str = "v0",
         adaptive_weight_power: float = 1.0,
         dtype: typing.Any = None,
         param_dtype: typing.Any = None,
@@ -412,6 +415,7 @@ class MeanFlowUNetModel(_model.Model):
         self.timestamp_sampler = timestamp_sampler
         self.timestamp_sampler_kwargs = timestamp_sampler_kwargs
         self.timestamp_overlap_rate = timestamp_overlap_rate
+        self.timestamp_sampler_version = timestamp_sampler_version
         self.adaptive_weight_power = adaptive_weight_power
         self._augment = augment.EDMAugmentor(
             image_size=(image_size, image_size),
@@ -529,14 +533,26 @@ class MeanFlowUNetModel(_model.Model):
             **self.timestamp_sampler_kwargs,
         )
 
-        t, r = jnp.maximum(t, r), jnp.minimum(t, r)
-        # ensure a portion of overlap between t and r
-        # NOTE: the following code randomly mask by uniform samples
-        r_eq_t_mask = jnp.less(
-            jax.random.uniform(key=m_rng, shape=batch_dims, dtype=image.dtype),
-            self.timestamp_overlap_rate,
-        )
-        r = jnp.where(r_eq_t_mask, t, r)
+        if self.timestamp_sampler_version == "v1":
+            # v1: mask-then-clip ordering
+            r_eq_t_mask = jnp.less(
+                jax.random.uniform(
+                    key=m_rng, shape=batch_dims, dtype=image.dtype
+                ),
+                self.timestamp_overlap_rate,
+            )
+            r = jnp.where(r_eq_t_mask, t, r)
+            r = jnp.minimum(t, r)
+        else:
+            # v0: sort-then-mask ordering
+            t, r = jnp.maximum(t, r), jnp.minimum(t, r)
+            r_eq_t_mask = jnp.less(
+                jax.random.uniform(
+                    key=m_rng, shape=batch_dims, dtype=image.dtype
+                ),
+                self.timestamp_overlap_rate,
+            )
+            r = jnp.where(r_eq_t_mask, t, r)
 
         # sample e ~ N(0, I)
         e = jax.random.normal(key=e_rng, shape=image.shape, dtype=image.dtype)
@@ -757,14 +773,24 @@ class ImprovedMeanFlowUNetModel(MeanFlowUNetModel):
             **self.timestamp_sampler_kwargs,
         )
 
-        t, r = jnp.maximum(t, r), jnp.minimum(t, r)
-        # ensure a portion of overlap between t and r
-        # NOTE: the following code randomly mask by uniform samples
-        r_eq_t_mask = jnp.less(
-            jax.random.uniform(key=m_rng, shape=batch_dims, dtype=image.dtype),
-            self.timestamp_overlap_rate,
-        )
-        r = jnp.where(r_eq_t_mask, t, r)
+        if self.timestamp_sampler_version == "v1":
+            r_eq_t_mask = jnp.less(
+                jax.random.uniform(
+                    key=m_rng, shape=batch_dims, dtype=image.dtype
+                ),
+                self.timestamp_overlap_rate,
+            )
+            r = jnp.where(r_eq_t_mask, t, r)
+            r = jnp.minimum(t, r)
+        else:
+            t, r = jnp.maximum(t, r), jnp.minimum(t, r)
+            r_eq_t_mask = jnp.less(
+                jax.random.uniform(
+                    key=m_rng, shape=batch_dims, dtype=image.dtype
+                ),
+                self.timestamp_overlap_rate,
+            )
+            r = jnp.where(r_eq_t_mask, t, r)
 
         # sample e ~ N(0, I)
         e = jax.random.normal(key=e_rng, shape=image.shape, dtype=image.dtype)
@@ -1123,6 +1149,7 @@ class VAMeanFlowUNetModel(MeanFlowUNetModel):
             "stddev": 1.0,
         },
         timestamp_overlap_rate: float = 0.75,
+        timestamp_sampler_version: str = "v0",
         adaptive_weight_power: float = 0.0,
         snr_epsilon: float = 1e-2,
         fm_anchor_weight: float = 0.5,
@@ -1152,6 +1179,7 @@ class VAMeanFlowUNetModel(MeanFlowUNetModel):
             timestamp_sampler=timestamp_sampler,
             timestamp_sampler_kwargs=timestamp_sampler_kwargs,
             timestamp_overlap_rate=timestamp_overlap_rate,
+            timestamp_sampler_version=timestamp_sampler_version,
             adaptive_weight_power=adaptive_weight_power,
             dtype=dtype,
             param_dtype=param_dtype,
@@ -1257,16 +1285,28 @@ class VAMeanFlowUNetModel(MeanFlowUNetModel):
             **self.timestamp_sampler_kwargs,
         )
 
-        t, r = jnp.maximum(t, r), jnp.minimum(t, r)
-        r_eq_t_mask = jnp.less(
-            jax.random.uniform(
-                key=m_rng,
-                shape=batch_dims,
-                dtype=image.dtype,
-            ),
-            self.timestamp_overlap_rate,
-        )
-        r = jnp.where(r_eq_t_mask, t, r)
+        if self.timestamp_sampler_version == "v1":
+            r_eq_t_mask = jnp.less(
+                jax.random.uniform(
+                    key=m_rng,
+                    shape=batch_dims,
+                    dtype=image.dtype,
+                ),
+                self.timestamp_overlap_rate,
+            )
+            r = jnp.where(r_eq_t_mask, t, r)
+            r = jnp.minimum(t, r)
+        else:
+            t, r = jnp.maximum(t, r), jnp.minimum(t, r)
+            r_eq_t_mask = jnp.less(
+                jax.random.uniform(
+                    key=m_rng,
+                    shape=batch_dims,
+                    dtype=image.dtype,
+                ),
+                self.timestamp_overlap_rate,
+            )
+            r = jnp.where(r_eq_t_mask, t, r)
 
         # sample e ~ N(0, I)
         e = jax.random.normal(key=e_rng, shape=image.shape, dtype=image.dtype)
