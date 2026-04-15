@@ -55,10 +55,11 @@ class TrainState(struct.PyTreeNode):
 
         # Update EMA only every `ema_update_period` steps.
         should_update_ema = (self.step + 1) % self.ema_update_period == 0
+        ema_decay = self.ema_rate**self.ema_update_period
         new_ema_params = jax.tree_util.tree_map(
             lambda ema, p: jax.lax.cond(
                 should_update_ema,
-                lambda: ema + (1.0 - self.ema_rate) * (p - ema),
+                lambda: ema + (1.0 - ema_decay) * (p - ema),
                 lambda: ema,
             ),
             self.ema_params,
