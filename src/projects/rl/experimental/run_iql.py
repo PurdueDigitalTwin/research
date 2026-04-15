@@ -30,13 +30,19 @@ from src.utilities import logging
 # Running flags
 flags.DEFINE_string(
     name="dataset_name",
-    default="minari/halfcheetah/medium-v0",
+    default="mujoco/halfcheetah/medium-v0",
     required=False,
     help="Name of the Minari dataset to load.",
 )
+flags.DEFINE_string(
+    name="env_name",
+    default="HalfCheetah-v4",
+    required=False,
+    help="Name of the gym environment for evaluation.",
+)
 flags.DEFINE_integer(
     name="num_episodes",
-    default=5000,
+    default=100_000,
     required=False,
     help="Total number of episodes for training.",
 )
@@ -54,7 +60,7 @@ flags.DEFINE_integer(
 )
 flags.DEFINE_integer(
     name="eval_every_n_episodes",
-    default=10,
+    default=5000,
     required=False,
     help="Evaluation frequency (in episodes) during training.",
 )
@@ -72,7 +78,7 @@ flags.DEFINE_float(
 )
 flags.DEFINE_float(
     name="beta",
-    default=3.0,
+    default=1.0,
     required=False,
     help="Inverse temperature for policy learning in IQL.",
 )
@@ -252,7 +258,7 @@ def evaluate_agent(
 
         episode_rewards.append(total_reward)
 
-    return float(np.mean(episode_rewards))
+    return np.mean(episode_rewards).item()
 
 
 def main(argv: typing.List[str]) -> None:
@@ -271,7 +277,7 @@ def main(argv: typing.List[str]) -> None:
     assert flat_data.state is not None, "State data is required for training."
 
     # Create a gym environment for evaluation.
-    env = gym.make("HalfCheetah-v4")
+    env = gym.make(flags.FLAGS.env_name)
     state_size = env.observation_space.shape
     action_size = env.action_space.shape
 
@@ -311,24 +317,27 @@ def main(argv: typing.List[str]) -> None:
         rngs=init_rng,
     )
 
-    # Create a trainstate instance for the agent.
-    # optimizer = optax.adam(learning_rate=flags.FLAGS.learning_rate)
-
     # Create a train state for each network (value, q, policy) in the IQL model.
+    # use cosine decay learning rate scheduler for better performance
+    learning_rate_scheduler = optax.cosine_decay_schedule(
+        init_value=flags.FLAGS.learning_rate,
+        decay_steps=flags.FLAGS.num_episodes,
+    )
+
     v_state = _train_state.TrainState.create(
         # apply_fn=model.
         params=v_params,
-        tx=optax.adam(learning_rate=flags.FLAGS.learning_rate),
+        tx=optax.adam(learning_rate=learning_rate_scheduler),
     )
     q_state = _train_state.TrainState.create(
         # apply_fn=model._q_network.apply,
         params=q_params,
-        tx=optax.adam(learning_rate=flags.FLAGS.learning_rate),
+        tx=optax.adam(learning_rate=learning_rate_scheduler),
     )
     p_state = _train_state.TrainState.create(
         # apply_fn=model._policy_network.apply,
         params=p_params,
-        tx=optax.adam(learning_rate=flags.FLAGS.learning_rate),
+        tx=optax.adam(learning_rate=learning_rate_scheduler),
     )
 
     train_state = (v_state, q_state, p_state)

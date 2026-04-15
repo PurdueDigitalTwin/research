@@ -52,22 +52,22 @@ class IQLModel(_model.Model):
         self._beta = beta
 
         self._value_network = policy.MlpPolicy(
-            features=256,
+            features=512,
             out_features=1,
-            num_layers=2,
+            num_layers=4,
             activation=nn.relu,
         )
         # for Q network, input: s, a; output: Q(s, a)
         self._q_network = policy.MlpPolicy(
-            features=256,
+            features=512,
             out_features=1,
-            num_layers=2,
+            num_layers=4,
             activation=nn.relu,
         )
         self._policy_network = policy.GaussianPolicy(
-            features=256,
+            features=512,
             out_features=action_space_dim,
-            num_layers=2,
+            num_layers=4,
             activation=nn.tanh,
         )
 
