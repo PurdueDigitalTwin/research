@@ -55,20 +55,20 @@ class IQLModel(_model.Model):
             features=512,
             out_features=1,
             num_layers=4,
-            activation=nn.relu,
+            activation=nn.gelu,
         )
         # for Q network, input: s, a; output: Q(s, a)
         self._q_network = policy.MlpPolicy(
             features=512,
             out_features=1,
             num_layers=4,
-            activation=nn.relu,
+            activation=nn.gelu,
         )
         self._policy_network = policy.GaussianPolicy(
             features=512,
             out_features=action_space_dim,
             num_layers=4,
-            activation=nn.tanh,
+            activation=nn.gelu,
         )
 
     @typing_extensions.override
