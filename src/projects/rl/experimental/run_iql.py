@@ -42,7 +42,7 @@ flags.DEFINE_string(
 )
 flags.DEFINE_integer(
     name="num_episodes",
-    default=100_000,
+    default=500_000,
     required=False,
     help="Total number of episodes for training.",
 )
@@ -78,7 +78,7 @@ flags.DEFINE_float(
 )
 flags.DEFINE_float(
     name="beta",
-    default=1.0,
+    default=0.3,
     required=False,
     help="Inverse temperature for policy learning in IQL.",
 )
@@ -395,8 +395,8 @@ def main(argv: typing.List[str]) -> None:
             (v_outputs.scalars["value_loss"], q_outputs.scalars["q_loss"])
         )
 
-        # logging every 10 episodes for better visibility
-        if episode % 10 == 0:
+        # logging every 100 episodes for better visibility
+        if episode % 100 == 0:
             logging.rank_zero_info(
                 "Episode %d: Value Loss = %.4f, Q Loss = %.4f",
                 episode,
@@ -432,8 +432,8 @@ def main(argv: typing.List[str]) -> None:
         # log the loss for analysis
         loss_log.append(p_outputs.scalars["policy_loss"])
 
-        # logging every 10 episodes for better visibility
-        if episode % 10 == 0:
+        # logging every 100 episodes for better visibility
+        if episode % 100 == 0:
             logging.rank_zero_info(
                 "Episode %d: Policy Loss = %.4f",
                 episode,
