@@ -1121,31 +1121,76 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
             u, dudt = jax.jvp(u_fn, (z, r, t), (v, drdt, dtdt))
             u_target = v - (t - r)[..., None, None, None] * dudt
 
-            loss = jnp.sum(
+            per_sample_loss = jnp.sum(
                 jnp.square(u - jax.lax.stop_gradient(u_target)),
                 axis=(-1, -2, -3),
             )
-            raw_loss = jnp.mean(loss)
+            raw_loss = jnp.mean(per_sample_loss)
 
             if self.adaptive_weight_power > 0.0:
                 ada_wt = jnp.power(
-                    loss + 1e-3,
+                    per_sample_loss + 1e-3,
                     self.adaptive_weight_power,
                 )
-                loss = loss / jax.lax.stop_gradient(ada_wt)
-            loss = jnp.mean(loss)
+                per_sample_loss = per_sample_loss / jax.lax.stop_gradient(
+                    ada_wt
+                )
+            loss = jnp.mean(per_sample_loss)
+
+            # --- diagnostic metrics (not in gradient graph) ---
+            is_boundary = jnp.equal(t, r)
+            n_boundary = jnp.sum(is_boundary).astype(jnp.float32)
+            n_interior = jnp.sum(~is_boundary).astype(jnp.float32)
+
+            # per-sample raw MSE (before adaptive weight)
+            raw_per_sample = jnp.sum(
+                jnp.square(u - jax.lax.stop_gradient(u_target)),
+                axis=(-1, -2, -3),
+            )
+
+            # boundary loss (t==r): flow-matching component
+            boundary_loss = jnp.where(is_boundary, raw_per_sample, 0.0)
+            boundary_loss = jnp.sum(boundary_loss) / jnp.maximum(
+                n_boundary, 1.0
+            )
+
+            # interior loss (t!=r): MeanFlow identity component
+            interior_loss = jnp.where(~is_boundary, raw_per_sample, 0.0)
+            interior_loss = jnp.sum(interior_loss) / jnp.maximum(
+                n_interior, 1.0
+            )
+
+            # JVP correction magnitude
+            correction = (t - r)[..., None, None, None] * dudt
+            dudt_magnitude = jnp.mean(
+                jnp.sum(jnp.square(correction), axis=(-1, -2, -3))
+            )
 
             velocity_loss = jnp.where(
-                jnp.equal(t, r)[..., None, None, None],
+                is_boundary[..., None, None, None],
                 jnp.square(u - (e - x)),
                 jnp.zeros_like(u),
             )
             velocity_loss = jnp.sum(velocity_loss, axis=(-1, -2, -3)).mean()
 
-            return loss, (velocity_loss, raw_loss)
+            diagnostics = (
+                velocity_loss,
+                raw_loss,
+                boundary_loss,
+                interior_loss,
+                dudt_magnitude,
+            )
+            return loss, diagnostics
 
         grad_fn = jax.value_and_grad(_loss_fn, has_aux=True)
-        (loss, (velocity_loss, raw_loss)), grads = grad_fn(state.params)
+        (loss, diagnostics), grads = grad_fn(state.params)
+        (
+            velocity_loss,
+            raw_loss,
+            boundary_loss,
+            interior_loss,
+            dudt_magnitude,
+        ) = diagnostics
         global_grad_norm = optax.global_norm(grads)
         grads = jax.lax.pmean(grads, axis_name="batch")
         new_state = state.apply_gradients(grads=grads)
@@ -1153,7 +1198,10 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
         outputs = _model.StepOutputs(
             scalars={
                 "loss": raw_loss.mean(),
+                "boundary_loss": boundary_loss.mean(),
+                "interior_loss": interior_loss.mean(),
                 "velocity_loss": velocity_loss.mean(),
+                "dudt_magnitude": dudt_magnitude.mean(),
                 "global_grad_norm": global_grad_norm,
             },
             histograms={
