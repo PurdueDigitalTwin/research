@@ -74,8 +74,21 @@ def load_params(
 
     params_dir = epath.Path(os.path.join(checkpoint_dir.rstrip("/"), "params"))
     print(f"Loading checkpoint from {params_dir}...", flush=True)
+
+    # Build restore args with single-device sharding so that a
+    # multi-process checkpoint can be loaded on one host.
+    sharding = jax.sharding.SingleDeviceSharding(jax.devices()[0])
+    restore_args = jax.tree_util.tree_map(
+        lambda _: ocp.ArrayRestoreArgs(sharding=sharding),
+        params,
+    )
     handler = ocp.PyTreeCheckpointHandler()
-    params = handler.restore(directory=params_dir, item=params)
+    params = handler.restore(
+        directory=params_dir,
+        item=params,
+        transforms=None,
+        restore_args=restore_args,
+    )
     print("Checkpoint loaded.", flush=True)
     return params
 
