@@ -11,7 +11,9 @@ import typing_extensions
 
 from src.core import model as _model
 from src.core import train_state as _train_state
+from src.projects.generative.model import dit
 from src.projects.generative.model import unet
+from src.projects.generative.model import vae as _vae
 from src.projects.generative.pipeline import augment
 
 # Type Aliases
@@ -703,6 +705,526 @@ class MeanFlowUNetModel(_model.Model):
                 "Unsupported timestamp conditioning: "
                 f"{self.timestamp_cond}."
             )
+
+
+class MeanFlowDiTModule(nn.Module):
+    r"""MeanFlow module with a Diffusion Transformer (DiT) backbone.
+
+    Following the official MeanFlow DiT, this uses two separate
+    ``TimestampEmbed`` modules for ``t`` and ``h = t - r``, summed
+    into a single conditioning vector for the adaLN-Zero blocks.
+
+    Attributes:
+        features (int): Hidden dimension of the transformer.
+        patch_size (int): Spatial patch size for tokenization.
+        depth (int): Number of DiT blocks.
+        num_heads (int): Number of attention heads.
+        ffn_ratio (int): FFN hidden dim = features * ffn_ratio.
+        dropout_rate (float): Dropout rate.
+        deterministic (Optional[bool]): Global deterministic flag.
+        dtype (Any): The dtype of the computation.
+        param_dtype (Any): The dtype of the parameters.
+        precision (Any): Numerical precision for the computation.
+    """
+
+    features: int
+    patch_size: int = 2
+    depth: int = 12
+    num_heads: int = 6
+    ffn_ratio: int = 4
+    dropout_rate: float = 0.0
+    deterministic: typing.Optional[bool] = None
+    dtype: typing.Any = None
+    param_dtype: typing.Any = None
+    precision: typing.Any = None
+
+    @nn.compact
+    def __call__(
+        self,
+        inputs: jax.Array,
+        timestamps: typing.Tuple[jax.Array, ...],
+        edm_cond: typing.Optional[jax.Array] = None,
+        deterministic: typing.Optional[bool] = None,
+    ) -> jax.Array:
+        r"""Forward pass the MeanFlow DiT module.
+
+        Args:
+            inputs (jax.Array): Input images ``(*, H, W, C)``.
+            timestamps (Tuple[jax.Array, ...]): Timestamps,
+                typically ``(t, t - r)`` for ``t_and_t_minus_r``.
+            edm_cond (jax.Array, optional): EDM augmentation cond.
+            deterministic (bool, optional): Whether deterministic.
+
+        Returns:
+            Predicted average velocity ``(*, H, W, C)``.
+        """
+        m_deterministic = nn.merge_param(
+            "deterministic",
+            self.deterministic,
+            deterministic,
+        )
+
+        # --- Patch embedding ---
+        patch_embed = dit.PatchEmbed(
+            features=self.features,
+            patch_size=self.patch_size,
+            flatten=True,
+            padding=False,
+            use_bias=True,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            precision=self.precision,
+            name="patch_embed",
+        )
+        out = patch_embed(inputs.astype(self.dtype))
+
+        # --- Positional encoding ---
+        pos_emb = dit.sinusoidal_patch_enc(
+            features=self.features,
+            grid_size=int(out.shape[-2] ** 0.5),
+            num_extra_tokens=0,
+        )
+        out = out + pos_emb[None, :, :].astype(self.dtype)
+
+        # --- Dual timestamp embedding (official MeanFlow DiT) ---
+        # timestamps[0] = t, timestamps[1] = h (= t - r)
+        t_embed = dit.TimestampEmbed(
+            features=self.features,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="t_embed",
+        )(timestamps[0])
+        h_embed = dit.TimestampEmbed(
+            features=self.features,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="h_embed",
+        )(timestamps[1] if len(timestamps) > 1 else timestamps[0])
+
+        cond = t_embed + h_embed
+
+        # --- Optional augmentation conditioning ---
+        if edm_cond is not None:
+            aug_embed = nn.Dense(
+                features=self.features,
+                use_bias=False,
+                kernel_init=jax.nn.initializers.variance_scaling(
+                    scale=1.0,
+                    mode="fan_avg",
+                    distribution="uniform",
+                ),
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                name="aug_fc",
+            )
+            cond = cond + aug_embed(edm_cond)
+
+        # --- DiT blocks ---
+        for i in range(self.depth):
+            block = dit.DiTAdaLNBlock(
+                features=self.features,
+                num_heads=self.num_heads,
+                ffn_ratio=self.ffn_ratio,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                precision=self.precision,
+                name=f"dit_block_{i}",
+            )
+            out = block(
+                inputs=out,
+                cond=cond,
+                deterministic=m_deterministic,
+            )
+
+        # --- Final decoder + unpatchify ---
+        decoder = dit.AdaLNDecoder(
+            features=inputs.shape[-1],
+            patch_size=self.patch_size,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            precision=self.precision,
+            name="decoder",
+        )
+        out = decoder(out, cond=cond)
+        out = dit.DiffusionTransformer.unpatchify(
+            inputs=out,
+            channels=inputs.shape[-1],
+            patch_size=self.patch_size,
+        )
+
+        return out
+
+
+class MeanFlowDiTModel(MeanFlowUNetModel):
+    r"""MeanFlow with DiT backbone for latent-space training.
+
+    Supports optional VAE for latent-space training on ImageNet.
+    When ``vae_path`` is set, images are encoded to latent space
+    before the MeanFlow loss, and decoded to pixel space during
+    sampling. ``in_channels`` and ``image_size`` refer to the
+    latent dimensions (e.g. 4 and 32 for SD VAE on 256x256).
+
+    Args:
+        in_channels (int): Latent channels (4 for SD VAE).
+        image_size (int): Latent spatial size (32 for 256px).
+        features (int): Hidden dim of the DiT.
+        patch_size (int): Spatial patch size.
+        depth (int): Number of DiT blocks.
+        num_heads (int): Number of attention heads.
+        ffn_ratio (int): FFN hidden dim multiplier.
+        dropout_rate (float): Dropout rate.
+        timestamp_cond (str): Timestamp conditioning type.
+        timestamp_sampler (str): Distribution for sampling t, r.
+        timestamp_sampler_kwargs (Dict): Kwargs for sampler.
+        timestamp_overlap_rate (float): Fraction with r = t.
+        adaptive_weight_power (float): Power for adaptive wt.
+        vae_path (str): Path to pretrained VAE weights dir.
+        vae_scaling_factor (float): Latent scaling factor.
+        dtype (Any): Computation dtype.
+        param_dtype (Any): Parameter dtype.
+        precision (Any): Numerical precision.
+    """
+
+    def __init__(
+        self,
+        in_channels: int,
+        image_size: int,
+        features: int,
+        patch_size: int = 2,
+        depth: int = 12,
+        num_heads: int = 6,
+        ffn_ratio: int = 4,
+        dropout_rate: float = 0.0,
+        epsilon: float = 1e-6,
+        skip_scale: float = 1.0,
+        resample_filter: typing.Sequence[int] = [1, 1],
+        timestamp_cond: typing.Literal[
+            "t_and_r",
+            "t_and_t_minus_r",
+            "t_and_r_and_t_minus_r",
+            "t_minus_r",
+        ] = "t_and_t_minus_r",
+        timestamp_sampler: str = "logit-normal",
+        timestamp_sampler_kwargs: typing.Dict[str, typing.Any] = {
+            "mean": -0.4,
+            "stddev": 1.0,
+        },
+        timestamp_overlap_rate: float = 0.75,
+        timestamp_sampler_version: str = "v0",
+        adaptive_weight_power: float = 1.0,
+        vae_path: typing.Optional[str] = None,
+        vae_scaling_factor: float = 0.18215,
+        dtype: typing.Any = None,
+        param_dtype: typing.Any = None,
+        precision: typing.Any = None,
+    ) -> None:
+        """Initializes the MeanFlow DiT model."""
+        self.in_channels = in_channels
+        self.image_size = image_size
+        self.features = features
+        self.timestamp_cond = timestamp_cond
+        self.timestamp_sampler = timestamp_sampler
+        self.timestamp_sampler_kwargs = timestamp_sampler_kwargs
+        self.timestamp_overlap_rate = timestamp_overlap_rate
+        self.timestamp_sampler_version = timestamp_sampler_version
+        self.adaptive_weight_power = adaptive_weight_power
+
+        # DiT backbone (no EDM augmentation for ImageNet)
+        self._augment = None
+        self._network = MeanFlowDiTModule(
+            features=features,
+            patch_size=patch_size,
+            depth=depth,
+            num_heads=num_heads,
+            ffn_ratio=ffn_ratio,
+            dropout_rate=dropout_rate,
+            name="dit",
+            dtype=dtype,
+            param_dtype=param_dtype,
+            precision=precision,
+        )
+
+        # Frozen VAE for latent-space training
+        self._vae = None
+        self._vae_params = None
+        self._vae_scaling_factor = vae_scaling_factor
+        if vae_path is not None:
+            vae, vae_params = _vae.AutoencoderKL.from_pretrained(
+                vae_path,
+                dtype=dtype,
+                param_dtype=param_dtype,
+            )
+            self._vae = vae
+            self._vae_params = vae_params
+
+    def init(
+        self,
+        *,
+        batch: typing.Any,
+        rngs: typing.Any,
+        **kwargs,
+    ) -> PyTree:
+        """Initializes DiT parameters (VAE is frozen)."""
+        del batch
+
+        if self.timestamp_cond in [
+            "t_and_r",
+            "t_and_t_minus_r",
+        ]:
+            timestamps = (
+                jnp.zeros((1,), dtype=jnp.float32),
+                jnp.zeros((1,), dtype=jnp.float32),
+            )
+        elif self.timestamp_cond == "t_and_r_and_t_minus_r":
+            timestamps = (
+                jnp.zeros((1,), dtype=jnp.float32),
+                jnp.zeros((1,), dtype=jnp.float32),
+                jnp.zeros((1,), dtype=jnp.float32),
+            )
+        elif self.timestamp_cond == "t_minus_r":
+            timestamps = (jnp.zeros((1,), dtype=jnp.float32),)
+        else:
+            raise ValueError(
+                "Unsupported timestamp conditioning: "
+                f"{self.timestamp_cond}."
+            )
+
+        dummy_inputs = {
+            "inputs": jnp.zeros(
+                (
+                    1,
+                    self.image_size,
+                    self.image_size,
+                    self.in_channels,
+                ),
+                dtype=jnp.float32,
+            ),
+            "timestamps": timestamps,
+            "edm_cond": None,
+        }
+        variables = self._network.init(
+            rngs=rngs,
+            **dummy_inputs,
+            deterministic=True,
+        )
+
+        if jax.process_index() == 0:
+            _tabulate_fn = nn.summary.tabulate(
+                self._network,
+                depth=3,
+                rngs=rngs,
+                console_kwargs={"width": 120},
+            )
+            print(_tabulate_fn(**dummy_inputs, deterministic=True))
+
+        params = variables.pop("params")
+        return params, variables
+
+    @typing_extensions.override
+    def training_step(
+        self,
+        *,
+        batch: typing.Any,
+        state: _train_state.TrainState,
+        rngs: typing.Any,
+        **kwargs,
+    ) -> typing.Tuple[_train_state.TrainState, _model.StepOutputs]:
+        """MeanFlow training step in latent space."""
+        local_rng = jax.random.fold_in(rngs, jax.lax.axis_index("batch"))
+        local_rng = jax.random.fold_in(local_rng, state.step)
+
+        image = batch["image"].astype(jnp.float32)
+        batch_dims = image.shape[:-3]
+        (
+            tr_rng,
+            dp_rng,
+            vae_rng,
+            m_rng,
+            e_rng,
+        ) = jax.random.split(local_rng, 5)
+
+        # Encode to latent space (frozen VAE, no grads)
+        if self._vae is not None:
+            image = image * 2.0 - 1.0
+            mean, logvar = self._vae.apply(
+                {"params": self._vae_params},
+                image,
+                method=self._vae.encode,
+            )
+            std = jnp.exp(0.5 * logvar)
+            noise = jax.random.normal(vae_rng, mean.shape, dtype=mean.dtype)
+            x = (mean + std * noise) * self._vae_scaling_factor
+        else:
+            x = image * 2.0 - 1.0
+
+        # Sample timestamps
+        t, r = sample_t_r(
+            key=tr_rng,
+            shape=batch_dims,
+            dtype=x.dtype,
+            distribution=self.timestamp_sampler,
+            **self.timestamp_sampler_kwargs,
+        )
+
+        if self.timestamp_sampler_version == "v1":
+            r_eq_t_mask = jnp.less(
+                jax.random.uniform(
+                    key=m_rng,
+                    shape=batch_dims,
+                    dtype=x.dtype,
+                ),
+                self.timestamp_overlap_rate,
+            )
+            r = jnp.where(r_eq_t_mask, t, r)
+            r = jnp.minimum(t, r)
+        else:
+            t, r = jnp.maximum(t, r), jnp.minimum(t, r)
+            r_eq_t_mask = jnp.less(
+                jax.random.uniform(
+                    key=m_rng,
+                    shape=batch_dims,
+                    dtype=x.dtype,
+                ),
+                self.timestamp_overlap_rate,
+            )
+            r = jnp.where(r_eq_t_mask, t, r)
+
+        e = jax.random.normal(key=e_rng, shape=x.shape, dtype=x.dtype)
+        z = jnp.add(
+            (1 - t[..., None, None, None]) * x,
+            t[..., None, None, None] * e,
+        )
+
+        def _loss_fn(
+            params: PyTree,
+        ) -> typing.Tuple[jax.Array, jax.Array]:
+            def u_fn(
+                z_t: jax.Array,
+                r_in: jax.Array,
+                t_in: jax.Array,
+            ) -> jax.Array:
+                ts = self._make_timestamps(t_in=t_in, r_in=r_in)
+                return self._network.apply(
+                    variables={"params": params},
+                    inputs=z_t,
+                    timestamps=ts,
+                    edm_cond=None,
+                    deterministic=False,
+                    rngs={"dropout": dp_rng},
+                    **kwargs,
+                )
+
+            drdt = jnp.zeros_like(r)
+            dtdt = jnp.ones_like(t)
+            v = e - x
+            u, dudt = jax.jvp(u_fn, (z, r, t), (v, drdt, dtdt))
+            u_target = v - (t - r)[..., None, None, None] * dudt
+
+            loss = jnp.sum(
+                jnp.square(u - jax.lax.stop_gradient(u_target)),
+                axis=(-1, -2, -3),
+            )
+
+            if self.adaptive_weight_power > 0.0:
+                ada_wt = jnp.power(
+                    loss + 1e-3,
+                    self.adaptive_weight_power,
+                )
+                loss = loss / jax.lax.stop_gradient(ada_wt)
+            loss = jnp.mean(loss)
+
+            velocity_loss = jnp.where(
+                jnp.equal(t, r)[..., None, None, None],
+                jnp.square(u - (e - x)),
+                jnp.zeros_like(u),
+            )
+            velocity_loss = jnp.sum(velocity_loss, axis=(-1, -2, -3)).mean()
+
+            return loss, velocity_loss
+
+        grad_fn = jax.value_and_grad(_loss_fn, has_aux=True)
+        (loss, velocity_loss), grads = grad_fn(state.params)
+        global_grad_norm = optax.global_norm(grads)
+        grads = jax.lax.pmean(grads, axis_name="batch")
+        new_state = state.apply_gradients(grads=grads)
+
+        outputs = _model.StepOutputs(
+            scalars={
+                "loss": loss.mean(),
+                "velocity_loss": velocity_loss.mean(),
+                "global_grad_norm": global_grad_norm,
+            },
+            histograms={
+                "t": t,
+                "r": r,
+                "t - r": t - r,
+            },
+        )
+
+        return new_state, outputs
+
+    @typing_extensions.override
+    def forward(
+        self,
+        *,
+        rngs: jax.Array,
+        params: frozen_dict.FrozenDict,
+        shape: typing.Sequence[typing.Union[int, typing.Any]],
+        deterministic: bool = True,
+        **kwargs,
+    ) -> _model.StepOutputs:
+        """One-step sampling with optional VAE decoding.
+
+        Args:
+            rngs (jax.Array): Random key for noise sampling.
+            params (FrozenDict): DiT model parameters.
+            shape (Sequence): Pixel-space shape from the batch.
+            deterministic (bool): Whether deterministic.
+            **kwargs: Additional keyword arguments.
+
+        Returns:
+            Generated images in ``[-1, 1]``.
+        """
+        del kwargs
+
+        # Generate noise in latent space
+        batch_dims = shape[:-3]
+        latent_shape = batch_dims + (
+            self.image_size,
+            self.image_size,
+            self.in_channels,
+        )
+        z_1 = jax.random.normal(
+            key=rngs,
+            shape=latent_shape,
+            dtype=self._network.dtype,
+        )
+        timestamps = self._make_timestamps(
+            t_in=jnp.ones(batch_dims, dtype=jnp.float32),
+            r_in=jnp.zeros(batch_dims, dtype=jnp.float32),
+        )
+
+        # One-step MeanFlow: z_0 = z_1 - u(z_1, 0, 1)
+        z_0 = z_1 - self._network.apply(
+            variables={"params": params},
+            inputs=z_1,
+            timestamps=timestamps,
+            edm_cond=None,
+            deterministic=deterministic,
+        )
+
+        # Decode to pixel space if VAE is available
+        if self._vae is not None:
+            z_0 = z_0 / self._vae_scaling_factor
+            out = self._vae.apply(
+                {"params": self._vae_params},
+                z_0,
+                method=self._vae.decode,
+            )
+        else:
+            out = z_0
+
+        return _model.StepOutputs(output=out)
 
 
 class ImprovedMeanFlowUNetModel(MeanFlowUNetModel):

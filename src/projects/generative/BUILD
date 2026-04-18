@@ -47,7 +47,9 @@ ml_py_library(
         "typing_extensions",
         "//src/core:model",
         "//src/core:train_state",
+        "//src/projects/generative/model:dit",
         "//src/projects/generative/model:unet",
+        "//src/projects/generative/model:vae",
         "//src/projects/generative/pipeline:augment",
     ],
 )
