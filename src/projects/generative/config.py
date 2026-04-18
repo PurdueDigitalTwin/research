@@ -218,7 +218,7 @@ def meanflow_dit_imagenet_256() -> _config.ExperimentConfig:
                         std=(1.0, 1.0, 1.0),
                     ),
                 ),
-                streaming=True,
+                streaming=False,
             ),
             batch_size=256,
             num_workers=4,
