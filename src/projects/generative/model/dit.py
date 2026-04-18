@@ -1,4 +1,5 @@
 import functools
+import math
 import typing
 
 import chex
@@ -1161,7 +1162,7 @@ class DiffusionTransformer(nn.Module):
             Reconstructed images of shape `(*, H, W, channels)`.
         """
         batch_dims = inputs.shape[:-2]
-        h = w = int(jnp.sqrt(inputs.shape[-2]))
+        h = w = int(math.isqrt(inputs.shape[-2]))
         if h * w != inputs.shape[-2]:
             raise ValueError(
                 "Number of patches must be a perfect square. "
