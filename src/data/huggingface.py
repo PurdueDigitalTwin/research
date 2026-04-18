@@ -189,20 +189,28 @@ class HuggingFaceDataModule(datamodule.DataModule):
         return self._num_workers
 
     @property
-    def num_train_examples(self) -> int:
-        r"""int: Number of training examples."""
-        return len(self.hf_dataset["train"])  # type: ignore
+    def num_train_examples(self) -> typing.Optional[int]:
+        r"""int: Number of training examples (None for streaming)."""
+        ds = self.hf_dataset["train"]
+        if isinstance(ds, datasets.IterableDataset):
+            return None
+        return len(ds)  # type: ignore
 
     @property
-    def num_val_examples(self) -> int:
-        r"""int: Number of validation examples."""
-        # NOTE: using test set as validation set by default
-        return len(self.hf_dataset["validation"])  # type: ignore
+    def num_val_examples(self) -> typing.Optional[int]:
+        r"""int: Number of validation examples (None for streaming)."""
+        ds = self.hf_dataset.get("validation", None)
+        if ds is None or isinstance(ds, datasets.IterableDataset):
+            return None
+        return len(ds)  # type: ignore
 
     @property
-    def num_test_examples(self) -> int:
-        r"""int: Number of test examples."""
-        return len(self.hf_dataset["test"])  # type: ignore
+    def num_test_examples(self) -> typing.Optional[int]:
+        r"""int: Number of test examples (None for streaming)."""
+        ds = self.hf_dataset.get("test", None)
+        if ds is None or isinstance(ds, datasets.IterableDataset):
+            return None
+        return len(ds)  # type: ignore
 
     @property
     def rng(self) -> typing.Any:
@@ -357,10 +365,53 @@ class HuggingFaceImageDataModule(HuggingFaceDataModule):
         r"""tf.data.Dataset: The test dataset split."""
         return self._test_dataset
 
+    def _create_from_iterable(
+        self,
+        dataset: datasets.IterableDataset,
+    ) -> tf.data.Dataset:
+        """Create ``tf.data.Dataset`` from a streaming IterableDataset.
+
+        Uses ``tf.data.Dataset.from_generator`` to lazily consume
+        the HuggingFace iterable, applying the same per-item
+        processing as the index-based path.
+        """
+        columns = self.feature_keys
+        columns_dtypes = self.feature_types
+
+        def _generator():
+            for item in dataset:
+                out = {}
+                for col, cast_dtype in columns_dtypes.items():
+                    key = _align_keys(col)
+                    arr = np.array(item[col]).astype(cast_dtype)
+                    if key == "image":
+                        if arr.ndim == 2:
+                            arr = np.expand_dims(arr, axis=-1)
+                            arr = np.tile(arr, (1, 1, 3))
+                        if arr.shape[-1] == 4:
+                            arr = arr[..., :3]
+                    out[key] = arr
+                yield out
+
+        output_signature = {}
+        for col, dtype in columns_dtypes.items():
+            key = _align_keys(col)
+            td = tf.dtypes.as_dtype(dtype)
+            if key == "image":
+                # rank-3: (H, W, C) with unknown spatial dims
+                output_signature[key] = tf.TensorSpec(
+                    shape=(None, None, None), dtype=td
+                )
+            else:
+                output_signature[key] = tf.TensorSpec(shape=(), dtype=td)
+        return tf.data.Dataset.from_generator(
+            _generator, output_signature=output_signature
+        )
+
     def create_dataset(
         self,
         *,
-        dataset: datasets.Dataset,
+        dataset: typing.Union[datasets.Dataset, datasets.IterableDataset],
         batch_size: int,
         deterministic: bool,
         drop_remainder: bool,
@@ -397,34 +448,41 @@ class HuggingFaceImageDataModule(HuggingFaceDataModule):
         """
 
         # step 1: map fetch function to get data from huggingface dataset
-        get_fn = functools.partial(
-            _hf_dataset_get,
-            dataset=dataset,
-            columns=self.feature_keys,
-            columns_dtypes=self.feature_types,
-        )
-        tout = [tf.dtypes.as_dtype(t) for t in self.feature_types.values()]
-
-        @tf.function(
-            input_signature=(tf.TensorSpec(None, tf.int64),)  # type: ignore
-        )
-        def fetch_fn(index: tf.Tensor) -> typing.Dict[str, tf.Tensor]:
-            output = tf.py_function(
-                get_fn,
-                inp=[index],
-                Tout=tout,
+        if isinstance(dataset, datasets.IterableDataset):
+            ds = self._create_from_iterable(dataset)
+        else:
+            get_fn = functools.partial(
+                _hf_dataset_get,
+                dataset=dataset,
+                columns=self.feature_keys,
+                columns_dtypes=self.feature_types,
             )
-            return {
-                _align_keys(key): output[i]  # type: ignore
-                for i, key in enumerate(self.feature_keys)
-            }
+            tout = [tf.dtypes.as_dtype(t) for t in self.feature_types.values()]
 
-        ds = tf.data.Dataset.range(len(dataset))
-        ds = ds.map(
-            map_func=fetch_fn,
-            deterministic=deterministic,
-            num_parallel_calls=tf.data.AUTOTUNE,
-        )
+            @tf.function(
+                input_signature=(
+                    tf.TensorSpec(None, tf.int64),
+                )  # type: ignore
+            )
+            def fetch_fn(
+                index: tf.Tensor,
+            ) -> typing.Dict[str, tf.Tensor]:
+                output = tf.py_function(
+                    get_fn,
+                    inp=[index],
+                    Tout=tout,
+                )
+                return {
+                    _align_keys(key): output[i]  # type: ignore
+                    for i, key in enumerate(self.feature_keys)
+                }
+
+            ds = tf.data.Dataset.range(len(dataset))
+            ds = ds.map(
+                map_func=fetch_fn,
+                deterministic=deterministic,
+                num_parallel_calls=tf.data.AUTOTUNE,
+            )
 
         # step 2: map transformation function to preprocess images
         if isinstance(transform, typing.Callable):
