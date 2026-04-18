@@ -1034,8 +1034,6 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
         local_rng = jax.random.fold_in(rngs, jax.lax.axis_index("batch"))
         local_rng = jax.random.fold_in(local_rng, state.step)
 
-        image = batch["image"].astype(jnp.float32)
-        batch_dims = image.shape[:-3]
         (
             tr_rng,
             dp_rng,
@@ -1044,8 +1042,18 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
             e_rng,
         ) = jax.random.split(local_rng, 5)
 
-        # Encode to latent space (frozen VAE, no grads)
-        if self._vae is not None:
+        # Encode to latent space
+        if "latent_mean" in batch:
+            # Pre-encoded latents: skip VAE forward pass
+            mean = batch["latent_mean"].astype(jnp.float32)
+            logvar = batch["latent_logvar"].astype(jnp.float32)
+            batch_dims = mean.shape[:-3]
+            std = jnp.exp(0.5 * logvar)
+            noise = jax.random.normal(vae_rng, mean.shape, dtype=mean.dtype)
+            x = (mean + std * noise) * self._vae_scaling_factor
+        elif self._vae is not None:
+            image = batch["image"].astype(jnp.float32)
+            batch_dims = image.shape[:-3]
             image = image * 2.0 - 1.0
             mean, logvar = self._vae.apply(
                 {"params": self._vae_params},
@@ -1056,6 +1064,8 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
             noise = jax.random.normal(vae_rng, mean.shape, dtype=mean.dtype)
             x = (mean + std * noise) * self._vae_scaling_factor
         else:
+            image = batch["image"].astype(jnp.float32)
+            batch_dims = image.shape[:-3]
             x = image * 2.0 - 1.0
 
         # Sample timestamps

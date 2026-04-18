@@ -44,3 +44,17 @@ ml_py_binary(
         "//src/projects/generative:meanflow",
     ],
 )
+
+ml_py_binary(
+    name = "encode_latents",
+    srcs = ["encode_latents.py"],
+    deps = [
+        "absl-py",
+        "jax",
+        "numpy",
+        "tensorflow-cpu",
+        "//src/data:huggingface",
+        "//src/data:preprocess",
+        "//src/projects/generative/model:vae",
+    ],
+)

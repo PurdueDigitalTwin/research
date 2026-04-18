@@ -735,8 +735,7 @@ class ImageNet1KDataModule(HuggingFaceImageDataModule):
                 data_files={
                     "train": data_dir.rstrip("/") + "/train-*.parquet",
                     "validation": (
-                        data_dir.rstrip("/")
-                        + "/validation-*.parquet"
+                        data_dir.rstrip("/") + "/validation-*.parquet"
                     ),
                     "test": (data_dir.rstrip("/") + "/test-*.parquet"),
                 },
@@ -772,6 +771,155 @@ class ImageNet1KDataModule(HuggingFaceImageDataModule):
     @property
     def feature_types(self) -> typing.Dict[str, typing.Any]:
         return {"image": np.uint8, "label": np.int32}
+
+
+class ImageNetLatentDataModule(datamodule.DataModule):
+    r"""ImageNet pre-encoded VAE latents from numpy shards.
+
+    Loads ``(latent_mean, latent_logvar, label)`` from
+    ``.npz`` shard files on GCS or local disk, avoiding
+    the need to run the VAE encoder every training step.
+
+    Each shard is an ``.npz`` with keys ``latent_mean``
+    (float16, ``[N, 32, 32, 4]``), ``latent_logvar``
+    (float16, ``[N, 32, 32, 4]``), and ``label``
+    (int32, ``[N]``).
+
+    Args:
+        data_dir (str): Directory containing ``.npz`` shards.
+        batch_size (int): Global batch size.
+        shuffle_buffer_size (int): Number of samples to buffer
+            for shuffling within each shard.
+        deterministic (bool): Whether to enforce deterministic
+            loading order.
+        drop_remainder (bool): Whether to drop incomplete
+            batches.
+        num_workers (int): Number of parallel map calls.
+    """
+
+    def __init__(
+        self,
+        data_dir: str,
+        batch_size: int,
+        shuffle_buffer_size: int = 10_000,
+        deterministic: bool = True,
+        drop_remainder: bool = True,
+        num_workers: int = 4,
+        rng: typing.Any = None,
+    ) -> None:
+        self._data_dir = data_dir
+        self._batch_size = batch_size
+        self._shuffle_buffer_size = shuffle_buffer_size
+        self._deterministic = deterministic
+        self._drop_remainder = drop_remainder
+        self._num_workers = num_workers
+
+        seed = 42 if rng is None else int(rng[0])
+        self._train_dataset = self._build_dataset("train", shuffle_seed=seed)
+        self._eval_dataset = self._build_dataset("validation")
+
+    def _list_shards(self, split: str) -> typing.List[str]:
+        """List .npz shard paths for the given split."""
+        prefix = os.path.join(self._data_dir, f"{split}-")
+        if prefix.startswith("gs://"):
+            import gcsfs as _gcsfs
+
+            fs = _gcsfs.GCSFileSystem()
+            bucket_path = prefix[len("gs://") :]
+            bucket = bucket_path.split("/")[0]
+            rest = bucket_path[len(bucket) + 1 :]
+            matches = [f"gs://{p}" for p in fs.glob(f"{bucket}/{rest}*.npz")]
+        else:
+            import glob as _glob
+
+            matches = sorted(_glob.glob(prefix + "*.npz"))
+        return sorted(matches)
+
+    def _build_dataset(
+        self,
+        split: str,
+        shuffle_seed: typing.Optional[int] = None,
+    ) -> tf.data.Dataset:
+        """Build a ``tf.data.Dataset`` from numpy shards."""
+        shard_paths = self._list_shards(split)
+
+        def _generator():
+            for path in shard_paths:
+                if path.startswith("gs://"):
+                    import gcsfs as _gcsfs
+
+                    fs = _gcsfs.GCSFileSystem()
+                    with fs.open(path, "rb") as f:
+                        data = np.load(f)
+                else:
+                    data = np.load(path)
+                mean = data["latent_mean"]
+                logvar = data["latent_logvar"]
+                label = data["label"]
+                for i in range(len(label)):
+                    yield {
+                        "latent_mean": mean[i],
+                        "latent_logvar": logvar[i],
+                        "label": label[i],
+                    }
+
+        ds = tf.data.Dataset.from_generator(
+            _generator,
+            output_signature={
+                "latent_mean": tf.TensorSpec((32, 32, 4), dtype=tf.float16),
+                "latent_logvar": tf.TensorSpec((32, 32, 4), dtype=tf.float16),
+                "label": tf.TensorSpec((), dtype=tf.int32),
+            },
+        )
+        if shuffle_seed is not None:
+            ds = ds.shuffle(
+                buffer_size=self._shuffle_buffer_size,
+                seed=shuffle_seed,
+                reshuffle_each_iteration=True,
+            )
+        ds = ds.batch(
+            batch_size=self._batch_size,
+            deterministic=self._deterministic,
+            drop_remainder=self._drop_remainder,
+            num_parallel_calls=tf.data.AUTOTUNE,
+        )
+        return ds.prefetch(buffer_size=tf.data.AUTOTUNE)
+
+    @property
+    def batch_size(self) -> int:
+        return self._batch_size
+
+    @property
+    def deterministic(self) -> bool:
+        return self._deterministic
+
+    @property
+    def drop_remainder(self) -> bool:
+        return self._drop_remainder
+
+    @property
+    def num_workers(self) -> int:
+        return self._num_workers
+
+    def train_dataloader(
+        self,
+    ) -> typing.Generator[PyTree, None, None]:
+        """Yields batches of pre-encoded latents."""
+        for data in self._train_dataset.as_numpy_iterator():
+            yield jax.tree_util.tree_map(lambda x: jnp.asarray(x), data)
+
+    def eval_dataloader(
+        self,
+    ) -> typing.Generator[PyTree, None, None]:
+        """Yields batches of pre-encoded latents."""
+        for data in self._eval_dataset.as_numpy_iterator():
+            yield jax.tree_util.tree_map(lambda x: jnp.asarray(x), data)
+
+    def test_dataloader(
+        self,
+    ) -> typing.Generator[PyTree, None, None]:
+        """Yields batches of pre-encoded latents."""
+        return self.eval_dataloader()
 
 
 class MNISTDataModule(HuggingFaceImageDataModule):
