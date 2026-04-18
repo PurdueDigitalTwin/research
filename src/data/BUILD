@@ -30,7 +30,7 @@ ml_py_test(
 ml_py_binary(
     name = "download_imagenet",
     srcs = ["download_imagenet.py"],
-    deps = ["datasets"],
+    deps = ["huggingface_hub"],
 )
 
 ml_py_library(
