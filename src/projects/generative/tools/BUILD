@@ -35,6 +35,7 @@ ml_py_binary(
     srcs = ["diagnostic.py"],
     deps = [
         "datasets",
+        "etils",
         "jax",
         "jaxtyping",
         "numpy",

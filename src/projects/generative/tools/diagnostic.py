@@ -18,6 +18,7 @@ import os
 import typing
 
 import datasets
+from etils import epath
 import jax
 from jax import numpy as jnp
 import jaxtyping
@@ -71,7 +72,7 @@ def load_params(
     init_rng = jax.random.PRNGKey(0)
     params, _ = model.init(batch=None, rngs=init_rng)
 
-    params_dir = os.path.join(checkpoint_dir.rstrip("/"), "params")
+    params_dir = epath.Path(os.path.join(checkpoint_dir.rstrip("/"), "params"))
     print(f"Loading checkpoint from {params_dir}...", flush=True)
     handler = ocp.PyTreeCheckpointHandler()
     params = handler.restore(directory=params_dir, item=params)
