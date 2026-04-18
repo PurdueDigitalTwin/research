@@ -30,6 +30,7 @@ ml_py_library(
     deps = [
         "absl-py",
         ":structure",
+        "//src/utilities:logging",
     ],
 )
 
@@ -40,6 +41,7 @@ ml_py_library(
         "absl-py",
         "numpy",
         "opencv-python-headless",
+        "tqdm",
         ":structure",
         "//src/utilities:logging",
     ],

@@ -53,7 +53,7 @@ def render_annotated_video(
         show_label (bool, optional): Whether to show track ID and class label.
             Default is `True`.
         show_trail (bool, optional): Whether to draw trajectory trails.
-            Default is True,
+            Default is `True`,
         codec (str, optional): FourCC codec string (e.g., `"mp4v"`, `"XVID"`).
             Default is `"mp4v"`.
     """

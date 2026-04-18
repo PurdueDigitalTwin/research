@@ -66,7 +66,7 @@ class Detection:
 
 @dataclasses.dataclass
 class Trajectory:
-    r"""A trajectory consisting for a sequence of detection for an object.
+    r"""A trajectory consisting of a sequence of detection for an object.
 
     Attributes:
         track_id (int): Unique tracker-assigned ID.

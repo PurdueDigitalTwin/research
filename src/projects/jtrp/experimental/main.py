@@ -133,13 +133,17 @@ def main(argv: typing.List[str]) -> int:
             FLAGS.output_dir, f"{model_name}_{video_basename}_trajectories.csv"
         )
         serialization.save_trajectories_csv(trajectory_set, csv_path)
-
-    if FLAGS.output_format in ("json", "both"):
+    elif FLAGS.output_format in ("json", "both"):
         json_path = os.path.join(
             FLAGS.output_dir,
             f"{model_name}_{video_basename}_trajectories.json",
         )
         serialization.save_trajectories_json(trajectory_set, json_path)
+    else:
+        logging.rank_zero_warning(
+            "Unsupported output format: %s. Skipping trajectory saving.",
+            FLAGS.output_format,
+        )
 
     # Step 5: Render annotated video.
     if FLAGS.render_video:
