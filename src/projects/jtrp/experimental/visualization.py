@@ -151,4 +151,4 @@ def render_annotated_video(
     pbar.close()
     cap.release()
     writer.release()
-    logging.rank_zero_info("Annotated video saved to %s", output_path)  #
+    logging.rank_zero_info("Annotated video saved to %s", output_path)

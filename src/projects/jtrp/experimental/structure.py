@@ -50,7 +50,7 @@ class Detection:
     Attributes:
         frame_index (int): Zero-based frame number.
         track_id (int): Assigned tracker ID (or -1 if untracked).
-        bbox (int): Bounding box in pixel coordinates.
+        bbox (BoundingBox): Bounding box in pixel coordinates.
         class_id (int): Integer class ID from YOLO.
         class_name (str): Human-readable class label (e.g., "car", "truck").
         confidence (float): Detection confidence score in :math:`[0, 1]`.
@@ -104,8 +104,11 @@ class Trajectory:
         return [d.confidence for d in self.detections]
 
     @property
-    def dominant_class(self) -> str:
-        r"""str: The most frequently assigned class label."""
+    def dominant_class(self) -> typing.Optional[str]:
+        r"""Optional[str]: The most frequently assigned class label."""
+        if not self.detections:
+            return None
+
         counts = collections.Counter(d.class_name for d in self.detections)
         return counts.most_common(1)[0][0]
 
@@ -120,7 +123,7 @@ class TrajectorySet:
         frame_height (int): Video frame height in pixels.
         fps (float): Video frames per second.
         total_frames (int): Total number of frames in the video.
-        trajectories (Dict[str, Trajectory]): Mapping `track_id` to trajectory.
+        trajectories (Dict[int, Trajectory]): Mapping `track_id` to trajectory.
     """
 
     source_video: str
@@ -145,7 +148,7 @@ class TrajectorySet:
         """
         if not isinstance(detection, Detection):
             raise TypeError(
-                "Expect `detection` to be an `Detection` instance, "
+                "Expect `detection` to be a `Detection` instance, "
                 f"but got {type(detection)} instead."
             )
 

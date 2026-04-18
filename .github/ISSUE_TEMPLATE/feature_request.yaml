@@ -11,7 +11,8 @@ body:
   - type: textarea
     attributes:
       label: "Feature description"
-      description: "Describe your goal, and if possible provide a code snippet with a
+      description:
+        "Describe your goal, and if possible provide a code snippet with a
         motivating example."
       placeholder: "A clear and concise description of the feature..."
     validations:
