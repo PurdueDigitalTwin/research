@@ -22,13 +22,7 @@ from absl import app
 from absl import flags
 from absl import logging
 import jax
-import jax.numpy as jnp
 import numpy as np
-import tensorflow as tf
-
-from src.data import huggingface
-from src.data import preprocess
-from src.projects.generative.model import vae as _vae
 
 FLAGS = flags.FLAGS
 flags.DEFINE_string(
@@ -62,7 +56,7 @@ flags.DEFINE_bool(
 
 
 def _encode_batch(
-    vae: _vae.AutoencoderKL,
+    vae: typing.Any,
     params: typing.Any,
     images: jax.Array,
 ) -> typing.Tuple[jax.Array, jax.Array]:
@@ -77,6 +71,8 @@ def _encode_batch(
     Returns:
         Tuple of ``(mean, logvar)`` in float16.
     """
+    import jax.numpy as jnp
+
     images = images * 2.0 - 1.0  # [0,1] -> [-1,1]
     mean, logvar = vae.apply({"params": params}, images, method=vae.encode)
     return mean.astype(jnp.float16), logvar.astype(jnp.float16)
@@ -105,6 +101,8 @@ def _save_shard(
     buf.seek(0)
 
     if path.startswith("gs://"):
+        import tensorflow as tf
+
         tf.io.gfile.makedirs(output_dir)
         with tf.io.gfile.GFile(path, "wb") as f:
             f.write(buf.read())
@@ -122,6 +120,15 @@ def main(argv: typing.Sequence[str]) -> None:
 
     if FLAGS.distributed:
         jax.distributed.initialize()
+
+    # Import after distributed init — module-level JAX ops in
+    # default args (e.g. PRNGKey) would trigger premature init.
+    import jax.numpy as jnp
+    import tensorflow as tf  # noqa: F811
+
+    from src.data import huggingface
+    from src.data import preprocess
+    from src.projects.generative.model import vae as _vae
 
     process_id = jax.process_index()
     num_processes = jax.process_count()
