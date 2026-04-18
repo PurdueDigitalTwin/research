@@ -87,6 +87,7 @@ ml_py_library(
     srcs = ["vae.py"],
     deps = [
         "flax",
+        "huggingface_hub",
         "jax",
     ],
 )

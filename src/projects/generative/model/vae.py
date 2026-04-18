@@ -23,6 +23,7 @@ import typing
 
 import flax.linen as nn
 import flax.serialization
+import huggingface_hub
 import jax
 import jax.numpy as jnp
 
@@ -696,16 +697,16 @@ class AutoencoderKL(nn.Module):
         dtype: typing.Any = None,
         param_dtype: typing.Any = None,
     ) -> typing.Tuple["AutoencoderKL", typing.Dict]:
-        """Load pretrained AutoencoderKL from a local directory.
+        """Load pretrained AutoencoderKL.
 
-        Download weights first::
-
-            huggingface-cli download pcuenq/sd-vae-ft-mse-flax \\
-                --local-dir /path/to/sd-vae-ft-mse-flax
+        Accepts either a local directory or a HuggingFace repo ID
+        (e.g. ``pcuenq/sd-vae-ft-mse-flax``).  When ``path`` is not
+        an existing local directory the weights are downloaded from
+        HuggingFace Hub automatically.
 
         Args:
-            path (str): Local directory containing
-                ``config.json`` and
+            path (str): Local directory or HuggingFace repo ID
+                containing ``config.json`` and
                 ``diffusion_flax_model.msgpack``.
             dtype (Any): Computation dtype override.
             param_dtype (Any): Parameter dtype override.
@@ -714,6 +715,12 @@ class AutoencoderKL(nn.Module):
             Tuple of ``(model, params)`` where ``params`` is a
             nested dict ready for ``model.apply``.
         """
+        if not os.path.isdir(path):
+            path = huggingface_hub.snapshot_download(
+                repo_id=path,
+                revision="7581b0a0489cc8483c876a728b830b9ce087cf03",
+                token=os.getenv("HF_TOKEN", None),
+            )
         config_file = os.path.join(path, "config.json")
         with open(config_file) as f:
             config = json.load(f)
