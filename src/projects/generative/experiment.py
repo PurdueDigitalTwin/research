@@ -143,7 +143,10 @@ def evaluate(
 
         return img
 
-    shape = batch["image"].shape
+    # Use a small per-device batch for generation to avoid OOM
+    # during VAE decoding at high resolutions (e.g. 256x256).
+    gen_batch = min(batch["image"].shape[0], 4)
+    shape = (gen_batch,) + batch["image"].shape[1:]
     p_generate = functools.partial(_generate, shape=shape)
     p_generate = jax.pmap(p_generate, axis_name="batch")
     with tqdm_logging.logging_redirect_tqdm():
@@ -385,7 +388,7 @@ def train_and_evaluate(
                             suffix="_step",
                         )
 
-                    if (
+                    if step > 0 and (
                         step % exp_config.trainer.eval_every_n_steps == 0
                         or step == exp_config.trainer.num_train_steps
                     ):
@@ -410,7 +413,7 @@ def train_and_evaluate(
                         pbar.update(1)
 
                     # checkpointing
-                    if (
+                    if step > 0 and (
                         step % checkpoint_every_n_steps == 0
                         or step >= exp_config.trainer.num_train_steps
                     ):
