@@ -1,18 +1,18 @@
 ---
 name: "Feature Request"
-description: >-
-  Suggest a new research idea or improvement for the research repository.
-labels:
-  - enhancement
+description: "Suggest a new research idea or improvement"
+labels: "enhancement"
 
 body:
   - type: markdown
     attributes:
-      value: "Thanks for suggesting an idea! Please check for duplicate requests before submitting."
+      value: "Thanks for suggesting an idea! Please check for duplicate requests
+        before submitting."
   - type: textarea
     attributes:
       label: "Feature description"
-      description: "Describe your goal, and if possible provide a code snippet with a motivating example."
+      description: "Describe your goal, and if possible provide a code snippet with a
+        motivating example."
       placeholder: "A clear and concise description of the feature..."
     validations:
       required: true

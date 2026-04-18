@@ -1,0 +1,80 @@
+/* Custom styles for Purdue Digital Twin Lab documentation */
+
+/* ── Brand colors ───────────────────────────────────────────────────── */
+:root {
+    --pst-color-primary:          #c28020;   /* Purdue gold */
+    --pst-color-primary-highlight:#a06510;
+    --pst-color-secondary:        #8e6f3e;   /* Purdue secondary gold */
+    --pst-color-link:             #c28020;
+    --pst-color-link-hover:       #a06510;
+    --pst-color-accent:           #c28020;
+}
+
+/* ── Sidebar logo sizing ────────────────────────────────────────────── */
+.navbar-brand img,
+.sidebar-primary-items__start .navbar-brand img {
+    max-height: 56px;
+    width: auto;
+    margin-bottom: 0.5rem;
+}
+
+/* ── Sidebar background – light warm white matching JAX style ───────── */
+html[data-theme="light"] .bd-sidebar-primary {
+    background-color: #f8f8f8;
+    border-right: 1px solid #e5e5e5;
+}
+
+/* ── Navigation link accents ────────────────────────────────────────── */
+html[data-theme="light"] .bd-sidebar-primary .nav-link.active,
+html[data-theme="light"] .bd-sidebar-primary .current > a {
+    color: var(--pst-color-primary);
+    font-weight: 600;
+    border-left: 3px solid var(--pst-color-primary);
+    padding-left: 0.6rem;
+}
+
+html[data-theme="light"] .bd-sidebar-primary .nav-link:hover {
+    color: var(--pst-color-primary-highlight);
+}
+
+/* ── Headings ───────────────────────────────────────────────────────── */
+html[data-theme="light"] h1,
+html[data-theme="light"] h2,
+html[data-theme="light"] h3 {
+    color: #1a1a1a;
+}
+
+h1 { border-bottom: 2px solid var(--pst-color-primary); padding-bottom: 0.3em; }
+
+/* ── Inline code ────────────────────────────────────────────────────── */
+html[data-theme="light"] code.literal {
+    background-color: #f3f3f3;
+    border: 1px solid #e0e0e0;
+    border-radius: 3px;
+    padding: 0.1em 0.35em;
+    font-size: 0.875em;
+    color: #333;
+}
+
+/* ── Code blocks ────────────────────────────────────────────────────── */
+html[data-theme="light"] div.highlight {
+    border-radius: 6px;
+    border: 1px solid #e5e5e5;
+}
+
+/* ── Admonition notes ───────────────────────────────────────────────── */
+html[data-theme="light"] div.note {
+    border-left: 4px solid var(--pst-color-primary);
+    background: #fffdf5;
+}
+
+/* ── Article content max-width for readability ──────────────────────── */
+.bd-article-container .bd-article {
+    max-width: 860px;
+}
+
+/* ── Footer ─────────────────────────────────────────────────────────── */
+.bd-footer-content {
+    font-size: 0.85rem;
+    color: #666;
+}
