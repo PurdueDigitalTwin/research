@@ -38,6 +38,32 @@ tf.config.experimental.set_visible_devices([], "TPU")
 
 # ==============================================================================
 # Helper Functions
+class _LazyFIDMetric:
+    """Defers FID metric initialization to first ``__call__``.
+
+    Building the FID metric eagerly at experiment start downloads the full reference dataset and
+    computes Inception statistics, which blocks the primary process for 30-60 min and deadlocks
+    multi-host pmap training.  This wrapper delays that work until the first evaluation, *after*
+    the pmap-ed image generation completes so that other hosts are not blocked.
+    """
+
+    def __init__(self, metric_config: fdl.Config) -> None:
+        self._config = metric_config
+        self._metric: typing.Optional[fid.FrechetInceptionDistance] = None
+
+    def __call__(self, **kwargs):
+        if self._metric is None:
+            logging.rank_zero_info("Lazily initializing FID metric...")
+            self._metric = fdl.build(self._config)
+            if not isinstance(self._metric, fid.FrechetInceptionDistance):
+                raise TypeError(
+                    "Expected FrechetInceptionDistance, "
+                    f"got {type(self._metric)}"
+                )
+            logging.rank_zero_info("FID metric initialized.")
+        return self._metric(**kwargs)
+
+
 def _log_step_outputs(
     outputs: _model.StepOutputs,
     prefix: str,
@@ -78,7 +104,9 @@ def evaluate(
     rngs: jax.Array,
     model: _model.Model,
     batch: typing.Dict[str, typing.Any],
-    fid_metric: typing.Optional[fid.FrechetInceptionDistance],
+    fid_metric: typing.Optional[
+        typing.Union[fid.FrechetInceptionDistance, _LazyFIDMetric]
+    ],
     **kwargs,
 ) -> _model.StepOutputs:
     r"""Conduct a single evaluation step and compute metrics.
@@ -296,15 +324,7 @@ def train_and_evaluate(
         return 1
 
     if jax.process_index() == 0:
-        fid_metric = fdl.build(exp_config.metric)
-        if not isinstance(fid_metric, fid.FrechetInceptionDistance):
-            logging.rank_zero_error(
-                "Expect metric to be of an "
-                "`FrechetInceptionDistance` instance, "
-                "but got %s.",
-                type(fid_metric),
-            )
-            return 1
+        fid_metric = _LazyFIDMetric(exp_config.metric)
     else:
         fid_metric = None
 
