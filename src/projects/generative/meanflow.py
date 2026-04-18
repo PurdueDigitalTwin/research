@@ -599,6 +599,7 @@ class MeanFlowUNetModel(_model.Model):
                 jnp.square(u - jax.lax.stop_gradient(u_target)),
                 axis=(-1, -2, -3),
             )
+            raw_loss = jnp.mean(loss)
 
             # applies adaptive weight power
             if self.adaptive_weight_power > 0.0:
@@ -614,17 +615,17 @@ class MeanFlowUNetModel(_model.Model):
             )
             velocity_loss = jnp.sum(velocity_loss, axis=(-1, -2, -3)).mean()
 
-            return loss, velocity_loss
+            return loss, (velocity_loss, raw_loss)
 
         grad_fn = jax.value_and_grad(_loss_fn, has_aux=True)
-        (loss, velocity_loss), grads = grad_fn(state.params)
+        (loss, (velocity_loss, raw_loss)), grads = grad_fn(state.params)
         global_grad_norm = optax.global_norm(grads)
         grads = jax.lax.pmean(grads, axis_name="batch")
         new_state = state.apply_gradients(grads=grads)
 
         outputs = _model.StepOutputs(
             scalars={
-                "loss": loss.mean(),
+                "loss": raw_loss.mean(),
                 "velocity_loss": velocity_loss.mean(),
                 "global_grad_norm": global_grad_norm,
             },
@@ -1124,6 +1125,7 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
                 jnp.square(u - jax.lax.stop_gradient(u_target)),
                 axis=(-1, -2, -3),
             )
+            raw_loss = jnp.mean(loss)
 
             if self.adaptive_weight_power > 0.0:
                 ada_wt = jnp.power(
@@ -1140,17 +1142,17 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
             )
             velocity_loss = jnp.sum(velocity_loss, axis=(-1, -2, -3)).mean()
 
-            return loss, velocity_loss
+            return loss, (velocity_loss, raw_loss)
 
         grad_fn = jax.value_and_grad(_loss_fn, has_aux=True)
-        (loss, velocity_loss), grads = grad_fn(state.params)
+        (loss, (velocity_loss, raw_loss)), grads = grad_fn(state.params)
         global_grad_norm = optax.global_norm(grads)
         grads = jax.lax.pmean(grads, axis_name="batch")
         new_state = state.apply_gradients(grads=grads)
 
         outputs = _model.StepOutputs(
             scalars={
-                "loss": loss.mean(),
+                "loss": raw_loss.mean(),
                 "velocity_loss": velocity_loss.mean(),
                 "global_grad_norm": global_grad_norm,
             },
@@ -1370,6 +1372,7 @@ class ImprovedMeanFlowUNetModel(MeanFlowUNetModel):
 
             # NOTE: sum over all the pixels, following official implementation
             loss = jnp.sum(jnp.square(v_pred - v_target), axis=(-1, -2, -3))
+            raw_loss = jnp.mean(loss)
             if self.adaptive_weight_power > 0.0:
                 ada_wt = jnp.power(loss + 1e-2, self.adaptive_weight_power)
                 loss = loss / jax.lax.stop_gradient(ada_wt)
@@ -1383,17 +1386,17 @@ class ImprovedMeanFlowUNetModel(MeanFlowUNetModel):
             )
             velocity_loss = jnp.sum(velocity_loss, axis=(-1, -2, -3)).mean()
 
-            return loss, velocity_loss
+            return loss, (velocity_loss, raw_loss)
 
         grad_fn = jax.value_and_grad(_loss_fn, has_aux=True)
-        (loss, velocity_loss), grads = grad_fn(state.params)
+        (loss, (velocity_loss, raw_loss)), grads = grad_fn(state.params)
         global_grad_norm = optax.global_norm(grads)
         grads = jax.lax.pmean(grads, axis_name="batch")
         new_state = state.apply_gradients(grads=grads)
 
         outputs = _model.StepOutputs(
             scalars={
-                "loss": loss.mean(),
+                "loss": raw_loss.mean(),
                 "velocity_loss": velocity_loss.mean(),
                 "global_grad_norm": global_grad_norm,
             },
