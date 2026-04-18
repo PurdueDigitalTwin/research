@@ -218,7 +218,11 @@ def meanflow_dit_imagenet_256() -> _config.ExperimentConfig:
                         std=(1.0, 1.0, 1.0),
                     ),
                 ),
-                streaming=False,
+                streaming=True,
+                data_dir=os.getenv(
+                    "IMAGENET_DATA_DIR",
+                    "gs://pdt_gen_ai/juanwu/cache/huggingface" "/imagenet-1k",
+                ),
             ),
             batch_size=256,
             num_workers=4,
