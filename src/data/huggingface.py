@@ -727,13 +727,25 @@ class ImageNet1KDataModule(HuggingFaceImageDataModule):
         transform: typing.Optional[typing.Callable] = None,
         use_cache: bool = False,
         rng: jax.Array = random.PRNGKey(42),
+        data_dir: typing.Optional[str] = None,
     ) -> None:
-        self._hf_dataset = datasets.load_dataset(
-            path="ILSVRC/imagenet-1k",
-            token=os.getenv("HF_TOKEN", None),
-            revision="49e2ee26f3810fb5a7536bbf732a7b07389a47b5",
-            streaming=streaming,
-        )
+        if data_dir is not None:
+            self._hf_dataset = datasets.load_dataset(  # nosec B615
+                "parquet",
+                data_files={
+                    "train": data_dir.rstrip("/") + "/train-*.parquet",
+                    "validation": (data_dir.rstrip("/") + "/val-*.parquet"),
+                    "test": (data_dir.rstrip("/") + "/test-*.parquet"),
+                },
+                streaming=streaming,
+            )
+        else:
+            self._hf_dataset = datasets.load_dataset(
+                path="ILSVRC/imagenet-1k",
+                token=os.getenv("HF_TOKEN", None),
+                revision=("49e2ee26f3810fb5a7536bbf732a7b07389a47b5"),
+                streaming=streaming,
+            )
         super().__init__(
             batch_size=batch_size,
             deterministic=deterministic,
