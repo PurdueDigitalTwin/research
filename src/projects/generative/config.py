@@ -241,7 +241,7 @@ def meanflow_dit_imagenet_256() -> _config.ExperimentConfig:
             timestamp_sampler_kwargs=dict(mean=-0.4, stddev=1.0),
             timestamp_overlap_rate=0.75,
             adaptive_weight_power=1.0,
-            vae_path=os.getenv("VAE_PATH", "sd-vae-ft-mse-flax"),
+            vae_path=os.getenv("VAE_PATH", "pcuenq/sd-vae-ft-mse-flax"),
             vae_scaling_factor=0.18215,
         ),
         metric=fdl.Config(
