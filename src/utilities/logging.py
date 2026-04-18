@@ -48,6 +48,7 @@ def init_wandb(
             dir=work_dir,
             group=experiment_name,
             job_type="coordinator" if jax.process_index() == 0 else "worker",
+            settings=wandb.Settings(init_timeout=300),
         )
     else:
         wandb.init(
@@ -57,6 +58,7 @@ def init_wandb(
             dir=work_dir,
             group=experiment_name,
             job_type="coordinator" if jax.process_index() == 0 else "worker",
+            settings=wandb.Settings(init_timeout=300),
         )
         _run = wandb.run
         if not isinstance(_run, wandb_sdk.wandb_run.Run):
