@@ -285,7 +285,89 @@ def meanflow_dit_imagenet_256() -> _config.ExperimentConfig:
     )
 
 
+def meanflow_dit_imagenet_256_latent() -> _config.ExperimentConfig:
+    r"""MeanFlow DiT-B/2 on ImageNet 256x256 with pre-encoded latents.
+
+    Same model as ``meanflow_dit_imagenet_256`` but loads
+    pre-encoded VAE latents from ``.npz`` shards, skipping
+    the expensive VAE encoder in the training loop.
+    """
+    return _config.ExperimentConfig(
+        project_name="meanflow",
+        exp_name="dit_imagenet_256_latent",
+        mode="train",
+        data=_config.DataConfig(
+            module=fdl.Partial(
+                huggingface.ImageNetLatentDataModule,
+                shuffle_buffer_size=10_000,
+                data_dir=os.getenv(
+                    "IMAGENET_LATENT_DIR",
+                    "gs://pdt_gen_ai/juanwu/cache" "/imagenet-1k-latent",
+                ),
+            ),
+            batch_size=256,
+            num_workers=4,
+            deterministic=True,
+            drop_remainder=True,
+        ),
+        model=fdl.Partial(
+            meanflow.MeanFlowDiTModel,
+            in_channels=4,
+            image_size=32,
+            features=768,
+            patch_size=2,
+            depth=12,
+            num_heads=12,
+            ffn_ratio=4,
+            dropout_rate=0.0,
+            epsilon=1e-6,
+            timestamp_cond="t_and_t_minus_r",
+            timestamp_sampler="logit-normal",
+            timestamp_sampler_kwargs=dict(mean=-0.4, stddev=1.0),
+            timestamp_overlap_rate=0.75,
+            adaptive_weight_power=1.0,
+            vae_path=os.getenv("VAE_PATH", "pcuenq/sd-vae-ft-mse-flax"),
+            vae_scaling_factor=0.18215,
+        ),
+        metric=fdl.Config(
+            fid.FrechetInceptionDistance,
+            dataset=functools.partial(
+                datasets.load_dataset,
+                path="ILSVRC/imagenet-1k",
+                token=os.getenv("HF_TOKEN", None),
+                revision=("49e2ee26f3810fb5a7536bbf" "732a7b07389a47b5"),
+                split="train",
+            ),
+            image_key="image",
+            batch_size=32,
+        ),
+        trainer=_config.TrainerConfig(
+            num_train_steps=800_000,
+            log_every_n_steps=50,
+            checkpoint_every_n_steps=10_000,
+            eval_every_n_steps=5_000,
+            max_checkpoints_to_keep=3,
+            profile=False,
+        ),
+        optimizer=_config.OptimizerConfig(
+            lr_schedule=fdl.Config(
+                optax.warmup_constant_schedule,
+                init_value=1e-8,
+                peak_value=1e-4,
+                warmup_steps=10_000,
+            ),
+            optimizer=fdl.Partial(optax.adam, b1=0.9, b2=0.95),
+            ema_rate=0.9999,
+        ),
+        seed=42,
+        dtype=jax.numpy.float32,
+        param_dtype=jax.numpy.float32,
+        precision=jax.lax.Precision.HIGHEST,
+    )
+
+
 def improved_meanflow_unet_cifar_10() -> _config.ExperimentConfig:
+    r"""Improved MeanFlow (iMF) with U-Net on CIFAR-10."""
     return _config.ExperimentConfig(
         project_name="meanflow",
         exp_name="iMF_unet_cifar_10",
