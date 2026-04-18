@@ -734,7 +734,10 @@ class ImageNet1KDataModule(HuggingFaceImageDataModule):
                 "parquet",
                 data_files={
                     "train": data_dir.rstrip("/") + "/train-*.parquet",
-                    "validation": (data_dir.rstrip("/") + "/val-*.parquet"),
+                    "validation": (
+                        data_dir.rstrip("/")
+                        + "/validation-*.parquet"
+                    ),
                     "test": (data_dir.rstrip("/") + "/test-*.parquet"),
                 },
                 streaming=streaming,
