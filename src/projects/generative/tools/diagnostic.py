@@ -60,25 +60,21 @@ def load_params(
     The checkpoint is saved by CheckpointManager with two items:
     ``state`` (TrainState without ema_params) and ``params``
     (the EMA parameters). We restore only the ``params`` item.
+
+    Args:
+        model: MeanFlow model (used to get param structure).
+        checkpoint_dir: Path to the step directory, e.g.
+            ``.../checkpoints/800000/``. Inside it, params are
+            stored in the ``params/`` subdirectory.
     """
     print("Initializing model for param structure...", flush=True)
     init_rng = jax.random.PRNGKey(0)
     params, _ = model.init(batch=None, rngs=init_rng)
 
-    # The checkpoint_dir should be the step directory, e.g.
-    # .../checkpoints/800000/
-    # Inside it, CheckpointManager stores items as subdirectories:
-    # params/ and state/
-    print(f"Loading checkpoint from {checkpoint_dir}...", flush=True)
-    ckpt_manager = ocp.CheckpointManager(
-        directory=os.path.dirname(checkpoint_dir.rstrip("/")),
-        item_handlers={
-            "params": ocp.PyTreeCheckpointHandler(),
-        },
-    )
-    step = int(os.path.basename(checkpoint_dir.rstrip("/")))
-    restored = ckpt_manager.restore(step=step, items={"params": params})
-    params = restored["params"]
+    params_dir = os.path.join(checkpoint_dir.rstrip("/"), "params")
+    print(f"Loading checkpoint from {params_dir}...", flush=True)
+    handler = ocp.PyTreeCheckpointHandler()
+    params = handler.restore(directory=params_dir, item=params)
     print("Checkpoint loaded.", flush=True)
     return params
 
