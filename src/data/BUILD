@@ -8,6 +8,7 @@ ml_py_library(
     deps = [
         "Pillow",
         "datasets",
+        "gcsfs",
         "jax",
         "jaxtyping",
         "tensorflow-cpu",
