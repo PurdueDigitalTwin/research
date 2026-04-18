@@ -54,6 +54,11 @@ flags.DEFINE_integer(
 )
 flags.DEFINE_integer("shard_size", 10_000, "Number of samples per .npz shard.")
 flags.DEFINE_string("split", "train", "Dataset split to encode.")
+flags.DEFINE_bool(
+    "distributed",
+    False,
+    "Enable multi-host distributed mode (required for TPU v4-32).",
+)
 
 
 def _encode_batch(
@@ -115,11 +120,18 @@ def main(argv: typing.Sequence[str]) -> None:
     """Entry point."""
     del argv
 
+    if FLAGS.distributed:
+        jax.distributed.initialize()
+
+    process_id = jax.process_index()
+    num_processes = jax.process_count()
     num_devices = jax.local_device_count()
     batch_per_device = FLAGS.batch_size_per_device
     global_batch = num_devices * batch_per_device
     logging.info(
-        "Encoding with %d devices, %d per device, " "%d global batch",
+        "Process %d/%d: %d local devices, %d batch/dev, " "%d local batch",
+        process_id,
+        num_processes,
         num_devices,
         batch_per_device,
         global_batch,
@@ -133,9 +145,11 @@ def main(argv: typing.Sequence[str]) -> None:
     )
     logging.info("VAE loaded and replicated.")
 
-    # pmap'd encode
+    # pmap across local devices only (not global)
     p_encode = jax.pmap(
-        functools.partial(_encode_batch, vae), axis_name="batch"
+        functools.partial(_encode_batch, vae),
+        axis_name="batch",
+        devices=jax.local_devices(),
     )
 
     # Load ImageNet data using existing pipeline
@@ -177,6 +191,10 @@ def main(argv: typing.Sequence[str]) -> None:
     shard_idx = 0
 
     for batch_idx, batch in enumerate(loader):
+        # In multi-host mode, each process handles every Nth batch
+        if batch_idx % num_processes != process_id:
+            continue
+
         images = np.asarray(batch["image"])  # [B, 256, 256, 3]
         labels = np.asarray(batch["label"])  # [B]
 
@@ -210,9 +228,10 @@ def main(argv: typing.Sequence[str]) -> None:
         shard_count += actual_b
         sample_count += actual_b
 
-        if batch_idx % 50 == 0:
+        if batch_idx % (50 * num_processes) < num_processes:
             logging.info(
-                "Encoded %d samples (%d batches)",
+                "[P%d] Encoded %d samples (%d batches)",
+                process_id,
                 sample_count,
                 batch_idx + 1,
             )
@@ -223,18 +242,19 @@ def main(argv: typing.Sequence[str]) -> None:
             all_logvars = np.concatenate(shard_logvars, axis=0)
             all_labels = np.concatenate(shard_labels, axis=0)
 
+            # Interleave shard indices across processes
+            global_shard_idx = shard_idx * num_processes + process_id
             _save_shard(
                 output_dir=FLAGS.output_dir,
                 split=FLAGS.split,
-                shard_idx=shard_idx,
-                total_shards=99999,  # placeholder
+                shard_idx=global_shard_idx,
+                total_shards=99999,
                 latent_mean=all_means[: FLAGS.shard_size],
                 latent_logvar=all_logvars[: FLAGS.shard_size],
                 labels=all_labels[: FLAGS.shard_size],
             )
             shard_idx += 1
 
-            # Keep remainder
             shard_means = [all_means[FLAGS.shard_size :]]
             shard_logvars = [all_logvars[FLAGS.shard_size :]]
             shard_labels = [all_labels[FLAGS.shard_size :]]
@@ -245,10 +265,11 @@ def main(argv: typing.Sequence[str]) -> None:
         all_means = np.concatenate(shard_means, axis=0)
         all_logvars = np.concatenate(shard_logvars, axis=0)
         all_labels = np.concatenate(shard_labels, axis=0)
+        global_shard_idx = shard_idx * num_processes + process_id
         _save_shard(
             output_dir=FLAGS.output_dir,
             split=FLAGS.split,
-            shard_idx=shard_idx,
+            shard_idx=global_shard_idx,
             total_shards=99999,
             latent_mean=all_means,
             latent_logvar=all_logvars,
@@ -257,7 +278,8 @@ def main(argv: typing.Sequence[str]) -> None:
         shard_idx += 1
 
     logging.info(
-        "Done! Encoded %d samples into %d shards at %s",
+        "[P%d] Done! Encoded %d samples into %d shards at %s",
+        process_id,
         sample_count,
         shard_idx,
         FLAGS.output_dir,
