@@ -34,6 +34,7 @@ ml_py_binary(
     name = "diagnostic",
     srcs = ["diagnostic.py"],
     deps = [
+        "Pillow",
         "datasets",
         "etils",
         "jax",
