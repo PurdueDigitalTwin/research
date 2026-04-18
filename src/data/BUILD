@@ -1,4 +1,4 @@
-load("//third_party:defs.bzl", "ml_py_library", "ml_py_test")
+load("//third_party:defs.bzl", "ml_py_binary", "ml_py_library", "ml_py_test")
 
 package(default_visibility = ["//src:__subpackages__"])
 
@@ -25,6 +25,12 @@ ml_py_test(
         "tensorflow-cpu",
         ":huggingface",
     ],
+)
+
+ml_py_binary(
+    name = "download_imagenet",
+    srcs = ["download_imagenet.py"],
+    deps = ["datasets"],
 )
 
 ml_py_library(
