@@ -12,7 +12,6 @@ Usage (on TPU VM):
 """
 
 import argparse
-import functools
 import json
 import math
 import os
@@ -24,15 +23,8 @@ from jax import numpy as jnp
 import jaxtyping
 import numpy as np
 from orbax import checkpoint as ocp
-import tensorflow as tf
 
-from src.data import huggingface
-from src.data import preprocess
 from src.projects.generative.meanflow import MeanFlowUNetModel
-
-# Toggle off GPU/TPU for TF (data loading only)
-tf.config.experimental.set_visible_devices([], "GPU")
-tf.config.experimental.set_visible_devices([], "TPU")
 
 
 def build_model() -> MeanFlowUNetModel:

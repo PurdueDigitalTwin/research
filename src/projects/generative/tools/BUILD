@@ -39,9 +39,6 @@ ml_py_binary(
         "jaxtyping",
         "numpy",
         "orbax-checkpoint",
-        "tensorflow",
-        "//src/data:huggingface",
-        "//src/data:preprocess",
         "//src/projects/generative:meanflow",
     ],
 )
