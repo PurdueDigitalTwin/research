@@ -137,7 +137,10 @@ class FrechetInceptionDistance:
     def __init__(
         self,
         dataset: typing.Union[
-            datasets.Dataset, typing.Callable, None
+            datasets.Dataset,
+            datasets.IterableDataset,
+            typing.Callable,
+            None,
         ] = None,
         image_key: str = "image",
         batch_size: int = 32,
@@ -183,7 +186,7 @@ class FrechetInceptionDistance:
             self._ref_mu, self._ref_cov = cached
         else:
             if callable(dataset) and not isinstance(
-                dataset, datasets.Dataset
+                dataset, (datasets.Dataset, datasets.IterableDataset)
             ):
                 dataset = dataset()
             if dataset is None:
