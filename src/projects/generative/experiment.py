@@ -145,8 +145,14 @@ def evaluate(
 
     # Use a small per-device batch for generation to avoid OOM
     # during VAE decoding at high resolutions (e.g. 256x256).
-    gen_batch = min(batch["image"].shape[0], 4)
-    shape = (gen_batch,) + batch["image"].shape[1:]
+    if "image" in batch:
+        ref = batch["image"]
+    elif "latent_mean" in batch:
+        ref = batch["latent_mean"]
+    else:
+        raise ValueError("Batch must contain 'image' or 'latent_mean'")
+    gen_batch = min(ref.shape[0], 4)
+    shape = (gen_batch,) + ref.shape[1:]
     p_generate = functools.partial(_generate, shape=shape)
     p_generate = jax.pmap(p_generate, axis_name="batch")
     with tqdm_logging.logging_redirect_tqdm():
