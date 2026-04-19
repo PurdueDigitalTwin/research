@@ -844,13 +844,16 @@ class ImageNetLatentDataModule(datamodule.DataModule):
         shard_paths = self._list_shards(split)
 
         def _generator():
+            import io as _io
+
             for path in shard_paths:
                 if path.startswith("gs://"):
                     import gcsfs as _gcsfs
 
                     fs = _gcsfs.GCSFileSystem()
                     with fs.open(path, "rb") as f:
-                        data = np.load(f)
+                        buf = _io.BytesIO(f.read())
+                    data = np.load(buf)
                 else:
                     data = np.load(path)
                 mean = data["latent_mean"]
@@ -887,18 +890,22 @@ class ImageNetLatentDataModule(datamodule.DataModule):
 
     @property
     def batch_size(self) -> int:
+        """int: Global batch size."""
         return self._batch_size
 
     @property
     def deterministic(self) -> bool:
+        """bool: Whether loading is deterministic."""
         return self._deterministic
 
     @property
     def drop_remainder(self) -> bool:
+        """bool: Whether to drop incomplete batches."""
         return self._drop_remainder
 
     @property
     def num_workers(self) -> int:
+        """int: Number of parallel workers."""
         return self._num_workers
 
     def train_dataloader(
