@@ -271,9 +271,13 @@ class FrechetInceptionDistance:
                 assert isinstance(item, typing.Dict)
                 image = item.get(image_key, None)
                 if image is None:
-                    raise ValueError(f"'{image_key}' not in data sample.")
-                image = self.process(np.array(image))
-                ref_images.append(image)
+                    raise ValueError(f"'{image_key}' not in dataset.")
+                if hasattr(image, "convert"):
+                    image = image.convert("RGB")
+                image = np.array(image)
+                if image.ndim == 2:
+                    image = np.stack([image] * 3, axis=-1)
+                batch_buf.append(self.process(image))
                 if pbar is not None:
                     pbar.update(1)
 
