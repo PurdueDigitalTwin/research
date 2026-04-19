@@ -880,6 +880,7 @@ class ImageNetLatentDataModule(datamodule.DataModule):
                 seed=shuffle_seed,
                 reshuffle_each_iteration=True,
             )
+            ds = ds.repeat()
         ds = ds.batch(
             batch_size=self._batch_size,
             deterministic=self._deterministic,
@@ -1011,5 +1012,6 @@ __all__ = [
     "CIFAR10DataModule",
     "CIFAR100DataModule",
     "ImageNet1KDataModule",
+    "ImageNetLatentDataModule",
     "MNISTDataModule",
 ]
