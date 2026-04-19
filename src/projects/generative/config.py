@@ -345,7 +345,7 @@ def meanflow_dit_imagenet_256_latent() -> _config.ExperimentConfig:
             num_train_steps=800_000,
             log_every_n_steps=50,
             checkpoint_every_n_steps=10_000,
-            eval_every_n_steps=5_000,
+            eval_every_n_steps=100_000,
             max_checkpoints_to_keep=3,
             profile=False,
         ),
