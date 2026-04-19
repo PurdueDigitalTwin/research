@@ -167,56 +167,87 @@ class FrechetInceptionDistance:
             functools.partial(self.extract_features, model=self._model),
         )
 
-        # compute reference statistics
+        # compute reference statistics (streaming to avoid OOM)
+        self._ref_mu, self._ref_cov = self._compute_ref_stats(
+            dataset, image_key
+        )
+
+    def _compute_ref_stats(
+        self,
+        dataset: typing.Union[datasets.Dataset, datasets.IterableDataset],
+        image_key: str,
+    ) -> typing.Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+        """Compute reference statistics by streaming through the dataset.
+
+        Processes images in batches and accumulates feature
+        statistics online, avoiding loading the full dataset
+        into memory.
+
+        Returns:
+            Tuple of ``(mu, cov)`` arrays.
+        """
+        feat_dim = 2048
+        n = 0
+        sum_f = np.zeros(feat_dim, dtype=np.float64)
+        sum_ff = np.zeros((feat_dim, feat_dim), dtype=np.float64)
+        batch_buf: typing.List[npt.NDArray[np.uint8]] = []
+
+        try:
+            total = len(dataset)
+        except TypeError:
+            total = None
+
         with tqdm_logging.logging_redirect_tqdm():
             if jax.process_index() == 0:
                 pbar = tqdm.tqdm(
-                    total=len(dataset),
-                    desc="Processing reference images...",
+                    total=total,
+                    desc="Computing reference statistics...",
                     unit="images",
                 )
             else:
                 pbar = None
 
-            ref_images = []
             for item in dataset:
                 assert isinstance(item, typing.Dict)
                 image = item.get(image_key, None)
                 if image is None:
                     raise ValueError(f"'{image_key}' not in dataset.")
-                image = self.process(np.array(image))
-                ref_images.append(image)
+                batch_buf.append(self.process(np.array(image)))
                 if pbar is not None:
                     pbar.update(1)
+
+                if len(batch_buf) >= self._batch_size:
+                    feats = np.asarray(
+                        self._compute_feat(
+                            jnp.array(batch_buf),
+                            params=self._variables["params"],
+                            batch_stats=self._variables["batch_stats"],
+                        )
+                    ).astype(np.float64)
+                    n += feats.shape[0]
+                    sum_f += feats.sum(axis=0)
+                    sum_ff += feats.T @ feats
+                    batch_buf = []
+
+            # flush remaining images
+            if batch_buf:
+                feats = np.asarray(
+                    self._compute_feat(
+                        jnp.array(batch_buf),
+                        params=self._variables["params"],
+                        batch_stats=self._variables["batch_stats"],
+                    )
+                ).astype(np.float64)
+                n += feats.shape[0]
+                sum_f += feats.sum(axis=0)
+                sum_ff += feats.T @ feats
+
             if pbar is not None:
                 pbar.close()
 
-            ref_features = []
-            if jax.process_index() == 0:
-                pbar = tqdm.tqdm(
-                    total=len(range(0, len(ref_images), self._batch_size)),
-                    desc="Extracting reference features...",
-                    unit="batches",
-                )
-            else:
-                pbar = None
-
-            for i in range(0, len(ref_images), self._batch_size):
-                batch_images = jnp.array(ref_images[i : i + self._batch_size])
-                feats = self._compute_feat(
-                    batch_images,
-                    params=self._variables["params"],
-                    batch_stats=self._variables["batch_stats"],
-                )
-                ref_features.append(feats)
-                if pbar is not None:
-                    pbar.update(1)
-            if pbar is not None:
-                pbar.close()
-
-        ref_feats = np.concatenate(ref_features, axis=0).astype(np.float64)
-        self._ref_mu = np.mean(ref_feats, axis=0)
-        self._ref_cov = np.cov(ref_feats, rowvar=False)
+        mu = sum_f / n
+        cov = (sum_ff - n * np.outer(mu, mu)) / (n - 1)
+        return mu, cov
 
     def __call__(self, images: npt.NDArray[np.uint8]) -> npt.NDArray:
         r"""Computes the FID score between the given images and the reference.
