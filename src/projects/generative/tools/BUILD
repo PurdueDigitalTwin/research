@@ -46,6 +46,24 @@ ml_py_binary(
 )
 
 ml_py_binary(
+    name = "precompute_fid_stats",
+    srcs = ["precompute_fid_stats.py"],
+    deps = [
+        "Pillow",
+        "absl-py",
+        "flax",
+        "huggingface_hub",
+        "jax",
+        "numpy",
+        "pyarrow",
+        "tensorflow-cpu",
+        "tqdm",
+        "//src/core:distributed",
+        "//src/projects/generative/model:inception",
+    ],
+)
+
+ml_py_binary(
     name = "encode_latents",
     srcs = ["encode_latents.py"],
     deps = [
