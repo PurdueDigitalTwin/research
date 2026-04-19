@@ -44,6 +44,7 @@ def main() -> None:
         token=os.getenv("HF_TOKEN", None),
         revision="49e2ee26f3810fb5a7536bbf732a7b07389a47b5",
         split="train",
+        streaming=True,
     )
 
     # This triggers download, feature extraction, and cache save.
