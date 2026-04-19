@@ -259,6 +259,10 @@ def meanflow_dit_imagenet_256() -> _config.ExperimentConfig:
             ),
             image_key="image",
             batch_size=32,
+            ref_cache_path=(
+                "gs://pdt_gen_ai/juanwu/cache"
+                "/imagenet-1k-fid-ref-stats.npz"
+            ),
         ),
         trainer=_config.TrainerConfig(
             num_train_steps=800_000,
@@ -340,6 +344,10 @@ def meanflow_dit_imagenet_256_latent() -> _config.ExperimentConfig:
             ),
             image_key="image",
             batch_size=32,
+            ref_cache_path=(
+                "gs://pdt_gen_ai/juanwu/cache"
+                "/imagenet-1k-fid-ref-stats.npz"
+            ),
         ),
         trainer=_config.TrainerConfig(
             num_train_steps=800_000,

@@ -1,4 +1,5 @@
 import functools
+import io
 import os
 import typing
 
@@ -14,6 +15,7 @@ from numpy import typing as npt
 import numpy as np
 from PIL import Image
 from scipy import linalg as splin
+import tensorflow as tf
 from tqdm import auto as tqdm
 from tqdm.contrib import logging as tqdm_logging
 
@@ -112,13 +114,20 @@ class FrechetInceptionDistance:
 
     Args:
         dataset (datasets.Dataset): The reference dataset used to compute
-            the reference statistics.
+            the reference statistics. Ignored when ``ref_cache_path``
+            points to an existing ``.npz`` file.
         image_key (str, optional): The column name in the dataset that
             contains the images. Default is `"image"`.
         batch_size (int, optional): The batch size for processing images.
             Default is `32`.
         mode (str, optional): The mode of image processing to use. Either
             `"tensorflow"` or `"clean"`. Default is `"tensorflow"`.
+        ref_cache_path (str, optional): Path to a ``.npz`` file for
+            caching reference statistics (mu, cov).  Supports local
+            paths and ``gs://`` URIs.  If the file exists, statistics
+            are loaded directly and the dataset is never opened.  If
+            the file does not exist, statistics are computed from
+            ``dataset`` and then saved to this path.
     """
 
     _mode: str
@@ -127,13 +136,14 @@ class FrechetInceptionDistance:
 
     def __init__(
         self,
-        dataset: typing.Union[datasets.Dataset, typing.Callable],
+        dataset: typing.Union[
+            datasets.Dataset, typing.Callable, None
+        ] = None,
         image_key: str = "image",
         batch_size: int = 32,
         mode: str = "tensorflow",
+        ref_cache_path: typing.Optional[str] = None,
     ) -> None:
-        if callable(dataset) and not isinstance(dataset, datasets.Dataset):
-            dataset = dataset()
         self._batch_size = batch_size
 
         if mode not in ["tensorflow", "clean"]:
@@ -167,10 +177,57 @@ class FrechetInceptionDistance:
             functools.partial(self.extract_features, model=self._model),
         )
 
-        # compute reference statistics (streaming to avoid OOM)
-        self._ref_mu, self._ref_cov = self._compute_ref_stats(
-            dataset, image_key
-        )
+        # load or compute reference statistics
+        cached = self._try_load_cache(ref_cache_path)
+        if cached is not None:
+            self._ref_mu, self._ref_cov = cached
+        else:
+            if callable(dataset) and not isinstance(
+                dataset, datasets.Dataset
+            ):
+                dataset = dataset()
+            if dataset is None:
+                raise ValueError(
+                    "No cached reference statistics found at "
+                    f"'{ref_cache_path}' and no dataset provided."
+                )
+            self._ref_mu, self._ref_cov = self._compute_ref_stats(
+                dataset, image_key
+            )
+            if ref_cache_path is not None:
+                logging.rank_zero_info(
+                    "Saving FID reference statistics to %s",
+                    ref_cache_path,
+                )
+                buf = io.BytesIO()
+                np.savez(buf, mu=self._ref_mu, cov=self._ref_cov)
+                buf.seek(0)
+                with tf.io.gfile.GFile(ref_cache_path, "wb") as fh:
+                    fh.write(buf.read())
+
+    @staticmethod
+    def _try_load_cache(
+        path: typing.Optional[str],
+    ) -> typing.Optional[
+        typing.Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]
+    ]:
+        """Load cached reference statistics from *path*.
+
+        Returns ``(mu, cov)`` if the cache exists, ``None`` otherwise.
+        """
+        if path is None:
+            return None
+        try:
+            with tf.io.gfile.GFile(path, "rb") as fh:
+                data = np.load(fh)
+                mu = data["mu"].astype(np.float64)
+                cov = data["cov"].astype(np.float64)
+            logging.rank_zero_info(
+                "Loaded cached FID reference statistics from %s", path
+            )
+            return mu, cov
+        except tf.errors.NotFoundError:
+            return None
 
     def _compute_ref_stats(
         self,
