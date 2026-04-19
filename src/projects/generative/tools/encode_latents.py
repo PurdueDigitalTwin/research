@@ -209,9 +209,10 @@ def main(argv: typing.Sequence[str]) -> None:
         # Pad to global_batch if needed (last batch)
         if actual_b < global_batch:
             pad_n = global_batch - actual_b
-            images = np.concatenate(
-                [images, np.zeros_like(images[:pad_n])], axis=0
+            pad_imgs = np.zeros(
+                (pad_n,) + images.shape[1:], dtype=images.dtype
             )
+            images = np.concatenate([images, pad_imgs], axis=0)
             labels_padded = np.concatenate(
                 [labels, np.zeros(pad_n, dtype=labels.dtype)],
                 axis=0,
