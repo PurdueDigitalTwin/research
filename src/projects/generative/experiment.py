@@ -172,7 +172,8 @@ def evaluate(
             out = p_generate(params=params, step_rngs=step_rng)
             out = jnp.reshape(out, (-1,) + out.shape[-3:])
             _slice = min(50_000 - count, out.shape[0])
-            images.append(out[:_slice])
+            # Move to host immediately to free TPU HBM for FID
+            images.append(np.asarray(out[:_slice]))
             count += _slice
             if pbar is not None:
                 pbar.update(_slice)
@@ -180,15 +181,15 @@ def evaluate(
         pbar.close()
 
     outputs = _model.StepOutputs()
-    images = jnp.concatenate(images, axis=0)
+    images = np.concatenate(images, axis=0)
 
     if jax.process_index() == 0 and fid_metric is not None:
         # NOTE: only compute FID metric on process 0
-        fid_score = fid_metric(images=jax.device_get(images[0:50_000]))
+        fid_score = fid_metric(images=images[0:50_000])
         outputs.scalars = {"fid": fid_score}
 
     img_grid = visualization.make_grid(
-        images[0:32],
+        jnp.array(images[0:32]),
         n_rows=4,
         n_cols=8,
         padding=2,
