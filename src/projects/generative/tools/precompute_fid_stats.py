@@ -7,14 +7,17 @@ Usage (on a multi-host TPU, run on all workers):
 
 Downloads ImageNet train-split parquet files one at a time from
 HuggingFace Hub, extracts InceptionV3 pool3 features, and saves the
-reference mean/covariance as a ``.npz`` on GCS.  Only needs ~1GB of
-disk at any time (one parquet at a time).
+reference mean/covariance as a ``.npz`` on GCS.  Deletes each
+parquet from the local cache after processing to stay within disk
+limits.  Checkpoints intermediate stats to GCS every 10 files so
+crashes don't lose progress.
 
-Only process 0 does actual work; other processes exit after JAX init.
+Only process 0 does actual work; other processes poll for completion.
 """
 
 import io
 import os
+import shutil
 import sys
 
 from absl import app
@@ -44,8 +47,13 @@ _REVISION = "49e2ee26f3810fb5a7536bbf732a7b07389a47b5"
 _OUTPUT = (
     "gs://pdt_gen_ai/juanwu/cache/imagenet-1k-fid-ref-stats.npz"
 )
+_CHECKPOINT = (
+    "gs://pdt_gen_ai/juanwu/cache/"
+    "imagenet-1k-fid-ref-stats-ckpt.npz"
+)
 _BATCH_SIZE = 64
 _FEAT_DIM = 2048
+_CKPT_EVERY = 10
 
 
 def _build_inception():
@@ -117,11 +125,19 @@ def main(argv) -> None:
     if flags.FLAGS.distributed:
         _distributed.setup_jax_distributed()
 
-    # Only process 0 does actual work
+    # Only process 0 does actual work; others poll for completion.
     if jax.process_index() != 0:
+        import time
+
         print(
             f"Process {jax.process_index()}: "
-            "not the primary, exiting."
+            "waiting for process 0 to finish..."
+        )
+        while not tf.io.gfile.exists(_OUTPUT):
+            time.sleep(30)
+        print(
+            f"Process {jax.process_index()}: "
+            "cache file detected, shutting down."
         )
         if flags.FLAGS.distributed:
             jax.distributed.shutdown()
@@ -135,18 +151,38 @@ def main(argv) -> None:
     parquet_files = _list_train_parquets()
     print(f"Found {len(parquet_files)} parquet files.")
 
+    # resume from checkpoint if available
     n = 0
     sum_f = np.zeros(_FEAT_DIM, dtype=np.float64)
     sum_ff = np.zeros((_FEAT_DIM, _FEAT_DIM), dtype=np.float64)
+    start_idx = 0
+    try:
+        with tf.io.gfile.GFile(_CHECKPOINT, "rb") as fh:
+            ckpt = np.load(io.BytesIO(fh.read()))
+            n = int(ckpt["n"])
+            sum_f = ckpt["sum_f"]
+            sum_ff = ckpt["sum_ff"]
+            start_idx = int(ckpt["next_idx"])
+        print(
+            f"Resumed from checkpoint: {start_idx}/{len(parquet_files)}"
+            f" files done, {n} images processed."
+        )
+    except tf.errors.NotFoundError:
+        pass
 
     pbar = tqdm.tqdm(
-        parquet_files,
+        enumerate(parquet_files),
+        total=len(parquet_files),
+        initial=start_idx,
         desc="Processing parquets",
         unit="file",
     )
 
-    for parquet_path in pbar:
-        # download this single parquet to a temp file
+    for file_idx, parquet_path in pbar:
+        if file_idx < start_idx:
+            continue
+
+        # download this single parquet
         local_path = hf_hub_download(
             repo_id=_REPO_ID,
             filename=parquet_path,
@@ -182,18 +218,52 @@ def main(argv) -> None:
         pbar.set_postfix(images=n)
         del table, image_col, images
 
+        # delete cached parquet to free disk space
+        try:
+            real = os.path.realpath(local_path)
+            if os.path.exists(real):
+                os.remove(real)
+            if os.path.islink(local_path):
+                os.remove(local_path)
+        except OSError:
+            pass
+
+        # checkpoint every _CKPT_EVERY files
+        if (file_idx + 1) % _CKPT_EVERY == 0:
+            buf = io.BytesIO()
+            np.savez(
+                buf,
+                n=np.array(n),
+                sum_f=sum_f,
+                sum_ff=sum_ff,
+                next_idx=np.array(file_idx + 1),
+            )
+            buf.seek(0)
+            with tf.io.gfile.GFile(_CHECKPOINT, "wb") as fh:
+                fh.write(buf.read())
+            print(
+                f"\nCheckpointed at file {file_idx + 1}/"
+                f"{len(parquet_files)}, {n} images."
+            )
+
     mu = sum_f / n
     cov = (sum_ff - n * np.outer(mu, mu)) / (n - 1)
     print(f"Processed {n} images total.")
     print(f"mu shape: {mu.shape}, cov shape: {cov.shape}")
 
-    # save to GCS
+    # save final result to GCS
     buf = io.BytesIO()
     np.savez(buf, mu=mu, cov=cov)
     buf.seek(0)
     with tf.io.gfile.GFile(_OUTPUT, "wb") as fh:
         fh.write(buf.read())
     print(f"Saved to {_OUTPUT}")
+
+    # clean up checkpoint
+    try:
+        tf.io.gfile.remove(_CHECKPOINT)
+    except tf.errors.NotFoundError:
+        pass
 
     if flags.FLAGS.distributed:
         jax.distributed.shutdown()
