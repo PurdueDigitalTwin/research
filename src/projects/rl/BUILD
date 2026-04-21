@@ -29,6 +29,22 @@ ml_py_library(
 )
 
 ml_py_library(
+    name = "iql",
+    srcs = ["iql.py"],
+    deps = [
+        "chex",
+        "flax",
+        "jax",
+        "jaxtyping",
+        "typing_extensions",
+        ":policy",
+        ":structure",
+        "//src/core:model",
+        "//src/core:train_state",
+    ],
+)
+
+ml_py_library(
     name = "replay_buffer",
     srcs = ["replay_buffer.py"],
     deps = [
@@ -64,5 +80,24 @@ ml_py_binary(
         "//src/core:train_state",
         "//src/utilities:logging",
         "//src/utilities:training",
+    ],
+)
+
+ml_py_binary(
+    name = "run_iql",
+    srcs = ["run_iql.py"],
+    deps = [
+        "absl-py",
+        "gymnasium",
+        "jax",
+        "matplotlib",
+        "minari",
+        "mujoco",
+        "numpy",
+        "optax",
+        ":iql",
+        ":structure",
+        "//src/core:train_state",
+        "//src/utilities:logging",
     ],
 )
