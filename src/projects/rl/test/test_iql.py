@@ -129,6 +129,33 @@ def test_expectile_loss_symmetric_at_half() -> None:
     assert jnp.allclose(loss, 0.5 * (target - value) ** 2, atol=1e-6)
 
 
+def test_iql_forward_output_shapes() -> None:
+    r"""``forward`` returns ``(value, q_min, policy_out)`` where ``q_min`` is the element-wise
+    minimum of the two Q-networks and ``policy_out`` is the ``(mean, log_std)`` tuple produced by
+    the Gaussian policy."""
+    agent = _make_agent()
+    batch = _make_batch()
+    params, _, _ = _make_train_states(agent, batch)
+
+    value, q_min, policy_out = agent.forward(params=params, batch=batch)
+
+    assert isinstance(value, jax.Array)
+    assert value.shape == (BATCH_SIZE, 1)
+    assert isinstance(q_min, jax.Array)
+    assert q_min.shape == (BATCH_SIZE, 1)
+
+    mean, log_std = policy_out
+    assert mean.shape == (BATCH_SIZE, ACTION_DIM)
+    assert log_std.shape == (BATCH_SIZE, ACTION_DIM)
+
+    # ``q_min`` must equal the element-wise min of the two Q-network outputs.
+    _, q_params, _ = params
+    q_input = jnp.concatenate([batch.state, batch.action], axis=-1)
+    q1 = agent._q_network.apply(q_params[0], q_input)
+    q2 = agent._q_network.apply(q_params[1], q_input)
+    assert jnp.allclose(q_min, jnp.minimum(q1, q2))
+
+
 def test_training_v_step_updates_state_and_returns_scalar_loss() -> None:
     r"""A single value-network update advances ``step`` and emits a scalar."""
     agent = _make_agent()
