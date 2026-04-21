@@ -1,0 +1,51 @@
+---
+name: Bug report
+description: >-
+  Report a bug or unexpected behavior to help improve the repository
+labels:
+  - bug
+
+body:
+  - type: markdown
+    attributes:
+      value: >
+        # Thank you for contributing to the research repository!
+
+        * Please first verify that your issue is not already reported using the
+        [Issue search][issue search].
+
+        * If you are asking a question or seeking support, please
+        consider [starting a discussion][Discussions].
+
+        * If you prefer a non-templated issue report, click [here][Raw report].
+
+
+        [Discussions]: https://github.com/PurdueDigitalTwin/research/discussions
+
+        [issue search]: https://github.com/PurdueDigitalTwin/research/search?q=is%3Aissue&type=issues
+
+        [Raw report]: https://github.com/PurdueDigitalTwin/research/issues/new?template=none
+  - type: textarea
+    attributes:
+      label: Description
+      description: >-
+        A concise description of the bug, preferably including self-contained
+        code to reproduce the issue.
+      placeholder: |
+        Text may use markdown formatting.
+        ```python
+        # for codeblocks, use triple backticks
+        ```
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: System info (python version, jaxlib version, accelerator, etc.)
+      description: >-
+        Include the output of `import jax; jax.print_environment_info()`
+      placeholder: |
+        ```
+        ...
+        ```
+    validations:
+      required: true

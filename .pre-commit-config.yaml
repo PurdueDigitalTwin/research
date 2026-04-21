@@ -22,7 +22,9 @@ repos:
     rev: 8.2.0
     hooks:
       - id: buildifier
-        args: &args # Keep this argument in sync with .bazelci/presubmit.yaml
+        args:
+          # Keep this argument in sync with .bazelci/presubmit.yaml
+          &args
           - --warnings=all
       - id: buildifier-lint
         args: *args
@@ -94,7 +96,7 @@ repos:
         args:
           [
             "--extend-ignore",
-            "E203,E402,E501,F401,F841,RST2,RST301",
+            "E203,E231,E402,E501,F401,F841,RST2,RST301",
             "--exclude",
             "logs/*,data/*",
           ]
@@ -134,7 +136,7 @@ repos:
           # - mdformat-toc
           # - mdformat-black
 
-  # word spelling linter
+          # word spelling linter
   - repo: https://github.com/codespell-project/codespell
     rev: v2.2.4
     hooks:
@@ -143,7 +145,7 @@ repos:
           - --skip=logs/**,data/**,*.ipynb
           # - --ignore-words-list=abc,def
 
-  # jupyter notebook cell output clearing
+          # jupyter notebook cell output clearing
   - repo: https://github.com/kynan/nbstripout
     rev: 0.8.1
     hooks:
