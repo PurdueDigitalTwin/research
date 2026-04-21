@@ -16,17 +16,14 @@ import typing
 import chex
 from flax import linen as nn
 import jax
-from jax import lax
 from jax import numpy as jnp
 import jaxtyping
-import optax
 import typing_extensions
 
 from src.core import model as _model
 from src.core import train_state as _train_state
+from src.projects.rl import policy
 from src.projects.rl import structure
-from src.projects.rl.experimental import policy
-from src.utilities import logging
 
 
 # Define the IQLModel class by extending the base Model class
@@ -334,7 +331,7 @@ class IQLModel(_model.Model):
             mean, log_std = self._policy_network.apply(
                 policy_params,
                 batch.state,
-            ) # mean, log_std have a shape of (B, action_dim)
+            )  # mean, log_std have a shape of (B, action_dim)
             mean = typing.cast(jax.Array, mean)
             log_std = typing.cast(jax.Array, log_std)
 
