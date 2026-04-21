@@ -35,7 +35,7 @@ import optax
 
 from src.core import model as _model
 from src.core import train_state as _train_state
-from src.projects.rl.experimental import ppo_continuous
+from src.projects.rl import ppo_continuous
 from src.utilities import logging
 
 # Running hyperparameters

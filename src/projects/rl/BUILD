@@ -59,6 +59,20 @@ ml_py_library(
 )
 
 ml_py_library(
+    name = "ppo_continuous",
+    srcs = ["ppo_continuous.py"],
+    deps = [
+        "flax",
+        "jax",
+        "jaxtyping",
+        "optax",
+        "typing_extensions",
+        ":policy",
+        "//src/core:model",
+    ],
+)
+
+ml_py_library(
     name = "replay_buffer",
     srcs = ["replay_buffer.py"],
     deps = [
@@ -147,6 +161,44 @@ ml_py_binary(
         "numpy",
         "optax",
         ":ppo",
+        "//src/core:model",
+        "//src/core:train_state",
+        "//src/utilities:logging",
+    ],
+)
+
+ml_py_binary(
+    name = "run_ppo_mountaincar",
+    srcs = ["run_ppo_mountaincar.py"],
+    deps = [
+        "absl-py",
+        "flax",
+        "gymnasium",
+        "jax",
+        "jaxtyping",
+        "matplotlib",
+        "numpy",
+        "optax",
+        ":ppo",
+        "//src/core:model",
+        "//src/core:train_state",
+        "//src/utilities:logging",
+    ],
+)
+
+ml_py_binary(
+    name = "run_ppo_pendulum",
+    srcs = ["run_ppo_pendulum.py"],
+    deps = [
+        "absl-py",
+        "flax",
+        "gymnasium",
+        "jax",
+        "jaxtyping",
+        "matplotlib",
+        "numpy",
+        "optax",
+        ":ppo_continuous",
         "//src/core:model",
         "//src/core:train_state",
         "//src/utilities:logging",
