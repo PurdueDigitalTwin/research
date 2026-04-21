@@ -123,17 +123,18 @@ class IQLModel(_model.Model):
         r"""Forward pass the IQL model to compute value, Q-values, and policy outputs.
 
         Args:
-            params (Any): A tuple of (value_params, q_params, policy_params).
+            params (Any): A tuple of ``(value_params, q_params, policy_params)``
+                where ``q_params`` itself is a 2-tuple ``(q1_params, q2_params)``
+                for clipped double Q-learning.
             batch (StepSample): A sample of state transition for forward pass.
 
         Returns:
-            A tuple of (value, q_values, policy_output).
+            A tuple of ``(value, q_min, policy_output)`` where ``q_min`` is the
+            element-wise minimum of the two Q-networks.
         """
         del kwargs
 
         value_params, q_params, policy_params = params
-
-        value_output = self._value_network.apply(value_params, batch.state)
 
         assert (
             batch.state is not None
@@ -143,11 +144,18 @@ class IQLModel(_model.Model):
             batch.action is not None
         ), "Action data is required for Q-network \
             forward pass."
-        q_input = jnp.concatenate([batch.state, batch.action], axis=-1)
-        q_output = self._q_network.apply(q_params, q_input)
-        policy_output = self._policy_network.apply(policy_params, batch.state)
 
-        # May add some assertions here to check the outputs
+        value_output = self._value_network.apply(value_params, batch.state)
+
+        q_input = jnp.concatenate([batch.state, batch.action], axis=-1)
+        q1_output = self._q_network.apply(q_params[0], q_input)
+        q2_output = self._q_network.apply(q_params[1], q_input)
+        q_output = jnp.minimum(
+            typing.cast(jax.Array, q1_output),
+            typing.cast(jax.Array, q2_output),
+        )
+
+        policy_output = self._policy_network.apply(policy_params, batch.state)
 
         return value_output, q_output, policy_output
 
@@ -354,12 +362,13 @@ class IQLModel(_model.Model):
             value_output = typing.cast(jax.Array, value_output)
 
             advantage = q_target - value_output
+            # NOTE: ``advantage`` inherits the trailing singleton dim from the
+            # Q-network and value-network outputs. Drop it so ``weights``
+            # matches the ``(B,)`` shape of ``log_prob``.
             weights = jnp.exp(
                 jnp.minimum(self._beta * advantage, jnp.log(100.0))
-            )
+            ).squeeze(-1)
 
-            # NOTE: `log_prob` has a shape of `(B,)` while `weights` has a
-            # shape of `(B, 1)`. This can cause broadcasing issue.
             chex.assert_equal_shape([log_prob, weights])
             policy_loss = -jnp.mean(weights * log_prob)
 
