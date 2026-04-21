@@ -300,7 +300,7 @@ def main(argv: typing.List[str]) -> int:
             eval_env.close()
 
     train_state = jax_utils.unreplicate(train_state)
-    # When the trainning is done, save the serialized model parameters to a file
+    # When the training is done, save the serialized model parameters to a file
     with open(
         os.path.join(flags.FLAGS.work_dir, "dqn_model_params.msgpack"), "wb"
     ) as f:

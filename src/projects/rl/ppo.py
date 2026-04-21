@@ -14,7 +14,7 @@ from src.core import model as _model
 from src.projects.rl import policy
 
 
-# create a PPO model calss by extending the base Model class
+# create a PPO model class by extending the base Model class
 class PPOModel(_model.Model):
     r"""PPO model class."""
 

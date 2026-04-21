@@ -8,8 +8,8 @@
 # useful code repo:
 # https://github.com/ericyangyu/PPO-for-Beginners?tab=readme-ov-file
 ################################################
-# Note: value-based methods struggle when the action space is large (continous
-# action space). Usually they are less efficient in terms of trainning time.
+# Note: value-based methods struggle when the action space is large (continuous
+# action space). Usually they are less efficient in terms of training time.
 # Note: policy-based methods can learn stochastic policies where there isn't a
 # single best action, and they can also learn deterministic policies.
 # Note: policy-based methods encourages exploration by nature.
@@ -261,7 +261,7 @@ def main(argv: typing.List[str]) -> int:
     single_obs_space = env.single_observation_space
     single_act_space = env.single_action_space
 
-    # NOTE: forr now we are using discrete action space
+    # NOTE: for now we are using discrete action space
     assert isinstance(single_act_space, gym.spaces.Discrete)
 
     state_shape = single_obs_space.shape
@@ -566,7 +566,7 @@ def main(argv: typing.List[str]) -> int:
                 float(mean_episode_prob_ratio_mean),
             )
 
-    # When the trainning is done, save the serialized model parameters to a file
+    # When the training is done, save the serialized model parameters to a file
     with open(
         os.path.join(flags.FLAGS.work_dir, "ppo_model_params.msgpack"), "wb"
     ) as f:
