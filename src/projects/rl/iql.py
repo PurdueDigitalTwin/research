@@ -207,7 +207,7 @@ class IQLModel(_model.Model):
             value_output = typing.cast(jax.Array, value_output).squeeze(-1)
 
             # target params have same structure as q_params, which is a tuple of
-            # (value_params, q_params, policy_params)
+            # (q1_params, q2_params)
             q1_target = self._q_network.apply(target_params[0], q_input)
             q2_target = self._q_network.apply(target_params[1], q_input)
             q1_target = typing.cast(jax.Array, q1_target).squeeze(-1)
@@ -354,9 +354,9 @@ class IQLModel(_model.Model):
             value_output = typing.cast(jax.Array, value_output)
 
             advantage = q_target - value_output
-            weights = jnp.exp(self._beta * advantage)
-            # clip weights to avoid instability
-            weights = jnp.clip(weights.squeeze(-1), a_max=100.0)
+            weights = jnp.exp(
+                jnp.minimum(self._beta * advantage, jnp.log(100.0))
+            )
 
             # NOTE: `log_prob` has a shape of `(B,)` while `weights` has a
             # shape of `(B, 1)`. This can cause broadcasing issue.
