@@ -170,3 +170,156 @@ class GaussianPolicy(nn.Module):
             log_std = jnp.broadcast_to(log_std_param, mean.shape)
 
         return mean, log_std
+
+
+class ActorCriticPolicy(nn.Module):
+    r"""Actor-Critic Policy Network with independent (non-sharing) paths.
+
+    Attributes:
+        features (int): Dimensionality of the hidden features.
+        out_features (int): Dimensionality of the actor output, typically
+            equal to the action space dimension.
+        num_layers (int): Number of fully connected layers per branch.
+        activation_fn (Callable[[jax.Array], jax.Array]): Activation function
+            applied between layers.
+        dtype (Any, optional): Data type for the computations.
+        param_dtype (Any, optional): Data type for the parameters.
+    """
+
+    features: int
+    out_features: int
+    num_layers: int
+    activation_fn: typing.Callable[[jax.Array], jax.Array]
+    dtype: typing.Any = None
+    param_dtype: typing.Any = None
+
+    @nn.compact
+    def __call__(
+        self, inputs: jax.Array
+    ) -> typing.Tuple[jax.Array, jax.Array]:
+        r"""Forward pass producing ``(logits, value)``.
+
+        Args:
+            inputs (jax.Array): Input state array of shape ``(*, D)``.
+
+        Returns:
+            A tuple of ``(logits, value)`` where ``logits`` has shape
+            ``(*, out_features)`` and ``value`` has shape ``(*, 1)``.
+        """
+        inputs = inputs.astype(self.dtype)
+
+        kernel_init = jax.nn.initializers.variance_scaling(
+            scale=1.0, mode="fan_avg", distribution="uniform"
+        )
+
+        def build_branch(
+            x: jax.Array, name_prefix: str, final_features: int
+        ) -> jax.Array:
+            for i in range(self.num_layers):
+                x = nn.Dense(
+                    features=(
+                        self.features
+                        if i != self.num_layers - 1
+                        else final_features
+                    ),
+                    kernel_init=kernel_init,
+                    use_bias=True,
+                    bias_init=jax.nn.initializers.zeros,
+                    dtype=self.dtype,
+                    param_dtype=self.param_dtype,
+                    name=f"{name_prefix}_fc_{i+1}",
+                )(x)
+                x = self.activation_fn(x)
+
+            return nn.Dense(
+                features=final_features,
+                kernel_init=kernel_init,
+                use_bias=True,
+                name=f"{name_prefix}_head",
+            )(x)
+
+        logits = build_branch(inputs, "actor", self.out_features)
+        value = build_branch(inputs, "critic", 1)
+
+        return logits, value
+
+
+class ContinuousActorCriticPolicy(nn.Module):
+    r"""Continuous Actor-Critic Policy Network with independent paths.
+
+    Attributes:
+        features (int): Dimensionality of the hidden features.
+        out_features (int): Dimensionality of the action space.
+        num_layers (int): Number of fully connected layers per branch.
+        activation_fn (Callable[[jax.Array], jax.Array]): Activation function
+            applied between layers.
+        dtype (Any, optional): Data type for the computations.
+        param_dtype (Any, optional): Data type for the parameters.
+    """
+
+    features: int
+    out_features: int
+    num_layers: int
+    activation_fn: typing.Callable[[jax.Array], jax.Array]
+    dtype: typing.Any = None
+    param_dtype: typing.Any = None
+
+    @nn.compact
+    def __call__(
+        self, inputs: jax.Array
+    ) -> typing.Tuple[jax.Array, jax.Array, jax.Array]:
+        r"""Forward pass producing ``(mean, log_std, value)``.
+
+        Args:
+            inputs (jax.Array): Input state array of shape ``(*, D)``.
+
+        Returns:
+            A tuple of ``(mean, log_std, value)`` where ``mean`` has shape
+            ``(*, out_features)``, ``log_std`` has shape ``(out_features,)``
+            (a free parameter broadcastable to ``mean``), and ``value`` has
+            shape ``(*, 1)``.
+        """
+        inputs = inputs.astype(self.dtype)
+
+        kernel_init = jax.nn.initializers.variance_scaling(
+            scale=1.0, mode="fan_avg", distribution="uniform"
+        )
+
+        def build_branch(
+            x: jax.Array, name_prefix: str, final_features: int
+        ) -> jax.Array:
+            for i in range(self.num_layers):
+                x = nn.Dense(
+                    features=(
+                        self.features
+                        if i != self.num_layers - 1
+                        else final_features
+                    ),
+                    kernel_init=kernel_init,
+                    use_bias=True,
+                    bias_init=jax.nn.initializers.zeros,
+                    dtype=self.dtype,
+                    param_dtype=self.param_dtype,
+                    name=f"{name_prefix}_fc_{i+1}",
+                )(x)
+                x = self.activation_fn(x)
+
+            return nn.Dense(
+                features=final_features,
+                kernel_init=kernel_init,
+                use_bias=True,
+                name=f"{name_prefix}_head",
+            )(x)
+
+        mean = build_branch(inputs, "actor", self.out_features)
+        value = build_branch(inputs, "critic", 1)
+
+        # A separate learnable log-standard-deviation parameter for the
+        # Gaussian policy, shared across states (broadcastable to ``mean``).
+        log_std = self.param(
+            "log_std",
+            jax.nn.initializers.zeros,
+            (self.out_features,),
+        )
+
+        return mean, log_std, value
