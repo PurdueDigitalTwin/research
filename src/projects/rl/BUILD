@@ -64,26 +64,6 @@ ml_py_library(
 )
 
 ml_py_binary(
-    name = "main",
-    srcs = ["main.py"],
-    deps = [
-        "absl-py",
-        "flax",
-        "gymnasium",
-        "jax",
-        "matplotlib",
-        "mujoco",
-        "optax",
-        ":dqn",
-        ":replay_buffer",
-        ":structure",
-        "//src/core:train_state",
-        "//src/utilities:logging",
-        "//src/utilities:training",
-    ],
-)
-
-ml_py_binary(
     name = "run_dqn",
     srcs = ["run_dqn.py"],
     deps = [
