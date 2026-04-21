@@ -354,12 +354,13 @@ class IQLModel(_model.Model):
             value_output = typing.cast(jax.Array, value_output)
 
             advantage = q_target - value_output
+            # NOTE: ``advantage`` inherits the trailing singleton dim from the
+            # Q-network and value-network outputs. Drop it so ``weights``
+            # matches the ``(B,)`` shape of ``log_prob``.
             weights = jnp.exp(
                 jnp.minimum(self._beta * advantage, jnp.log(100.0))
-            )
+            ).squeeze(-1)
 
-            # NOTE: `log_prob` has a shape of `(B,)` while `weights` has a
-            # shape of `(B, 1)`. This can cause broadcasing issue.
             chex.assert_equal_shape([log_prob, weights])
             policy_loss = -jnp.mean(weights * log_prob)
 
