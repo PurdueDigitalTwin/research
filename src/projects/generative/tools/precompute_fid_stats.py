@@ -44,12 +44,9 @@ flags.DEFINE_bool(
 
 _REPO_ID = "ILSVRC/imagenet-1k"
 _REVISION = "49e2ee26f3810fb5a7536bbf732a7b07389a47b5"
-_OUTPUT = (
-    "gs://pdt_gen_ai/juanwu/cache/imagenet-1k-fid-ref-stats.npz"
-)
+_OUTPUT = "gs://pdt_training/juanwu/cache/imagenet-1k-fid-ref-stats.npz"
 _CHECKPOINT = (
-    "gs://pdt_gen_ai/juanwu/cache/"
-    "imagenet-1k-fid-ref-stats-ckpt.npz"
+    "gs://pdt_training/juanwu/cache/" "imagenet-1k-fid-ref-stats-ckpt.npz"
 )
 _BATCH_SIZE = 64
 _FEAT_DIM = 2048
@@ -112,9 +109,7 @@ def _list_train_parquets():
         revision=_REVISION,
     ):
         name = entry.rfilename
-        if name.startswith("data/train-") and name.endswith(
-            ".parquet"
-        ):
+        if name.startswith("data/train-") and name.endswith(".parquet"):
             files.append(name)
     files.sort()
     return files
@@ -208,9 +203,7 @@ def main(argv) -> None:
         for i in range(0, len(images), _BATCH_SIZE):
             batch_imgs = images[i : i + _BATCH_SIZE]
             batch = _resize_batch_pil(batch_imgs)
-            feats = np.asarray(
-                extract_fn(jnp.array(batch))
-            ).astype(np.float64)
+            feats = np.asarray(extract_fn(jnp.array(batch))).astype(np.float64)
             n += feats.shape[0]
             sum_f += feats.sum(axis=0)
             sum_ff += feats.T @ feats
