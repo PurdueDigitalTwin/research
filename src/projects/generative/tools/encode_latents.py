@@ -9,7 +9,7 @@ Usage::
 
     bazelisk run --config=tpu \
         //src/projects/generative/tools:encode_latents -- \
-        --output_dir gs://pdt_gen_ai/juanwu/cache/imagenet-1k-latent \
+        --output_dir gs://pdt_training/juanwu/cache/imagenet-1k-latent \
         --split train
 """
 
@@ -34,13 +34,13 @@ flags.DEFINE_string(
     "data_dir",
     os.getenv(
         "IMAGENET_DATA_DIR",
-        "gs://pdt_gen_ai/juanwu/cache/huggingface/imagenet-1k",
+        "gs://pdt_training/juanwu/cache/huggingface/imagenet-1k",
     ),
     "GCS or local directory containing ImageNet parquets.",
 )
 flags.DEFINE_string(
     "output_dir",
-    "gs://pdt_gen_ai/juanwu/cache/imagenet-1k-latent",
+    "gs://pdt_training/juanwu/cache/imagenet-1k-latent",
     "Output directory for latent .npz shards.",
 )
 flags.DEFINE_integer(

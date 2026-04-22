@@ -17,8 +17,9 @@ Tr(Sigma_v') when using a deterministic tangent.
 
 **Method:** Load trained MeanFlow checkpoint (3zhzf3qm, step 800k). For
 N=1000 batches of CIFAR-10 data:
+
 1. Sample (x0, x1, t, r) with fixed (t, r) grid: t in {0.1, 0.3, 0.5, 0.7, 0.9}, r=0
-2. Compute x_t = (1-t)x0 + t*x1
+2. Compute x_t = (1-t)x0 + t\*x1
 3. Compute per-sample loss with **stochastic tangent** (v_cond in JVP)
 4. Compute per-sample loss with **deterministic tangent** (u_ema(x_t, t, t))
 5. Record per-sample loss values
@@ -27,7 +28,7 @@ N=1000 batches of CIFAR-10 data:
 Report Var[ell_stoch] / Var[ell_determ] ratio. Theorem 1 predicts ratio >> 1,
 growing with t (since J grows with (t-r) and Sigma_v' is larger at mid-t).
 
-**Checkpoint:** `gs://pdt_gen_ai/juanwu/meanflow/meanflow_unet_cifar_10_20260412_191003/checkpoints/800000/`
+**Checkpoint:** `gs://pdt_training/juanwu/meanflow/meanflow_unet_cifar_10_20260412_191003/checkpoints/800000/`
 
 ## Experiment 2: Curvature Gap vs Interval Length (Theorem 3)
 
@@ -35,6 +36,7 @@ growing with t (since J grows with (t-r) and Sigma_v' is larger at mid-t).
 gap is approximately linear in the interval length.
 
 **Method:** Load same checkpoint. For a fixed batch of 256 CIFAR-10 images:
+
 1. Fix t = 0.5 (mid-trajectory)
 2. Vary r in linspace(0, t, 20) to sweep (t-r) from 0 to 0.5
 3. Compute u(z, r, t) and v_cond for each (r, t)
@@ -54,6 +56,7 @@ growth, causing the total loss to be non-decreasing even as the mean-field
 residual decreases.
 
 **Method:** Extract from wandb:
+
 - train/loss trajectory for vanilla MF runs (yekq7lnu, 3zhzf3qm)
 - train/velocity_loss trajectory (measures the compound prediction quality)
 - train/grad_norm trajectory
@@ -71,12 +74,13 @@ This shows the loss is dominated by the uncontrolled variance term.
 the noise term.
 
 **Method:** From the same checkpoint, for a batch of 256 images:
+
 1. Fix t in {0.2, 0.4, 0.6, 0.8}
 2. For each t, set r = 0
-3. Estimate ||d_z u_theta||_F via Hutchinson trace estimator with 10 random vectors
+3. Estimate ||d_z u_theta||\_F via Hutchinson trace estimator with 10 random vectors
 4. Compute ||(t-r) * estimated_jacobian_norm - d||
 
-**Output:** Plot estimated ||J||_F vs t. Should grow with t.
+**Output:** Plot estimated ||J||\_F vs t. Should grow with t.
 
 ## Experiment 5: Variance-Diversity Tradeoff (New Hypothesis)
 
@@ -85,6 +89,7 @@ and promotes generation diversity. Removing it (as VaMF does) may reduce
 diversity.
 
 **Method:** If time permits, from VaMF MSE checkpoint (9k3bt7aa, 800k):
+
 1. Generate 50k samples with EMA params
 2. Compute precision and recall (P&R) metrics
 3. Compare with vanilla MF samples
@@ -100,9 +105,9 @@ This tests whether FID gap is coverage-driven.
 
 ## Checkpoints Available
 
-| Run | ID | GCS Path | Steps | FID |
-|-----|-----|----------|-------|-----|
-| Vanilla MF v0 | 3zhzf3qm | meanflow_unet_cifar_10_20260412_191003 | 800k | 5.67 |
-| Vanilla MF v1 | 8vcc42dj | meanflow_new_sample_t_and_r_unet_cifar_10_20260415_022837 | 800k | 5.75 |
-| Old baseline | yekq7lnu | unet_cifar10_20260103_070257 | 800k | 7.05 |
-| VaMF MSE | 9k3bt7aa | vamf_with_snr_unet_cifar_10_20260406_131122 | 800k | 22.17 |
+| Run           | ID       | GCS Path                                                  | Steps | FID   |
+| ------------- | -------- | --------------------------------------------------------- | ----- | ----- |
+| Vanilla MF v0 | 3zhzf3qm | meanflow_unet_cifar_10_20260412_191003                    | 800k  | 5.67  |
+| Vanilla MF v1 | 8vcc42dj | meanflow_new_sample_t_and_r_unet_cifar_10_20260415_022837 | 800k  | 5.75  |
+| Old baseline  | yekq7lnu | unet_cifar10_20260103_070257                              | 800k  | 7.05  |
+| VaMF MSE      | 9k3bt7aa | vamf_with_snr_unet_cifar_10_20260406_131122               | 800k  | 22.17 |

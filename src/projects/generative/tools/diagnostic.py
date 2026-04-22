@@ -7,7 +7,7 @@ Implements Experiments 1, 2, and 4 from the VaMF diagnostic plan:
 
 Usage (on TPU VM):
     python src/projects/generative/tools/diagnostic.py \
-        --checkpoint_dir gs://pdt_gen_ai/juanwu/meanflow/meanflow_unet_cifar_10_20260412_191003/checkpoints/800000 \
+        --checkpoint_dir gs://pdt_training/juanwu/meanflow/meanflow_unet_cifar_10_20260412_191003/checkpoints/800000 \
         --output_dir docs/generative/vamf/results
 """
 

@@ -3,7 +3,7 @@
 Usage::
 
     HF_TOKEN=... bazelisk run --config=tpu //src/data:download_imagenet -- \\
-        --gcs_dir gs://pdt_gen_ai/juanwu/cache/huggingface/imagenet-1k
+        --gcs_dir gs://pdt_training/juanwu/cache/huggingface/imagenet-1k
 """
 
 import argparse
