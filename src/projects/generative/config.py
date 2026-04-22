@@ -221,7 +221,7 @@ def meanflow_dit_imagenet_256() -> _config.ExperimentConfig:
                 streaming=True,
                 data_dir=os.getenv(
                     "IMAGENET_DATA_DIR",
-                    "gs://pdt_gen_ai/juanwu/cache/huggingface" "/imagenet-1k",
+                    "gs://pdt_training/juanwu/cache/huggingface" "/imagenet-1k",
                 ),
             ),
             batch_size=256,
@@ -238,7 +238,11 @@ def meanflow_dit_imagenet_256() -> _config.ExperimentConfig:
             depth=12,
             num_heads=12,
             ffn_ratio=4,
-            dropout_rate=0.0,
+            dropout_rate=0.1,
+            num_classes=1000,
+            class_dropout_prob=0.1,
+            cfg_omega=1.0,
+            cfg_kappa=0.5,
             epsilon=1e-6,
             timestamp_cond="t_and_t_minus_r",
             timestamp_sampler="logit-normal",
@@ -260,9 +264,10 @@ def meanflow_dit_imagenet_256() -> _config.ExperimentConfig:
             ),
             image_key="image",
             batch_size=32,
-            ref_cache_path=(
-                "gs://pdt_gen_ai/juanwu/cache"
-                "/imagenet-1k-fid-ref-stats.npz"
+            ref_cache_path=os.getenv(
+                "FID_REF_CACHE",
+                "gs://pdt_training/juanwu/cache"
+                "/imagenet-1k-fid-ref-stats.npz",
             ),
         ),
         trainer=_config.TrainerConfig(
@@ -296,6 +301,10 @@ def meanflow_dit_imagenet_256_latent() -> _config.ExperimentConfig:
     Same model as ``meanflow_dit_imagenet_256`` but loads
     pre-encoded VAE latents from ``.npz`` shards, skipping
     the expensive VAE encoder in the training loop.
+
+    Training schedule: 240 epochs (matching MeanFlow paper Table 4
+    for DiT-B/2) with effective batch size 1024 on TPU v4-32.
+    Steps = 240 × floor(1_281_167 / 1024) ≈ 300K.
     """
     return _config.ExperimentConfig(
         project_name="meanflow",
@@ -307,7 +316,7 @@ def meanflow_dit_imagenet_256_latent() -> _config.ExperimentConfig:
                 shuffle_buffer_size=10_000,
                 data_dir=os.getenv(
                     "IMAGENET_LATENT_DIR",
-                    "gs://pdt_gen_ai/juanwu/cache" "/imagenet-1k-latent",
+                    "gs://pdt_training/juanwu/cache" "/imagenet-1k-latent",
                 ),
             ),
             batch_size=256,
@@ -324,7 +333,11 @@ def meanflow_dit_imagenet_256_latent() -> _config.ExperimentConfig:
             depth=12,
             num_heads=12,
             ffn_ratio=4,
-            dropout_rate=0.0,
+            dropout_rate=0.1,
+            num_classes=1000,
+            class_dropout_prob=0.1,
+            cfg_omega=1.0,
+            cfg_kappa=0.5,
             epsilon=1e-6,
             timestamp_cond="t_and_t_minus_r",
             timestamp_sampler="logit-normal",
@@ -346,13 +359,14 @@ def meanflow_dit_imagenet_256_latent() -> _config.ExperimentConfig:
             ),
             image_key="image",
             batch_size=32,
-            ref_cache_path=(
-                "gs://pdt_gen_ai/juanwu/cache"
-                "/imagenet-1k-fid-ref-stats.npz"
+            ref_cache_path=os.getenv(
+                "FID_REF_CACHE",
+                "gs://pdt_training/juanwu/cache"
+                "/imagenet-1k-fid-ref-stats.npz",
             ),
         ),
         trainer=_config.TrainerConfig(
-            num_train_steps=800_000,
+            num_train_steps=300_000,
             log_every_n_steps=50,
             checkpoint_every_n_steps=10_000,
             eval_every_n_steps=5_000,

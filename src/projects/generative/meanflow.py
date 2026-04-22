@@ -721,7 +721,11 @@ class MeanFlowDiTModule(nn.Module):
         depth (int): Number of DiT blocks.
         num_heads (int): Number of attention heads.
         ffn_ratio (int): FFN hidden dim = features * ffn_ratio.
-        dropout_rate (float): Dropout rate.
+        dropout_rate (float): Dropout rate for label embedding
+            (controls null-class token allocation).
+        num_classes (int): Number of discrete classes for
+            class-conditional generation. Default is 1000
+            (ImageNet).
         deterministic (Optional[bool]): Global deterministic flag.
         dtype (Any): The dtype of the computation.
         param_dtype (Any): The dtype of the parameters.
@@ -734,6 +738,7 @@ class MeanFlowDiTModule(nn.Module):
     num_heads: int = 6
     ffn_ratio: int = 4
     dropout_rate: float = 0.0
+    num_classes: int = 1000
     deterministic: typing.Optional[bool] = None
     dtype: typing.Any = None
     param_dtype: typing.Any = None
@@ -744,6 +749,7 @@ class MeanFlowDiTModule(nn.Module):
         self,
         inputs: jax.Array,
         timestamps: typing.Tuple[jax.Array, ...],
+        labels: typing.Optional[jax.Array] = None,
         edm_cond: typing.Optional[jax.Array] = None,
         deterministic: typing.Optional[bool] = None,
     ) -> jax.Array:
@@ -753,6 +759,10 @@ class MeanFlowDiTModule(nn.Module):
             inputs (jax.Array): Input images ``(*, H, W, C)``.
             timestamps (Tuple[jax.Array, ...]): Timestamps,
                 typically ``(t, t - r)`` for ``t_and_t_minus_r``.
+            labels (jax.Array, optional): Class labels ``(B,)``
+                for class-conditional generation. Labels should
+                already have class dropout applied externally
+                (dropped labels set to ``num_classes``).
             edm_cond (jax.Array, optional): EDM augmentation cond.
             deterministic (bool, optional): Whether deterministic.
 
@@ -803,6 +813,18 @@ class MeanFlowDiTModule(nn.Module):
         )(timestamps[1] if len(timestamps) > 1 else timestamps[0])
 
         cond = t_embed + h_embed
+
+        # --- Optional class label conditioning ---
+        if labels is not None:
+            y_embed = dit.LabelEmbed(
+                features=self.features,
+                num_classes=self.num_classes,
+                dropout_rate=self.dropout_rate,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                name="y_embed",
+            )(labels=labels, deterministic=True)
+            cond = cond + y_embed
 
         # --- Optional augmentation conditioning ---
         if edm_cond is not None:
@@ -873,7 +895,13 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
         depth (int): Number of DiT blocks.
         num_heads (int): Number of attention heads.
         ffn_ratio (int): FFN hidden dim multiplier.
-        dropout_rate (float): Dropout rate.
+        dropout_rate (float): Dropout rate for label embedding.
+        num_classes (int): Number of classes (1000 for ImageNet).
+        class_dropout_prob (float): Label dropout probability for
+            CFG training. Default is 0.1.
+        cfg_omega (float): CFG baking omega. Default is 1.0.
+        cfg_kappa (float): CFG baking kappa. Default is 0.5.
+            Effective guidance scale = (omega + kappa).
         timestamp_cond (str): Timestamp conditioning type.
         timestamp_sampler (str): Distribution for sampling t, r.
         timestamp_sampler_kwargs (Dict): Kwargs for sampler.
@@ -896,6 +924,10 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
         num_heads: int = 6,
         ffn_ratio: int = 4,
         dropout_rate: float = 0.0,
+        num_classes: int = 1000,
+        class_dropout_prob: float = 0.1,
+        cfg_omega: float = 1.0,
+        cfg_kappa: float = 0.5,
         epsilon: float = 1e-6,
         skip_scale: float = 1.0,
         resample_filter: typing.Sequence[int] = [1, 1],
@@ -923,6 +955,10 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
         self.in_channels = in_channels
         self.image_size = image_size
         self.features = features
+        self.num_classes = num_classes
+        self.class_dropout_prob = class_dropout_prob
+        self.cfg_omega = cfg_omega
+        self.cfg_kappa = cfg_kappa
         self.timestamp_cond = timestamp_cond
         self.timestamp_sampler = timestamp_sampler
         self.timestamp_sampler_kwargs = timestamp_sampler_kwargs
@@ -939,6 +975,7 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
             num_heads=num_heads,
             ffn_ratio=ffn_ratio,
             dropout_rate=dropout_rate,
+            num_classes=num_classes,
             name="dit",
             dtype=dtype,
             param_dtype=param_dtype,
@@ -1001,6 +1038,7 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
                 dtype=jnp.float32,
             ),
             "timestamps": timestamps,
+            "labels": jnp.zeros((1,), dtype=jnp.int32),
             "edm_cond": None,
         }
         variables = self._network.init(
@@ -1040,7 +1078,8 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
             vae_rng,
             m_rng,
             e_rng,
-        ) = jax.random.split(local_rng, 5)
+            cfg_rng,
+        ) = jax.random.split(local_rng, 6)
 
         # Encode to latent space
         if "latent_mean" in batch:
@@ -1067,6 +1106,14 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
             image = batch["image"].astype(jnp.float32)
             batch_dims = image.shape[:-3]
             x = image * 2.0 - 1.0
+
+        # Extract class labels
+        if "label" in batch:
+            labels = batch["label"].astype(jnp.int32)
+        else:
+            labels = jnp.full(
+                batch_dims, self.num_classes, dtype=jnp.int32
+            )
 
         # Sample timestamps
         t, r = sample_t_r(
@@ -1106,19 +1153,83 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
             t[..., None, None, None] * e,
         )
 
+        # Ground truth velocity (used in CFG formula + dropout)
+        v = e - x
+
         def _loss_fn(
             params: PyTree,
         ) -> typing.Tuple[jax.Array, jax.Array]:
+            # --- CFG baking: compute guided velocity target ---
+            # Following the official MeanFlow, the CFG formula
+            # mixes ground-truth velocity v = e - x with network
+            # predictions v_uncond and v_cond at h=0.
+            ts_h0 = self._make_timestamps(t_in=t, r_in=t)
+
+            # Unconditional velocity (null class)
+            null_labels = jnp.full_like(
+                labels, self.num_classes
+            )
+            v_uncond = self._network.apply(
+                variables={"params": jax.lax.stop_gradient(params)},
+                inputs=z,
+                timestamps=ts_h0,
+                labels=null_labels,
+                edm_cond=None,
+                deterministic=True,
+            )
+            # Conditional velocity (with class labels)
+            v_cond = self._network.apply(
+                variables={"params": jax.lax.stop_gradient(params)},
+                inputs=z,
+                timestamps=ts_h0,
+                labels=labels,
+                edm_cond=None,
+                deterministic=True,
+            )
+
+            # Official CFG formula (meanflow/meanflow.py):
+            #   v_g = omega*v + (1-omega-kappa)*v_uncond
+            #         + kappa*v_cond
+            # where v = e - x is the ground-truth velocity.
+            # With omega=1.0, kappa=0.5:
+            #   v_g = (e-x) - 0.5*v_uncond + 0.5*v_cond
+            v_g = (
+                self.cfg_omega * v
+                + (1.0 - self.cfg_omega - self.cfg_kappa)
+                * v_uncond
+                + self.cfg_kappa * v_cond
+            )
+
+            # --- Class dropout: dropped samples revert to
+            # ground-truth velocity and get null labels ---
+            drop_mask = jnp.less(
+                jax.random.uniform(
+                    cfg_rng, shape=batch_dims
+                ),
+                self.class_dropout_prob,
+            )
+            # Dropped: target = v (ground truth), label = null
+            # Kept: target = v_g (guided), label = original
+            v_g = jnp.where(
+                drop_mask[..., None, None, None], v, v_g
+            )
+            y_inp = jnp.where(
+                drop_mask, self.num_classes, labels
+            )
+
             def u_fn(
                 z_t: jax.Array,
                 r_in: jax.Array,
                 t_in: jax.Array,
             ) -> jax.Array:
-                ts = self._make_timestamps(t_in=t_in, r_in=r_in)
+                ts = self._make_timestamps(
+                    t_in=t_in, r_in=r_in
+                )
                 return self._network.apply(
                     variables={"params": params},
                     inputs=z_t,
                     timestamps=ts,
+                    labels=y_inp,
                     edm_cond=None,
                     deterministic=False,
                     rngs={"dropout": dp_rng},
@@ -1127,9 +1238,18 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
 
             drdt = jnp.zeros_like(r)
             dtdt = jnp.ones_like(t)
-            v = e - x
-            u, dudt = jax.jvp(u_fn, (z, r, t), (v, drdt, dtdt))
-            u_target = v - (t - r)[..., None, None, None] * dudt
+            # JVP tangent is v_g (guided velocity), matching
+            # official MeanFlow CFG baking.
+            u, dudt = jax.jvp(
+                u_fn, (z, r, t), (v_g, drdt, dtdt)
+            )
+            u_target = (
+                v_g
+                - jnp.clip(t - r, a_min=0.0, a_max=1.0)[
+                    ..., None, None, None
+                ]
+                * dudt
+            )
 
             per_sample_loss = jnp.sum(
                 jnp.square(u - jax.lax.stop_gradient(u_target)),
@@ -1231,15 +1351,22 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
         params: frozen_dict.FrozenDict,
         shape: typing.Sequence[typing.Union[int, typing.Any]],
         deterministic: bool = True,
+        batch: typing.Optional[typing.Any] = None,
         **kwargs,
     ) -> _model.StepOutputs:
         """One-step sampling with optional VAE decoding.
+
+        CFG is baked into the weights during training, so
+        inference uses a single forward pass with class labels
+        (no guidance-scale interpolation needed).
 
         Args:
             rngs (jax.Array): Random key for noise sampling.
             params (FrozenDict): DiT model parameters.
             shape (Sequence): Pixel-space shape from the batch.
             deterministic (bool): Whether deterministic.
+            batch (Dict, optional): Batch dict with ``"label"``
+                key for class-conditional sampling.
             **kwargs: Additional keyword arguments.
 
         Returns:
@@ -1264,11 +1391,23 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
             r_in=jnp.zeros(batch_dims, dtype=jnp.float32),
         )
 
+        # Extract class labels from batch
+        if batch is not None and "label" in batch:
+            labels = batch["label"][: batch_dims[0]].astype(
+                jnp.int32
+            )
+        else:
+            labels = jnp.full(
+                batch_dims, self.num_classes, dtype=jnp.int32
+            )
+
         # One-step MeanFlow: z_0 = z_1 - u(z_1, 0, 1)
+        # No CFG at inference — guidance is baked into weights.
         z_0 = z_1 - self._network.apply(
             variables={"params": params},
             inputs=z_1,
             timestamps=timestamps,
+            labels=labels,
             edm_cond=None,
             deterministic=deterministic,
         )
