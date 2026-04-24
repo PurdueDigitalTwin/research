@@ -821,7 +821,13 @@ class MeanFlowDiTModule(nn.Module):
             y_embed = dit.LabelEmbed(
                 features=self.features,
                 num_classes=self.num_classes,
-                dropout_rate=self.dropout_rate,
+                # Always allocate the null-class embedding (index
+                # num_classes) for CFG.  Class dropout is handled
+                # externally in cfg_training_step, and this call
+                # uses deterministic=True so internal dropout never
+                # fires — the rate only controls embedding table
+                # size.
+                dropout_rate=max(self.dropout_rate, 1.0),
                 dtype=self.dtype,
                 param_dtype=self.param_dtype,
                 name="y_embed",
