@@ -221,7 +221,8 @@ def meanflow_dit_imagenet_256() -> _config.ExperimentConfig:
                 streaming=True,
                 data_dir=os.getenv(
                     "IMAGENET_DATA_DIR",
-                    "gs://pdt_training/juanwu/cache/huggingface" "/imagenet-1k",
+                    "gs://pdt_training/juanwu/cache/huggingface"
+                    "/imagenet-1k",
                 ),
             ),
             batch_size=256,
@@ -296,19 +297,23 @@ def meanflow_dit_imagenet_256() -> _config.ExperimentConfig:
 
 
 def meanflow_dit_imagenet_256_latent() -> _config.ExperimentConfig:
-    r"""MeanFlow DiT-B/2 on ImageNet 256x256 with pre-encoded latents.
+    r"""MeanFlow DiT-B/4 on ImageNet 256x256 with pre-encoded latents.
 
-    Same model as ``meanflow_dit_imagenet_256`` but loads
-    pre-encoded VAE latents from ``.npz`` shards, skipping
-    the expensive VAE encoder in the training loop.
+    Aligned with official MeanFlow implementation
+    (github.com/Gsunshine/meanflow, ``run_b4.yml``).
+    Uses DiT-B/4 (patch_size=4) for ablation experiments
+    (Table 4 of arXiv:2505.13447).
 
-    Training schedule: 240 epochs (matching MeanFlow paper Table 4
-    for DiT-B/2) with effective batch size 1024 on TPU v4-32.
-    Steps = 240 × floor(1_281_167 / 1024) ≈ 300K.
+    Key settings matching official:
+      - patch_size=4, no dropout, no LR warmup
+      - norm_eps=0.01, adamw with wd=0, constant LR=1e-4
+      - EMA 0.9999, logit-normal t/r, overlap_rate=0.75
+
+    Steps = 240 epochs × floor(1_281_167 / 1024) ≈ 300K.
     """
     return _config.ExperimentConfig(
         project_name="meanflow",
-        exp_name="dit_imagenet_256_latent",
+        exp_name="dit_b4_imagenet_256_latent",
         mode="train",
         data=_config.DataConfig(
             module=fdl.Partial(
@@ -329,16 +334,17 @@ def meanflow_dit_imagenet_256_latent() -> _config.ExperimentConfig:
             in_channels=4,
             image_size=32,
             features=768,
-            patch_size=2,
+            patch_size=4,
             depth=12,
             num_heads=12,
             ffn_ratio=4,
-            dropout_rate=0.1,
+            dropout_rate=0.0,
             num_classes=1000,
             class_dropout_prob=0.1,
             cfg_omega=1.0,
             cfg_kappa=0.5,
             epsilon=1e-6,
+            norm_eps=0.01,
             timestamp_cond="t_and_t_minus_r",
             timestamp_sampler="logit-normal",
             timestamp_sampler_kwargs=dict(mean=-0.4, stddev=1.0),
@@ -376,11 +382,16 @@ def meanflow_dit_imagenet_256_latent() -> _config.ExperimentConfig:
         optimizer=_config.OptimizerConfig(
             lr_schedule=fdl.Config(
                 optax.warmup_constant_schedule,
-                init_value=1e-8,
+                init_value=1e-4,
                 peak_value=1e-4,
-                warmup_steps=10_000,
+                warmup_steps=0,
             ),
-            optimizer=fdl.Partial(optax.adam, b1=0.9, b2=0.95),
+            optimizer=fdl.Partial(
+                optax.adamw,
+                b1=0.9,
+                b2=0.95,
+                weight_decay=0,
+            ),
             ema_rate=0.9999,
         ),
         seed=42,

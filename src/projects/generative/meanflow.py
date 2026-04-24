@@ -603,7 +603,9 @@ class MeanFlowUNetModel(_model.Model):
 
             # applies adaptive weight power
             if self.adaptive_weight_power > 0.0:
-                ada_wt = jnp.power(loss + 1e-3, self.adaptive_weight_power)
+                ada_wt = jnp.power(
+                    loss + self.norm_eps, self.adaptive_weight_power
+                )
                 loss = loss / jax.lax.stop_gradient(ada_wt)
             loss = jnp.mean(loss)
 
@@ -945,6 +947,7 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
         timestamp_overlap_rate: float = 0.75,
         timestamp_sampler_version: str = "v0",
         adaptive_weight_power: float = 1.0,
+        norm_eps: float = 0.01,
         vae_path: typing.Optional[str] = None,
         vae_scaling_factor: float = 0.18215,
         dtype: typing.Any = None,
@@ -965,6 +968,7 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
         self.timestamp_overlap_rate = timestamp_overlap_rate
         self.timestamp_sampler_version = timestamp_sampler_version
         self.adaptive_weight_power = adaptive_weight_power
+        self.norm_eps = norm_eps
 
         # DiT backbone (no EDM augmentation for ImageNet)
         self._augment = None
@@ -1111,9 +1115,7 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
         if "label" in batch:
             labels = batch["label"].astype(jnp.int32)
         else:
-            labels = jnp.full(
-                batch_dims, self.num_classes, dtype=jnp.int32
-            )
+            labels = jnp.full(batch_dims, self.num_classes, dtype=jnp.int32)
 
         # Sample timestamps
         t, r = sample_t_r(
@@ -1166,9 +1168,7 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
             ts_h0 = self._make_timestamps(t_in=t, r_in=t)
 
             # Unconditional velocity (null class)
-            null_labels = jnp.full_like(
-                labels, self.num_classes
-            )
+            null_labels = jnp.full_like(labels, self.num_classes)
             v_uncond = self._network.apply(
                 variables={"params": jax.lax.stop_gradient(params)},
                 inputs=z,
@@ -1195,36 +1195,27 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
             #   v_g = (e-x) - 0.5*v_uncond + 0.5*v_cond
             v_g = (
                 self.cfg_omega * v
-                + (1.0 - self.cfg_omega - self.cfg_kappa)
-                * v_uncond
+                + (1.0 - self.cfg_omega - self.cfg_kappa) * v_uncond
                 + self.cfg_kappa * v_cond
             )
 
             # --- Class dropout: dropped samples revert to
             # ground-truth velocity and get null labels ---
             drop_mask = jnp.less(
-                jax.random.uniform(
-                    cfg_rng, shape=batch_dims
-                ),
+                jax.random.uniform(cfg_rng, shape=batch_dims),
                 self.class_dropout_prob,
             )
             # Dropped: target = v (ground truth), label = null
             # Kept: target = v_g (guided), label = original
-            v_g = jnp.where(
-                drop_mask[..., None, None, None], v, v_g
-            )
-            y_inp = jnp.where(
-                drop_mask, self.num_classes, labels
-            )
+            v_g = jnp.where(drop_mask[..., None, None, None], v, v_g)
+            y_inp = jnp.where(drop_mask, self.num_classes, labels)
 
             def u_fn(
                 z_t: jax.Array,
                 r_in: jax.Array,
                 t_in: jax.Array,
             ) -> jax.Array:
-                ts = self._make_timestamps(
-                    t_in=t_in, r_in=r_in
-                )
+                ts = self._make_timestamps(t_in=t_in, r_in=r_in)
                 return self._network.apply(
                     variables={"params": params},
                     inputs=z_t,
@@ -1240,14 +1231,10 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
             dtdt = jnp.ones_like(t)
             # JVP tangent is v_g (guided velocity), matching
             # official MeanFlow CFG baking.
-            u, dudt = jax.jvp(
-                u_fn, (z, r, t), (v_g, drdt, dtdt)
-            )
+            u, dudt = jax.jvp(u_fn, (z, r, t), (v_g, drdt, dtdt))
             u_target = (
                 v_g
-                - jnp.clip(t - r, a_min=0.0, a_max=1.0)[
-                    ..., None, None, None
-                ]
+                - jnp.clip(t - r, a_min=0.0, a_max=1.0)[..., None, None, None]
                 * dudt
             )
 
@@ -1259,7 +1246,7 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
 
             if self.adaptive_weight_power > 0.0:
                 ada_wt = jnp.power(
-                    per_sample_loss + 1e-3,
+                    per_sample_loss + self.norm_eps,
                     self.adaptive_weight_power,
                 )
                 per_sample_loss = per_sample_loss / jax.lax.stop_gradient(
@@ -1393,13 +1380,9 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
 
         # Extract class labels from batch
         if batch is not None and "label" in batch:
-            labels = batch["label"][: batch_dims[0]].astype(
-                jnp.int32
-            )
+            labels = batch["label"][: batch_dims[0]].astype(jnp.int32)
         else:
-            labels = jnp.full(
-                batch_dims, self.num_classes, dtype=jnp.int32
-            )
+            labels = jnp.full(batch_dims, self.num_classes, dtype=jnp.int32)
 
         # One-step MeanFlow: z_0 = z_1 - u(z_1, 0, 1)
         # No CFG at inference — guidance is baked into weights.
