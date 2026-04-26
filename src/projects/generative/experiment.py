@@ -232,10 +232,7 @@ def train_and_evaluate(
     if not tf.io.gfile.exists(log_dir):
         tf.io.gfile.makedirs(log_dir)
     checkpoint_dir = exp_config.trainer.checkpoint_dir
-    _resume_wandb = (
-        checkpoint_dir is not None
-        and exp_config.mode == "train"
-    )
+    _resume_wandb = checkpoint_dir is not None and exp_config.mode == "train"
     logging.init_wandb(
         config=dataclasses.asdict(exp_config),
         project_name=str(exp_config.project_name),
@@ -337,13 +334,9 @@ def train_and_evaluate(
         },
         options=ocp.CheckpointManagerOptions(
             max_to_keep=exp_config.trainer.max_checkpoints_to_keep,
-            create=False,
-            create=False,
+            create=True,
             enable_async_checkpointing=False,
             cleanup_tmp_directories=True,
-            best_fn=lambda metric: metric["fid"],
-            best_mode="min",
-            multiprocessing_options=ocp.options.MultiprocessingOptions(),
             best_fn=lambda metric: metric["fid"],
             best_mode="min",
             multiprocessing_options=ocp.options.MultiprocessingOptions(),
@@ -530,17 +523,13 @@ def train_and_evaluate(
             options=ocp.CheckpointManagerOptions(
                 create=False,
                 enable_async_checkpointing=False,
-                multiprocessing_options=(
-                    ocp.options.MultiprocessingOptions()
-                ),
+                multiprocessing_options=(ocp.options.MultiprocessingOptions()),
             ),
         )
 
         all_steps = sorted(eval_ckpt_mgr.all_steps())
         if not all_steps:
-            logging.rank_zero_error(
-                "No checkpoints found in %s", ckpt_dir
-            )
+            logging.rank_zero_error("No checkpoints found in %s", ckpt_dir)
             _status = 1
         else:
             eval_step = all_steps[-1]
@@ -578,9 +567,7 @@ def train_and_evaluate(
 
             logging.rank_zero_info("Running FID evaluation...")
             outputs = evaluation_fn(params=ema_params)
-            _log_step_outputs(
-                outputs=outputs, prefix="eval", step=eval_step
-            )
+            _log_step_outputs(outputs=outputs, prefix="eval", step=eval_step)
             if outputs.scalars is not None:
                 for k, v in outputs.scalars.items():
                     logging.rank_zero_info(
