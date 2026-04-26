@@ -122,18 +122,35 @@ def evaluate(
         The evaluation outputs including metrics and generated images.
     """
 
+    # Number of classes for random label sampling during FID
+    # generation.  Falls back to reusing batch labels when the
+    # model does not expose num_classes (e.g. unconditional).
+    _num_classes = getattr(model, "num_classes", None)
+
     def _generate(
         params: PyTree,
         shape: typing.Sequence[typing.Union[int, typing.Any]],
         step_rngs: jax.Array,
     ) -> jax.Array:
         local_rng = jax.random.fold_in(step_rngs, jax.lax.axis_index("batch"))
+        gen_rng, label_rng = jax.random.split(local_rng)
+        # Sample random class labels so FID images span all
+        # classes, not just the few in the evaluation batch.
+        gen_batch = batch
+        if "label" in batch and _num_classes is not None:
+            gen_batch = {**batch}
+            gen_batch["label"] = jax.random.randint(
+                label_rng,
+                shape=(shape[0],),
+                minval=0,
+                maxval=_num_classes,
+            )
         outputs = model.forward(
-            rngs=local_rng,
+            rngs=gen_rng,
             params=params,
             shape=shape,
             deterministic=True,
-            batch=batch,
+            batch=gen_batch,
             **kwargs,
         )
         assert isinstance(outputs, _model.StepOutputs)
