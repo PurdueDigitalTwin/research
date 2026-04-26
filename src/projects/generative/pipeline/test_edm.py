@@ -5,14 +5,14 @@ import jax
 from jax import numpy as jnp
 import pytest
 
-from src.projects.generative.pipeline import augment
+from src.projects.generative.pipeline import edm
 
 
 def test_translate() -> None:
     r"""Tests the 2D and 3D translation transformation."""
     # test 2D translation
     tx, ty = 5.0, -3.0
-    mat = augment.translate2d(tx, ty)
+    mat = edm.translate2d(tx, ty)
     assert isinstance(mat, jax.Array)
     chex.assert_shape(mat, (3, 3))
     test_output = jnp.array(
@@ -24,12 +24,12 @@ def test_translate() -> None:
         dtype=jnp.float32,
     )
     chex.assert_trees_all_close(mat, test_output)
-    inv_mat = augment.translate2d_inv(tx=tx, ty=ty)
+    inv_mat = edm.translate2d_inv(tx=tx, ty=ty)
     chex.assert_trees_all_close(inv_mat @ mat, jnp.eye(3, dtype=jnp.float32))
 
     # test 3D translation
     tx, ty, tz = 2.0, -4.0, 7.0
-    mat = augment.translate3d(tx, ty, tz)
+    mat = edm.translate3d(tx, ty, tz)
     assert isinstance(mat, jax.Array)
     chex.assert_shape(mat, (4, 4))
     test_output = jnp.array(
@@ -42,7 +42,7 @@ def test_translate() -> None:
         dtype=jnp.float32,
     )
     chex.assert_trees_all_close(mat, test_output)
-    inv_mat = augment.translate3d(tx=-tx, ty=-ty, tz=-tz)
+    inv_mat = edm.translate3d(tx=-tx, ty=-ty, tz=-tz)
     chex.assert_trees_all_close(inv_mat @ mat, jnp.eye(4, dtype=jnp.float32))
 
 
@@ -50,7 +50,7 @@ def test_scale() -> None:
     r"""Tests the 2D and 3D scaling transformation."""
     sx, sy, sz = 2.0, 3.0, 4.0
     # test 2D scaling
-    mat = augment.scale2d(sx, sy)
+    mat = edm.scale2d(sx, sy)
     assert isinstance(mat, jax.Array)
     chex.assert_shape(mat, (3, 3))
     test_output = jnp.array(
@@ -62,11 +62,11 @@ def test_scale() -> None:
         dtype=jnp.float32,
     )
     chex.assert_trees_all_close(mat, test_output)
-    inv_mat = augment.scale2d_inv(sx=sx, sy=sy)
+    inv_mat = edm.scale2d_inv(sx=sx, sy=sy)
     chex.assert_trees_all_close(inv_mat @ mat, jnp.eye(3, dtype=jnp.float32))
 
     # test 3D scaling
-    mat = augment.scale3d(sx, sy, sz)
+    mat = edm.scale3d(sx, sy, sz)
     assert isinstance(mat, jax.Array)
     chex.assert_shape(mat, (4, 4))
     test_output = jnp.array(
@@ -79,7 +79,7 @@ def test_scale() -> None:
         dtype=jnp.float32,
     )
     chex.assert_trees_all_close(mat, test_output)
-    inv_mat = augment.scale3d(sx=1.0 / sx, sy=1.0 / sy, sz=1.0 / sz)
+    inv_mat = edm.scale3d(sx=1.0 / sx, sy=1.0 / sy, sz=1.0 / sz)
     chex.assert_trees_all_close(inv_mat @ mat, jnp.eye(4, dtype=jnp.float32))
 
 
@@ -87,7 +87,7 @@ def test_rotate_2d() -> None:
     r"""Tests the 2D rotation transformation."""
     # test 2D rotation
     theta = jnp.pi / 4  # 45 degrees
-    mat = augment.rotate2d(theta)
+    mat = edm.rotate2d(theta)
     assert isinstance(mat, jax.Array)
     chex.assert_shape(mat, (3, 3))
     cos_theta = jnp.cos(theta)
@@ -101,13 +101,13 @@ def test_rotate_2d() -> None:
         dtype=jnp.float32,
     )
     chex.assert_trees_all_close(mat, test_output)
-    inv_mat = augment.rotate2d_inv(theta)
+    inv_mat = edm.rotate2d_inv(theta)
     chex.assert_trees_all_close(inv_mat @ mat, jnp.eye(3, dtype=jnp.float32))
 
 
 def test_augmentor() -> None:
     r"""Tests the EDM augmentation pipeline."""
-    augmentor = augment.EDMAugmentor(
+    augmentor = edm.EDMAugmentor(
         image_size=(32, 32),
         p=0.12,
         # pixel blitting toggles
