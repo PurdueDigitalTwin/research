@@ -554,7 +554,13 @@ def train_and_evaluate(
                 eval_step,
                 items={"params": abstract_params},
             )
-            ema_params = jax_utils.replicate(restored["params"])
+            # Orbax restores globally-sharded arrays; convert
+            # to host-local numpy before pmap-replicating.
+            local_params = jax.tree_util.tree_map(
+                lambda x: np.asarray(x.addressable_data(0)),
+                restored["params"],
+            )
+            ema_params = jax_utils.replicate(local_params)
 
             rng, eval_key = jax.random.split(rng)
             eval_batch = next(datamodule.eval_dataloader())
