@@ -18,3 +18,13 @@ ml_py_binary(
         "//src/utilities:logging",
     ],
 )
+
+ml_py_binary(
+    name = "plot_illustration",
+    srcs = ["figures/plot_illustration.py"],
+    deps = [
+        "absl-py",
+        "jax",
+        "matplotlib",
+    ],
+)
