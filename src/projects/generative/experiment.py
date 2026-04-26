@@ -345,17 +345,17 @@ def train_and_evaluate(
         checkpoint_every_n_steps = exp_config.trainer.checkpoint_every_n_steps
     else:
         checkpoint_every_n_steps = exp_config.trainer.eval_every_n_steps
-    if exp_config.trainer.checkpoint_dir is not None:
-        # TODO (juanwu): support loading from custom checkpoint dir
-        logging.rank_zero_error("Resuming from checkpoint not implemented.")
-        return 1
-
     if jax.process_index() == 0:
         fid_metric = _LazyFIDMetric(exp_config.metric)
     else:
         fid_metric = None
 
     if exp_config.mode == "train":
+        if exp_config.trainer.checkpoint_dir is not None:
+            logging.rank_zero_error(
+                "Resuming from checkpoint not implemented."
+            )
+            return 1
         logging.rank_zero_info("Compiling training step functions...")
         rng, train_key, eval_key = jax.random.split(rng, num=3)
         p_train_step = functools.partial(model.training_step, rngs=train_key)
@@ -509,8 +509,72 @@ def train_and_evaluate(
             )
 
     elif exp_config.mode == "evaluate":
-        logging.rank_zero_error("Evaluation mode not implemented.")
-        _status = 1
+        # Evaluate mode: load checkpoint and compute FID.
+        ckpt_dir = exp_config.trainer.checkpoint_dir
+        if ckpt_dir is None:
+            ckpt_dir = tf.io.gfile.join(log_dir, "checkpoints")
+
+        eval_ckpt_mgr = ocp.CheckpointManager(
+            directory=ckpt_dir,
+            item_handlers={
+                "params": ocp.PyTreeCheckpointHandler(),
+            },
+            options=ocp.CheckpointManagerOptions(
+                create=False,
+                enable_async_checkpointing=False,
+                multiprocessing_options=(
+                    ocp.options.MultiprocessingOptions()
+                ),
+            ),
+        )
+
+        all_steps = sorted(eval_ckpt_mgr.all_steps())
+        if not all_steps:
+            logging.rank_zero_error(
+                "No checkpoints found in %s", ckpt_dir
+            )
+            _status = 1
+        else:
+            eval_step = all_steps[-1]
+            logging.rank_zero_info(
+                "Found %d checkpoints. Evaluating step %d.",
+                len(all_steps),
+                eval_step,
+            )
+
+            abstract_params = jax.tree_util.tree_map(
+                lambda x: jax.ShapeDtypeStruct(x.shape, x.dtype),
+                params,
+            )
+            restored = eval_ckpt_mgr.restore(
+                eval_step,
+                items={"params": abstract_params},
+            )
+            ema_params = jax_utils.replicate(restored["params"])
+
+            rng, eval_key = jax.random.split(rng)
+            eval_batch = next(datamodule.eval_dataloader())
+            evaluation_fn = functools.partial(
+                evaluate,
+                model=model,
+                rngs=eval_key,
+                batch=eval_batch,
+                fid_metric=fid_metric,
+            )
+
+            logging.rank_zero_info("Running FID evaluation...")
+            outputs = evaluation_fn(params=ema_params)
+            _log_step_outputs(
+                outputs=outputs, prefix="eval", step=eval_step
+            )
+            if outputs.scalars is not None:
+                for k, v in outputs.scalars.items():
+                    logging.rank_zero_info(
+                        "eval/%s = %.4f",
+                        k,
+                        jax.device_get(v).mean(),
+                    )
+            logging.rank_zero_info("Evaluation complete.")
     else:
         logging.rank_zero_error("Mode %s not implemented.", exp_config.mode)
         _status = 1
