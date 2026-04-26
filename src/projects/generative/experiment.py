@@ -232,13 +232,17 @@ def train_and_evaluate(
     if not tf.io.gfile.exists(log_dir):
         tf.io.gfile.makedirs(log_dir)
     checkpoint_dir = exp_config.trainer.checkpoint_dir
+    _resume_wandb = (
+        checkpoint_dir is not None
+        and exp_config.mode == "train"
+    )
     logging.init_wandb(
         config=dataclasses.asdict(exp_config),
         project_name=str(exp_config.project_name),
         experiment_name=str(exp_config.exp_name),
         work_dir=log_dir,
-        resume=checkpoint_dir is not None,
-        checkpoint_dir=checkpoint_dir,
+        resume=_resume_wandb,
+        checkpoint_dir=checkpoint_dir if _resume_wandb else None,
     )
 
     # Log the current platform
