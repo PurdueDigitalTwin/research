@@ -14,6 +14,7 @@ import jax
 from jax import numpy as jnp
 from jax import random as jrnd
 import jaxtyping
+import numpy as np
 import optax
 import typing_extensions
 
@@ -43,10 +44,8 @@ flags.DEFINE_enum(
 flags.DEFINE_enum(
     name="method",
     default="meanflow",
-    enum_values=["meanflow", "vamf_l2", "vamf_tw", "ema_tw"],
-    help=(
-        "Method to run, one of ['meanflow', 'vamf_l2', " "'vamf_tw', 'ema_tw']"
-    ),
+    enum_values=["meanflow", "vamf_l2", "vamf_tw"],
+    help=("Method to run, one of ['meanflow', 'vamf_l2', " "'vamf_tw']"),
 )
 
 # method hyperparameters
@@ -570,7 +569,6 @@ class MeanFlowMLPModel(_model.Model):
             if self._method in (
                 "vamf_l2",
                 "vamf_tw",
-                "ema_tw",
             ):
                 v_tang = jax.lax.stop_gradient(
                     self._network.apply(
@@ -608,7 +606,7 @@ class MeanFlowMLPModel(_model.Model):
             )
 
             # per-sample trace weight
-            if self._method in ("vamf_tw", "ema_tw"):
+            if self._method == "vamf_tw":
                 tw = trace_weight(
                     u_fn,
                     z,
@@ -784,6 +782,26 @@ def main(argv: typing.List[str]) -> int:
             indent=2,
         )
     _logging.rank_zero_info("Saved results to %s", out_path)
+
+    # ---- generate and save samples ----
+    n_gen = 4096
+    key, gen_key, ref_key = jrnd.split(key, 3)
+    ref_data = sample_data(ref_key, FLAGS.dataset, n_gen)
+    gen_out = model.evaluation_step(
+        batch=ref_data,
+        params=state.ema_params,
+        rngs=gen_key,
+    )
+    npz_path = os.path.join(
+        FLAGS.work_dir,
+        f"{FLAGS.dataset}_{FLAGS.method}_{FLAGS.seed}.npz",
+    )
+    np.savez(
+        npz_path,
+        generated=np.asarray(gen_out.output),
+        reference=np.asarray(ref_data),
+    )
+    _logging.rank_zero_info("Saved samples to %s", npz_path)
 
     return 0
 
