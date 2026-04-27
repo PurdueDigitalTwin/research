@@ -14,7 +14,7 @@ from src.core import train_state as _train_state
 from src.projects.generative.model import dit
 from src.projects.generative.model import unet
 from src.projects.generative.model import vae as _vae
-from src.projects.generative.pipeline import augment
+from src.projects.generative.pipeline import edm
 
 # Type Aliases
 PyTree = jaxtyping.PyTree
@@ -419,7 +419,7 @@ class MeanFlowUNetModel(_model.Model):
         self.timestamp_overlap_rate = timestamp_overlap_rate
         self.timestamp_sampler_version = timestamp_sampler_version
         self.adaptive_weight_power = adaptive_weight_power
-        self._augment = augment.EDMAugmentor(
+        self._augment = edm.EDMAugmentor(
             image_size=(image_size, image_size),
             p=0.12,
             xflip=1e8,
