@@ -50,7 +50,7 @@ ml_py_library(
         "//src/projects/generative/model:dit",
         "//src/projects/generative/model:unet",
         "//src/projects/generative/model:vae",
-        "//src/projects/generative/pipeline:augment",
+        "//src/projects/generative/pipeline:edm",
     ],
 )
 
