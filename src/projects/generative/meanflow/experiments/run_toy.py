@@ -370,6 +370,37 @@ def trace_weight(
 
 
 ################################################################################
+# Quality Metrics
+def sliced_wasserstein(
+    x: jax.Array,
+    y: jax.Array,
+    key: jax.Array,
+    n_projections: int = 500,
+) -> jax.Array:
+    r"""Sliced Wasserstein-1 distance between point clouds of two distributions.
+
+    Args:
+        x: Samples from P, shape ``(n, d)``.
+        y: Samples from Q, shape ``(n, d)``.
+        key: PRNG key for random projection directions.
+        n_projections: Number of random 1-D projections.
+
+    Returns:
+        Scalar SWD estimate.
+    """
+    d = x.shape[-1]
+    dirs = jrnd.normal(key, (n_projections, d))
+    dirs = dirs / jnp.linalg.norm(
+        dirs,
+        axis=-1,
+        keepdims=True,
+    )
+    x_proj = jnp.sort(x @ dirs.T, axis=0)
+    y_proj = jnp.sort(y @ dirs.T, axis=0)
+    return jnp.mean(jnp.abs(x_proj - y_proj))
+
+
+################################################################################
 # Model
 class MeanFlowMLPModule(nn.Module):
     r"""Multi-layer Perceptron with timestamp conditioning.
@@ -716,6 +747,30 @@ def main(argv: typing.List[str]) -> int:
 
     train_step = jax.jit(_train_step)
 
+    # ---- jit-compiled eval step (SWD) ----
+    n_eval = 4096
+
+    def _eval_step(state, key):
+        k_ref, k_gen, k_swd = jrnd.split(key, 3)
+        ref = sample_data(
+            k_ref,
+            FLAGS.dataset,
+            n_eval,
+        )
+        gen_out = model.evaluation_step(
+            batch=ref,
+            params=state.ema_params,
+            rngs=k_gen,
+        )
+        assert gen_out.output is not None
+        return sliced_wasserstein(
+            gen_out.output,
+            ref,
+            k_swd,
+        )
+
+    eval_step = jax.jit(_eval_step)
+
     # ---- training loop ----
     _logging.rank_zero_info(
         "Training %s on %s for %d steps...",
@@ -731,17 +786,19 @@ def main(argv: typing.List[str]) -> int:
         state, step_out = train_step(state, step_key)
 
         if step % FLAGS.log_every_n_steps == 0 or step == FLAGS.steps - 1:
+            key, eval_key = jrnd.split(key)
+            swd = eval_step(state, eval_key)
             m = {k: float(v) for k, v in step_out.scalars.items()}
             m["step"] = step
+            m["swd"] = float(swd)
             history.append(m)
             elapsed = time.time() - t0
             _logging.rank_zero_info(
-                "[%6d/%d] raw_loss=%.4f  loss=%.4f  " "tw=%.4f  (%.1fs)",
+                "[%6d/%d] loss=%.4f  swd=%.4f  " "(%.1fs)",
                 step,
                 FLAGS.steps,
-                m["raw_loss"],
                 m["loss"],
-                m["tw_mean"],
+                m["swd"],
                 elapsed,
             )
 
