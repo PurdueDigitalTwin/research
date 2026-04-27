@@ -40,6 +40,11 @@ flags.DEFINE_string(
     required=True,
     help="Output directory for figures.",
 )
+flags.DEFINE_string(
+    name="gmm_results_dir",
+    default=None,
+    help="Directory containing GMM scaling .json files (optional).",
+)
 flags.DEFINE_integer(
     name="seed",
     default=42,
@@ -311,6 +316,92 @@ def plot_training_curves(
 
 
 # ==============================================================================
+# Figure 3: Dimension scaling (GMM)
+GMM_DIMS = [2, 4, 8, 16]
+
+
+def plot_dimension_scaling(
+    results_dir: str,
+    work_dir: str,
+    seed: int,
+) -> None:
+    """Two-panel figure: best SWD and convergence speed vs dimension."""
+    fig, (ax1, ax2) = plt.subplots(
+        1,
+        2,
+        figsize=(8, 3.2),
+    )
+
+    for method in METHODS:
+        best_swds = []
+        conv_steps = []
+        dims_with_data = []
+        dims_conv = []
+
+        for d in GMM_DIMS:
+            json_path = os.path.join(
+                results_dir,
+                f"gmm_{d}_{method}_{seed}.json",
+            )
+            if not os.path.exists(json_path):
+                continue
+            with open(json_path) as f:
+                result = json.load(f)
+            hist = result["history"]
+            swds = np.array([h["swd"] for h in hist])
+            steps = np.array([h["step"] for h in hist])
+
+            best_swds.append(float(swds.min()))
+            dims_with_data.append(d)
+
+            below = np.where(swds < 0.10)[0]
+            if len(below) > 0:
+                conv_steps.append(int(steps[below[0]]) // 1000)
+                dims_conv.append(d)
+
+        if not dims_with_data:
+            continue
+
+        ax1.plot(
+            dims_with_data,
+            best_swds,
+            "o-",
+            color=METHOD_COLORS[method],
+            label=METHOD_LABELS[method],
+            linewidth=1.5,
+            markersize=6,
+        )
+        if dims_conv:
+            ax2.plot(
+                dims_conv,
+                conv_steps,
+                "s-",
+                color=METHOD_COLORS[method],
+                label=METHOD_LABELS[method],
+                linewidth=1.5,
+                markersize=6,
+            )
+
+    ax1.set_xlabel("Dimension $d$")
+    ax1.set_ylabel("Best SWD")
+    ax1.set_title("(a) Peak Quality vs Dimension", fontweight="bold")
+    ax1.set_xticks(GMM_DIMS)
+    ax1.legend(fontsize=8)
+
+    ax2.set_xlabel("Dimension $d$")
+    ax2.set_ylabel("Steps to SWD < 0.10 (k)")
+    ax2.set_title("(b) Convergence Speed vs Dimension", fontweight="bold")
+    ax2.set_xticks(GMM_DIMS)
+    ax2.legend(fontsize=8)
+
+    plt.tight_layout()
+    path = os.path.join(work_dir, "toy_dimension_scaling.pdf")
+    fig.savefig(path)
+    plt.close()
+    print(f"Saved {path}")
+
+
+# ==============================================================================
 # Main
 def main(argv: typing.List[str]) -> None:
     del argv
@@ -328,6 +419,13 @@ def main(argv: typing.List[str]) -> None:
         FLAGS.work_dir,
         FLAGS.seed,
     )
+    if FLAGS.gmm_results_dir:
+        print("Plotting dimension scaling...")
+        plot_dimension_scaling(
+            FLAGS.gmm_results_dir,
+            FLAGS.work_dir,
+            FLAGS.seed,
+        )
     print("Done.")
 
 
