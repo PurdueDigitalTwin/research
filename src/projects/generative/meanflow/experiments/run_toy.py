@@ -92,6 +92,11 @@ flags.DEFINE_float(
     default=1.0,
     help="Stddev for logit-normal timestamp sampling.",
 )
+flags.DEFINE_integer(
+    name="tw_n_probes",
+    default=1,
+    help="Number of Hutchinson probes for trace weight estimation.",
+)
 
 # training hyperparameters
 flags.DEFINE_integer(
@@ -494,6 +499,7 @@ class MeanFlowMLPModel(_model.Model):
         timestamp_sampler: str = "uniform",
         logit_normal_mean: float = 0.0,
         logit_normal_stddev: float = 1.0,
+        tw_n_probes: int = 1,
         dtype: typing.Any = None,
         param_dtype: typing.Any = None,
         precision: typing.Any = None,
@@ -506,6 +512,7 @@ class MeanFlowMLPModel(_model.Model):
         self._timestamp_sampler = timestamp_sampler
         self._logit_normal_mean = logit_normal_mean
         self._logit_normal_stddev = logit_normal_stddev
+        self._tw_n_probes = tw_n_probes
         self._network = MeanFlowMLPModule(
             features=features,
             num_layers=num_layers,
@@ -644,6 +651,7 @@ class MeanFlowMLPModel(_model.Model):
                     r,
                     t,
                     k_tw,
+                    n_probes=self._tw_n_probes,
                 )
                 weighted = per_sample * jax.lax.stop_gradient(tw)
             else:
@@ -713,6 +721,7 @@ def main(argv: typing.List[str]) -> int:
         timestamp_sampler=FLAGS.timestamp_sampler,
         logit_normal_mean=FLAGS.logit_normal_mean,
         logit_normal_stddev=FLAGS.logit_normal_stddev,
+        tw_n_probes=FLAGS.tw_n_probes,
     )
     params, _ = model.init(
         batch=jnp.zeros((1, d)),
@@ -722,7 +731,12 @@ def main(argv: typing.List[str]) -> int:
 
     # ---- build train state ----
     _logging.rank_zero_info("Building train state...")
-    tx = optax.adam(learning_rate=FLAGS.lr)
+    lr_schedule = optax.cosine_decay_schedule(
+        init_value=FLAGS.lr,
+        decay_steps=FLAGS.steps,
+        alpha=0.01,
+    )
+    tx = optax.adam(learning_rate=lr_schedule)
     state = _train_state.TrainState.create(
         params=params,
         tx=tx,
@@ -830,6 +844,7 @@ def main(argv: typing.List[str]) -> int:
                     "timestamp_sampler": FLAGS.timestamp_sampler,
                     "logit_normal_mean": FLAGS.logit_normal_mean,
                     "logit_normal_stddev": FLAGS.logit_normal_stddev,
+                    "tw_n_probes": FLAGS.tw_n_probes,
                     "seed": FLAGS.seed,
                 },
                 "history": history,
