@@ -34,7 +34,8 @@ flags.DEFINE_enum(
         "two_moons",
         "swiss_roll",
     ]
-    + [f"gmm_{d}" for d in [2, 4, 8, 16]],
+    + [f"gmm_{d}" for d in [2, 4, 8, 16]]
+    + [f"dgmm_{d}" for d in [2, 4, 8, 16, 32, 64]],
     help=(
         "Dataset to use, one of ['checkerboard', "
         "'eight_gaussians', 'two_moons', 'swiss_roll', "
@@ -96,6 +97,17 @@ flags.DEFINE_integer(
     name="tw_n_probes",
     default=1,
     help="Number of Hutchinson probes for trace weight estimation.",
+)
+flags.DEFINE_boolean(
+    name="exact_trace",
+    default=False,
+    help="Compute exact Jacobian trace (for low-d toy experiments).",
+)
+flags.DEFINE_enum(
+    name="tw_sigma",
+    default="none",
+    enum_values=["none", "t_squared", "learned"],
+    help="Sigma schedule for trace weight: none (1), t_squared (t^2), learned.",
 )
 
 # training hyperparameters
@@ -229,6 +241,35 @@ def gmm(key: typing.Any, n: int, d: int, k: int = 8) -> jax.Array:
     return centers[idx] + 0.3 * jrnd.normal(k3, (n, d))
 
 
+def dense_gmm(
+    key: typing.Any,
+    n: int,
+    d: int,
+    k: int = 64,
+) -> jax.Array:
+    r"""Dense Gaussian mixture with overlapping components.
+
+    Uses more components with smaller separation to create significant
+    path overlap, making variance amplification a dominant effect.
+
+    Args:
+        key: Random key generator.
+        n: Number of samples to generate.
+        d: Dimensionality of each sample.
+        k: Number of mixture components.
+
+    Returns:
+        An array of shape ``(n, d)``.
+    """
+    k1, k2, k3 = jrnd.split(key, 3)
+    centers = jrnd.normal(k1, (k, d))
+    centers = 1.5 * centers / jnp.linalg.norm(
+        centers, axis=-1, keepdims=True
+    )
+    idx = jrnd.choice(k2, k, shape=(n,))
+    return centers[idx] + 0.5 * jrnd.normal(k3, (n, d))
+
+
 _DATASET_FN = {
     "checkerboard": checkerboard,
     "eight_gaussians": eight_gaussians,
@@ -250,6 +291,9 @@ def sample_data(key: jax.Array, dataset: str, n: int) -> jax.Array:
     """
     if dataset in _DATASET_FN:
         return _DATASET_FN[dataset](key, n)
+    if dataset.startswith("dgmm_"):
+        d = int(dataset.split("_")[1])
+        return dense_gmm(key, n, d)
     if dataset.startswith("gmm_"):
         d = int(dataset.split("_")[1])
         return gmm(key, n, d)
@@ -258,6 +302,8 @@ def sample_data(key: jax.Array, dataset: str, n: int) -> jax.Array:
 
 def data_dim(dataset: str) -> int:
     """Return the data dimensionality for a dataset name."""
+    if dataset.startswith("dgmm_"):
+        return int(dataset.split("_")[1])
     if dataset.startswith("gmm_"):
         return int(dataset.split("_")[1])
     return 2
@@ -340,7 +386,37 @@ def sample_t_r(
 
 ################################################################################
 # Trace Weight (Proposition 3)
-def trace_weight(
+def _exact_tr_jjt(
+    u_fn: typing.Callable,
+    z: jax.Array,
+    r: jax.Array,
+    t: jax.Array,
+) -> jax.Array:
+    r"""Exact ``tr(J_z J_z^T)`` via JVPs with standard basis vectors.
+
+    Uses ``tr(JJ^T) = sum_i ||J e_i||^2`` where each column is obtained
+    via a single JVP call, avoiding the full Jacobian materialisation that
+    causes XLA compilation OOM.
+
+    Args:
+        u_fn: ``u_fn(z, r, t) -> (B, d)``.
+        z: Noisy samples ``(B, d)``.
+        r: Start timestamps ``(B,)``.
+        t: End timestamps ``(B,)``.
+
+    Returns:
+        ``tr(J_z J_z^T)`` of shape ``(B,)``.
+    """
+    d = z.shape[-1]
+    tr_jjt = jnp.zeros(z.shape[0])
+    for i in range(d):
+        e_i = jnp.zeros_like(z).at[:, i].set(1.0)
+        _, jv = jax.jvp(lambda z_: u_fn(z_, r, t), (z,), (e_i,))
+        tr_jjt = tr_jjt + jnp.sum(jv**2, axis=-1)
+    return tr_jjt
+
+
+def _hutch_tr_jjt(
     u_fn: typing.Callable,
     z: jax.Array,
     r: jax.Array,
@@ -348,9 +424,7 @@ def trace_weight(
     key: jax.Array,
     n_probes: int = 1,
 ) -> jax.Array:
-    r"""Per-sample weight ``1 / (1 + tr(JJ^T) / d)``.
-
-    Uses a Hutchinson estimator with Rademacher probes.
+    r"""Hutchinson estimate of ``tr(J_z J_z^T)``.
 
     Args:
         u_fn: ``u_fn(z, r, t) -> (B, d)``.
@@ -358,20 +432,53 @@ def trace_weight(
         r: Start timestamps ``(B,)``.
         t: End timestamps ``(B,)``.
         key: PRNG key.
-        n_probes: Number of Hutchinson probes.
+        n_probes: Number of Rademacher probes.
 
     Returns:
-        Weights of shape ``(B,)``.
+        ``tr(J_z J_z^T)`` estimate of shape ``(B,)``.
     """
-    d = z.shape[-1]
     tr_jjt = jnp.zeros(z.shape[0])
     for i in range(n_probes):
         probe_key = jrnd.fold_in(key, i)
         v = jrnd.rademacher(probe_key, z.shape, dtype=z.dtype)
         _, jv = jax.jvp(lambda z_: u_fn(z_, r, t), (z,), (v,))
         tr_jjt = tr_jjt + jnp.sum(jv**2, axis=-1)
-    tr_jjt = tr_jjt / n_probes
-    return 1.0 / (1.0 + tr_jjt / d)
+    return tr_jjt / n_probes
+
+
+def trace_weight(
+    u_fn: typing.Callable,
+    z: jax.Array,
+    r: jax.Array,
+    t: jax.Array,
+    key: jax.Array,
+    sigma_t: typing.Optional[jax.Array] = None,
+    n_probes: int = 1,
+    exact: bool = False,
+) -> jax.Array:
+    r"""Per-sample weight ``1 / (1 + σ_t * tr(J_z J_z^T) / d)``.
+
+    Args:
+        u_fn: ``u_fn(z, r, t) -> (B, d)``.
+        z: Noisy samples ``(B, d)``.
+        r: Start timestamps ``(B,)``.
+        t: End timestamps ``(B,)``.
+        key: PRNG key.
+        sigma_t: Per-sample scaling ``(B,)``. Defaults to ones.
+        n_probes: Number of Hutchinson probes (ignored if exact=True).
+        exact: If True, compute exact Jacobian (good for small d).
+
+    Returns:
+        Weights of shape ``(B,)``.
+    """
+    d = z.shape[-1]
+    if exact:
+        tr_jjt = _exact_tr_jjt(u_fn, z, r, t)
+    else:
+        tr_jjt = _hutch_tr_jjt(u_fn, z, r, t, key, n_probes)
+    if sigma_t is None:
+        sigma_t = jnp.ones_like(t)
+    return 1.0 / (1.0 + sigma_t * tr_jjt / d)
 
 
 ################################################################################
@@ -403,6 +510,20 @@ def sliced_wasserstein(
     x_proj = jnp.sort(x @ dirs.T, axis=0)
     y_proj = jnp.sort(y @ dirs.T, axis=0)
     return jnp.mean(jnp.abs(x_proj - y_proj))
+
+
+################################################################################
+# Learnable Sigma
+class SigmaModule(nn.Module):
+    r"""Learnable positive scalar ``σ(t)`` for trace weight scaling."""
+
+    @nn.compact
+    def __call__(self, t: jax.Array) -> jax.Array:
+        x = t[..., None]
+        x = nn.Dense(32, name="fc_0")(x)
+        x = nn.silu(x)
+        x = nn.Dense(1, name="fc_out")(x)
+        return nn.softplus(x[..., 0])
 
 
 ################################################################################
@@ -500,6 +621,8 @@ class MeanFlowMLPModel(_model.Model):
         logit_normal_mean: float = 0.0,
         logit_normal_stddev: float = 1.0,
         tw_n_probes: int = 1,
+        exact_trace: bool = False,
+        tw_sigma: str = "none",
         dtype: typing.Any = None,
         param_dtype: typing.Any = None,
         precision: typing.Any = None,
@@ -513,12 +636,17 @@ class MeanFlowMLPModel(_model.Model):
         self._logit_normal_mean = logit_normal_mean
         self._logit_normal_stddev = logit_normal_stddev
         self._tw_n_probes = tw_n_probes
+        self._exact_trace = exact_trace
+        self._tw_sigma = tw_sigma
         self._network = MeanFlowMLPModule(
             features=features,
             num_layers=num_layers,
             dtype=dtype,
             param_dtype=param_dtype,
             precision=precision,
+        )
+        self._sigma_net = (
+            SigmaModule() if tw_sigma == "learned" else None
         )
 
     @property
@@ -548,6 +676,12 @@ class MeanFlowMLPModel(_model.Model):
         assert isinstance(variables, dict)
         params = variables.pop("params")
 
+        if self._sigma_net is not None:
+            sigma_vars = self._sigma_net.init(rngs, t)
+            params = {"velocity": params, "sigma": sigma_vars["params"]}
+        else:
+            params = {"velocity": params}
+
         return params, variables
 
     @typing_extensions.override
@@ -563,8 +697,9 @@ class MeanFlowMLPModel(_model.Model):
         **kwargs,
     ) -> jax.Array:
         del deterministic, kwargs  # unused
+        vel_params = params.get("velocity", params)
         output = self.network.apply(
-            variables=dict(params=params),
+            variables=dict(params=vel_params),
             inputs=inputs,
             r=r,
             t=t,
@@ -589,6 +724,10 @@ class MeanFlowMLPModel(_model.Model):
         def loss_fn(params):
             k_tr, k_e, k_tw = jrnd.split(rngs, 3)
             bsz = x0.shape[0]
+            vel_params = params.get("velocity", params)
+            ema_vel = state.ema_params.get(
+                "velocity", state.ema_params
+            )
 
             t, r = sample_t_r(
                 k_tr,
@@ -610,7 +749,7 @@ class MeanFlowMLPModel(_model.Model):
             ):
                 v_tang = jax.lax.stop_gradient(
                     self._network.apply(
-                        {"params": state.ema_params},
+                        {"params": ema_vel},
                         z,
                         t,
                         t,
@@ -621,7 +760,7 @@ class MeanFlowMLPModel(_model.Model):
 
             def u_fn(z_in, r_in, t_in):
                 return self._network.apply(
-                    {"params": params},
+                    {"params": vel_params},
                     z_in,
                     t_in,
                     r_in,
@@ -645,16 +784,30 @@ class MeanFlowMLPModel(_model.Model):
 
             # per-sample trace weight
             if self._method == "vamf_tw":
+                # Compute sigma_t schedule
+                if self._tw_sigma == "t_squared":
+                    sigma_t = t**2
+                elif self._tw_sigma == "learned":
+                    sigma_t = self._sigma_net.apply(
+                        {"params": params["sigma"]},
+                        t,
+                    )
+                else:
+                    sigma_t = jnp.ones_like(t)
+
                 tw = trace_weight(
                     u_fn,
                     z,
                     r,
                     t,
                     k_tw,
+                    sigma_t=sigma_t,
                     n_probes=self._tw_n_probes,
+                    exact=self._exact_trace,
                 )
                 weighted = per_sample * jax.lax.stop_gradient(tw)
             else:
+                sigma_t = jnp.ones(bsz)
                 tw = jnp.ones(bsz)
                 weighted = per_sample
 
@@ -664,6 +817,7 @@ class MeanFlowMLPModel(_model.Model):
                 "loss": loss,
                 "raw_loss": raw_loss,
                 "tw_mean": jnp.mean(tw),
+                "sigma_mean": jnp.mean(sigma_t),
             }
             return loss, metrics
 
@@ -686,13 +840,14 @@ class MeanFlowMLPModel(_model.Model):
         **kwargs,
     ) -> _model.StepOutputs:
         r"""One-step generation: ``x0 = z1 - u(z1, t=1, r=0)``."""
+        vel_params = params.get("velocity", params)
         n = batch.shape[0]
         d = batch.shape[-1]
         z1 = jrnd.normal(rngs, (n, d))
         t = jnp.ones(n)
         r = jnp.zeros(n)
         u = self._network.apply(
-            {"params": params},
+            {"params": vel_params},
             z1,
             t,
             r,
@@ -722,6 +877,8 @@ def main(argv: typing.List[str]) -> int:
         logit_normal_mean=FLAGS.logit_normal_mean,
         logit_normal_stddev=FLAGS.logit_normal_stddev,
         tw_n_probes=FLAGS.tw_n_probes,
+        exact_trace=FLAGS.exact_trace,
+        tw_sigma=FLAGS.tw_sigma,
     )
     params, _ = model.init(
         batch=jnp.zeros((1, d)),
@@ -845,6 +1002,8 @@ def main(argv: typing.List[str]) -> int:
                     "logit_normal_mean": FLAGS.logit_normal_mean,
                     "logit_normal_stddev": FLAGS.logit_normal_stddev,
                     "tw_n_probes": FLAGS.tw_n_probes,
+                    "exact_trace": FLAGS.exact_trace,
+                    "tw_sigma": FLAGS.tw_sigma,
                     "seed": FLAGS.seed,
                 },
                 "history": history,
