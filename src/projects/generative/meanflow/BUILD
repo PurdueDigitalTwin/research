@@ -11,6 +11,7 @@ ml_py_binary(
         "flax",
         "jax",
         "jaxtyping",
+        "numpy",
         "optax",
         "typing_extensions",
         "//src/core:model",
@@ -26,5 +27,15 @@ ml_py_binary(
         "absl-py",
         "jax",
         "matplotlib",
+    ],
+)
+
+ml_py_binary(
+    name = "plot_toy",
+    srcs = ["figures/plot_toy.py"],
+    deps = [
+        "absl-py",
+        "matplotlib",
+        "numpy",
     ],
 )
