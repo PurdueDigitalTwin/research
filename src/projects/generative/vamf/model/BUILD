@@ -1,6 +1,6 @@
 load("//third_party:defs.bzl", "ml_py_library", "ml_py_test")
 
-package(default_visibility = ["//src/projects/generative/meanflow:__subpackages__"])
+package(default_visibility = ["//src/projects/generative/vamf:__subpackages__"])
 
 ml_py_library(
     name = "trace",

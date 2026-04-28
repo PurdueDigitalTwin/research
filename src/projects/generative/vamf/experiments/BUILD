@@ -1,6 +1,6 @@
 load("//third_party:defs.bzl", "ml_py_binary")
 
-package(default_visibility = ["//src/projects/generative/meanflow:__subpackages__"])
+package(default_visibility = ["//src/projects/generative/vamf:__subpackages__"])
 
 ml_py_binary(
     name = "run_toy",
@@ -16,7 +16,7 @@ ml_py_binary(
         "typing_extensions",
         "//src/core:model",
         "//src/core:train_state",
-        "//src/projects/generative/meanflow/model:trace",
+        "//src/projects/generative/vamf/model:trace",
         "//src/utilities:logging",
     ],
 )

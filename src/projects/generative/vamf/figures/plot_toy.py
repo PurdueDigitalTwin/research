@@ -154,16 +154,25 @@ def plot_samples_grid(
         if ref is None:
             for col in range(n_cols):
                 axes[row, col].text(
-                    0.5, 0.5, "N/A",
+                    0.5,
+                    0.5,
+                    "N/A",
                     transform=axes[row, col].transAxes,
-                    ha="center", va="center", fontsize=14, color="gray",
+                    ha="center",
+                    va="center",
+                    fontsize=14,
+                    color="gray",
                 )
                 axes[row, col].tick_params(
-                    left=False, bottom=False,
-                    labelleft=False, labelbottom=False,
+                    left=False,
+                    bottom=False,
+                    labelleft=False,
+                    labelbottom=False,
                 )
             axes[row, 0].set_ylabel(
-                DATASET_LABELS[dataset], fontsize=11, fontweight="bold",
+                DATASET_LABELS[dataset],
+                fontsize=11,
+                fontweight="bold",
             )
             continue
 
@@ -173,19 +182,28 @@ def plot_samples_grid(
         # Reference column
         ax = axes[row, 0]
         ax.scatter(
-            ref[:, 0], ref[:, 1],
-            s=3, alpha=0.5, c="#333333", edgecolors="none",
+            ref[:, 0],
+            ref[:, 1],
+            s=3,
+            alpha=0.5,
+            c="#333333",
+            edgecolors="none",
         )
         ax.set_xlim(xlim)
         ax.set_ylim(ylim)
         ax.set_aspect("equal")
         ax.tick_params(
-            left=False, bottom=False, labelleft=False, labelbottom=False,
+            left=False,
+            bottom=False,
+            labelleft=False,
+            labelbottom=False,
         )
         if row == 0:
             ax.set_title("Reference", fontweight="bold")
         ax.set_ylabel(
-            DATASET_LABELS[dataset], fontsize=11, fontweight="bold",
+            DATASET_LABELS[dataset],
+            fontsize=11,
+            fontweight="bold",
         )
 
         # Method columns
@@ -194,27 +212,39 @@ def plot_samples_grid(
             # VaMF-TW uses 200k_t2/ (σ_t=t²); others use 200k/
             subdir = "200k_t2" if method == "vamf_tw" else "200k"
             npz_path = os.path.join(
-                base_dir, subdir, f"{dataset}_{method}_{seed}.npz",
+                base_dir,
+                subdir,
+                f"{dataset}_{method}_{seed}.npz",
             )
             if not os.path.exists(npz_path):
                 ax.text(
-                    0.5, 0.5, "N/A",
+                    0.5,
+                    0.5,
+                    "N/A",
                     transform=ax.transAxes,
-                    ha="center", va="center", fontsize=14, color="gray",
+                    ha="center",
+                    va="center",
+                    fontsize=14,
+                    color="gray",
                 )
             else:
                 gen = np.load(npz_path)["generated"]
                 ax.scatter(
-                    gen[:, 0], gen[:, 1],
-                    s=3, alpha=0.5,
-                    c=METHOD_COLORS[method], edgecolors="none",
+                    gen[:, 0],
+                    gen[:, 1],
+                    s=3,
+                    alpha=0.5,
+                    c=METHOD_COLORS[method],
+                    edgecolors="none",
                 )
                 ax.set_xlim(xlim)
                 ax.set_ylim(ylim)
             ax.set_aspect("equal")
             ax.tick_params(
-                left=False, bottom=False,
-                labelleft=False, labelbottom=False,
+                left=False,
+                bottom=False,
+                labelleft=False,
+                labelbottom=False,
             )
             if row == 0:
                 ax.set_title(METHOD_LABELS[method], fontweight="bold")
@@ -244,9 +274,13 @@ def plot_training_curves(
         ax: mpl_axes.Axes = axes[idx]
         for method in METHODS:
             subdir = "200k_t2" if method == "vamf_tw" else "200k"
-            hist = _load_history(os.path.join(
-                base_dir, subdir, f"{dataset}_{method}_{seed}.json",
-            ))
+            hist = _load_history(
+                os.path.join(
+                    base_dir,
+                    subdir,
+                    f"{dataset}_{method}_{seed}.json",
+                )
+            )
             if hist is None:
                 continue
             steps = np.array([h["step"] for h in hist]) / 1000
@@ -255,14 +289,19 @@ def plot_training_curves(
             smoothed = _smooth(values, window=7)
 
             ax.plot(
-                steps, values,
-                color=METHOD_COLORS[method], linewidth=0.4, alpha=0.25,
+                steps,
+                values,
+                color=METHOD_COLORS[method],
+                linewidth=0.4,
+                alpha=0.25,
             )
             ax.plot(
-                steps, smoothed,
+                steps,
+                smoothed,
                 color=METHOD_COLORS[method],
                 label=METHOD_LABELS[method],
-                linewidth=1.5, alpha=0.9,
+                linewidth=1.5,
+                alpha=0.9,
             )
 
         ax.set_xlabel("Step (k)")
@@ -296,9 +335,13 @@ def plot_swiss_roll_stability(
         ("200k_t2", "vamf_tw", r"VaMF TW ($\sigma_t{=}t^2$)", "#2ca02c", "-"),
     ]
     for subdir, method, label, color, ls in curves:
-        hist = _load_history(os.path.join(
-            base_dir, subdir, f"swiss_roll_{method}_{seed}.json",
-        ))
+        hist = _load_history(
+            os.path.join(
+                base_dir,
+                subdir,
+                f"swiss_roll_{method}_{seed}.json",
+            )
+        )
         if hist is None:
             continue
         steps = np.array([h["step"] for h in hist]) / 1000
@@ -306,13 +349,20 @@ def plot_swiss_roll_stability(
         smoothed = _smooth(swds, window=7)
 
         ax.plot(
-            steps, swds,
-            color=color, linewidth=0.4, alpha=0.2,
+            steps,
+            swds,
+            color=color,
+            linewidth=0.4,
+            alpha=0.2,
         )
         ax.plot(
-            steps, smoothed,
-            color=color, label=label,
-            linewidth=1.8, alpha=0.9, linestyle=ls,
+            steps,
+            smoothed,
+            color=color,
+            label=label,
+            linewidth=1.8,
+            alpha=0.9,
+            linestyle=ls,
         )
 
     ax.set_xlabel("Step (k)")
@@ -349,9 +399,12 @@ def plot_dgmm_scaling(
         best_swds, conv_steps = [], []
         dims_data, dims_conv = [], []
         for d in DGMM_DIMS:
-            hist = _load_history(os.path.join(
-                baseline_dir, f"dgmm_{d}_{method}_{seed}.json",
-            ))
+            hist = _load_history(
+                os.path.join(
+                    baseline_dir,
+                    f"dgmm_{d}_{method}_{seed}.json",
+                )
+            )
             if hist is None:
                 continue
             swds = np.array([h["swd"] for h in hist])
@@ -365,15 +418,25 @@ def plot_dgmm_scaling(
 
         if dims_data:
             ax1.plot(
-                dims_data, best_swds, f"{marker}-",
-                color=color, label=label,
-                linewidth=1.5, markersize=5, alpha=0.7,
+                dims_data,
+                best_swds,
+                f"{marker}-",
+                color=color,
+                label=label,
+                linewidth=1.5,
+                markersize=5,
+                alpha=0.7,
             )
         if dims_conv:
             ax2.plot(
-                dims_conv, conv_steps, f"{marker}-",
-                color=color, label=label,
-                linewidth=1.5, markersize=5, alpha=0.7,
+                dims_conv,
+                conv_steps,
+                f"{marker}-",
+                color=color,
+                label=label,
+                linewidth=1.5,
+                markersize=5,
+                alpha=0.7,
             )
 
     # --- TW σ_t variants from dgmm_sigma_{none,t2,learned}/ ---
@@ -391,9 +454,12 @@ def plot_dgmm_scaling(
         best_swds, conv_steps = [], []
         dims_data, dims_conv = [], []
         for d in DGMM_DIMS:
-            hist = _load_history(os.path.join(
-                ddir, f"dgmm_{d}_vamf_tw_{seed}.json",
-            ))
+            hist = _load_history(
+                os.path.join(
+                    ddir,
+                    f"dgmm_{d}_vamf_tw_{seed}.json",
+                )
+            )
             if hist is None:
                 continue
             swds = np.array([h["swd"] for h in hist])
@@ -407,15 +473,23 @@ def plot_dgmm_scaling(
 
         if dims_data:
             ax1.plot(
-                dims_data, best_swds, f"{sigma_markers[key]}-",
-                color=SIGMA_COLORS[key], label=SIGMA_LABELS[key],
-                linewidth=1.5, markersize=6,
+                dims_data,
+                best_swds,
+                f"{sigma_markers[key]}-",
+                color=SIGMA_COLORS[key],
+                label=SIGMA_LABELS[key],
+                linewidth=1.5,
+                markersize=6,
             )
         if dims_conv:
             ax2.plot(
-                dims_conv, conv_steps, f"{sigma_markers[key]}-",
-                color=SIGMA_COLORS[key], label=SIGMA_LABELS[key],
-                linewidth=1.5, markersize=6,
+                dims_conv,
+                conv_steps,
+                f"{sigma_markers[key]}-",
+                color=SIGMA_COLORS[key],
+                label=SIGMA_LABELS[key],
+                linewidth=1.5,
+                markersize=6,
             )
 
     ax1.set_xlabel("Dimension $d$")

@@ -20,7 +20,7 @@ import typing_extensions
 
 from src.core import model as _model
 from src.core import train_state as _train_state
-from src.projects.generative.meanflow.model import trace
+from src.projects.generative.vamf.model import trace
 from src.utilities import logging as _logging
 
 # ==============================================================================
