@@ -20,6 +20,7 @@ import typing_extensions
 
 from src.core import model as _model
 from src.core import train_state as _train_state
+from src.projects.generative.meanflow.model import trace
 from src.utilities import logging as _logging
 
 # ==============================================================================
@@ -263,9 +264,7 @@ def dense_gmm(
     """
     k1, k2, k3 = jrnd.split(key, 3)
     centers = jrnd.normal(k1, (k, d))
-    centers = 1.5 * centers / jnp.linalg.norm(
-        centers, axis=-1, keepdims=True
-    )
+    centers = 1.5 * centers / jnp.linalg.norm(centers, axis=-1, keepdims=True)
     idx = jrnd.choice(k2, k, shape=(n,))
     return centers[idx] + 0.5 * jrnd.normal(k3, (n, d))
 
@@ -386,66 +385,6 @@ def sample_t_r(
 
 ################################################################################
 # Trace Weight (Proposition 3)
-def _exact_tr_jjt(
-    u_fn: typing.Callable,
-    z: jax.Array,
-    r: jax.Array,
-    t: jax.Array,
-) -> jax.Array:
-    r"""Exact ``tr(J_z J_z^T)`` via JVPs with standard basis vectors.
-
-    Uses ``tr(JJ^T) = sum_i ||J e_i||^2`` where each column is obtained
-    via a single JVP call, avoiding the full Jacobian materialisation that
-    causes XLA compilation OOM.
-
-    Args:
-        u_fn: ``u_fn(z, r, t) -> (B, d)``.
-        z: Noisy samples ``(B, d)``.
-        r: Start timestamps ``(B,)``.
-        t: End timestamps ``(B,)``.
-
-    Returns:
-        ``tr(J_z J_z^T)`` of shape ``(B,)``.
-    """
-    d = z.shape[-1]
-    tr_jjt = jnp.zeros(z.shape[0])
-    for i in range(d):
-        e_i = jnp.zeros_like(z).at[:, i].set(1.0)
-        _, jv = jax.jvp(lambda z_: u_fn(z_, r, t), (z,), (e_i,))
-        tr_jjt = tr_jjt + jnp.sum(jv**2, axis=-1)
-    return tr_jjt
-
-
-def _hutch_tr_jjt(
-    u_fn: typing.Callable,
-    z: jax.Array,
-    r: jax.Array,
-    t: jax.Array,
-    key: jax.Array,
-    n_probes: int = 1,
-) -> jax.Array:
-    r"""Hutchinson estimate of ``tr(J_z J_z^T)``.
-
-    Args:
-        u_fn: ``u_fn(z, r, t) -> (B, d)``.
-        z: Noisy samples ``(B, d)``.
-        r: Start timestamps ``(B,)``.
-        t: End timestamps ``(B,)``.
-        key: PRNG key.
-        n_probes: Number of Rademacher probes.
-
-    Returns:
-        ``tr(J_z J_z^T)`` estimate of shape ``(B,)``.
-    """
-    tr_jjt = jnp.zeros(z.shape[0])
-    for i in range(n_probes):
-        probe_key = jrnd.fold_in(key, i)
-        v = jrnd.rademacher(probe_key, z.shape, dtype=z.dtype)
-        _, jv = jax.jvp(lambda z_: u_fn(z_, r, t), (z,), (v,))
-        tr_jjt = tr_jjt + jnp.sum(jv**2, axis=-1)
-    return tr_jjt / n_probes
-
-
 def trace_weight(
     u_fn: typing.Callable,
     z: jax.Array,
@@ -456,7 +395,7 @@ def trace_weight(
     n_probes: int = 1,
     exact: bool = False,
 ) -> jax.Array:
-    r"""Per-sample weight ``1 / (1 + σ_t * tr(J_z J_z^T) / d)``.
+    r"""Returns per-sample weight :math:`1 / (1 + sigam_t * tr(B B^T) / d)`.
 
     Args:
         u_fn: ``u_fn(z, r, t) -> (B, d)``.
@@ -473,12 +412,12 @@ def trace_weight(
     """
     d = z.shape[-1]
     if exact:
-        tr_jjt = _exact_tr_jjt(u_fn, z, r, t)
+        tr_bbt = trace.exact_trace(u_fn, z, r, t)
     else:
-        tr_jjt = _hutch_tr_jjt(u_fn, z, r, t, key, n_probes)
+        tr_bbt = trace.hutchinson_trace(key, u_fn, z, r, t, n_probes)
     if sigma_t is None:
         sigma_t = jnp.ones_like(t)
-    return 1.0 / (1.0 + sigma_t * tr_jjt / d)
+    return 1.0 / (1.0 + sigma_t * tr_bbt / d)
 
 
 ################################################################################
@@ -645,9 +584,7 @@ class MeanFlowMLPModel(_model.Model):
             param_dtype=param_dtype,
             precision=precision,
         )
-        self._sigma_net = (
-            SigmaModule() if tw_sigma == "learned" else None
-        )
+        self._sigma_net = SigmaModule() if tw_sigma == "learned" else None
 
     @property
     def network(self) -> MeanFlowMLPModule:
@@ -725,9 +662,7 @@ class MeanFlowMLPModel(_model.Model):
             k_tr, k_e, k_tw = jrnd.split(rngs, 3)
             bsz = x0.shape[0]
             vel_params = params.get("velocity", params)
-            ema_vel = state.ema_params.get(
-                "velocity", state.ema_params
-            )
+            ema_vel = state.ema_params.get("velocity", state.ema_params)
 
             t, r = sample_t_r(
                 k_tr,
@@ -787,13 +722,16 @@ class MeanFlowMLPModel(_model.Model):
                 # Compute sigma_t schedule
                 if self._tw_sigma == "t_squared":
                     sigma_t = t**2
-                elif self._tw_sigma == "learned":
+                elif self._tw_sigma == "learned" and isinstance(
+                    self._sigma_net, SigmaModule
+                ):
                     sigma_t = self._sigma_net.apply(
                         {"params": params["sigma"]},
                         t,
                     )
                 else:
                     sigma_t = jnp.ones_like(t)
+                assert isinstance(sigma_t, jax.Array)
 
                 tw = trace_weight(
                     u_fn,
