@@ -212,7 +212,6 @@ We propose a concrete and simple training framework to, Variance-Aware MeanFlow 
 
 \subsubsection{Target Network}
 \label{subsubsec: v-anchor}
-\namedlabel{dp: var}{D1}%
 
 In~\eqref{eq: expanded-mf-loss}, the $\mJ\vv^{\prime}$ amplification arises because $\vv^{\prime}$ enters the JVP tangent, where it multiplies the spatial Jacobian $(t-r)\partial_{\vz}\vu_{\vtheta}$. We notice that, if the tangent were replaced by any \textit{deterministic estimate $\hat{\vv}$}, the fluctuation $\vv^{\prime}$ would only appear in the regression target, entering the residual linearly rather than through $\mJ$. In this case, the per-sample loss reduces to $\left\|\tilde{\vr}_{\vtheta}\right\|_{2}^{2}+\Tr(\Sigma_{\vv^{\prime}})$, where $\tilde{\vr}_{\vtheta}$ is a deterministic residual. As a result, the variance drops to the irreducible level $\Tr(\Sigma_{\vv^{\prime}})$ without any Jacobian amplification. We higlight this as a theoretical foundation missing from the proposed method in a recent study~\cite{geng2025improvedmeanflowschallenges}. The remaining question is whether we can achieve this without learning a separate velocity model.
 
@@ -232,7 +231,6 @@ where $\vu_{\bar{\vtheta},t}=\vu(\vx_{t},t,t)$ and $\bar{\vtheta}$ is updated by
 
 \subsubsection{Flow-matching Anchor}
 \label{subsubsec: va-obj}
-\namedlabel{dp: bias}{D2}%
 
 The EMA tangent helps resolve the Jacobian variance amplification but introduces a transient bias when $\vu_{\bar{\vtheta}}(\vx_{t},t,t)\neq\vv(\vx_{t},t)$. To correct this, we add a \textit{flow matching anchor} that provides direct velocity supervision at the boundary $r\to t$:
 \begin{equation}
@@ -262,45 +260,49 @@ where $\lambda>0$ balances the two terms. This establishes the following proposi
     \label[proposition]{prop: bias-var}
 \end{proposition}
 
-\Cref{prop: vamf-grad} confirms that the VaMF gradient has a first-order structure with no Jacobian-mediated variance amplification (cf.~\cref{thm: jacobi-variance}). \Cref{prop: bias-var} shows the transient bias is bounded by $(t-r)\|\partial_{\vz}\vu_{\vtheta}\|\|\vu_{\bar{\vtheta}}(\vx_{t},t,t)-\vv(\vx_{t},t)\|$ and shrinks as the EMA velocity improves.
+Our~\cref{prop: vamf-grad} shows that the VaMF gradient has a first-order structure with no Jacobian-mediated variance amplification (cf.~\cref{thm: jacobi-variance}). \Cref{prop: bias-var} shows the transient bias is bounded by $(t-r)\|\partial_{\vz}\vu_{\vtheta}\|\|\vu_{\bar{\vtheta}}(\vx_{t},t,t)-\vv(\vx_{t},t)\|$ and shrinks as the EMA velocity improves.
 
 \subsubsection{Adaptive Weights}
 \label{subsubsec: trace-weight}
-\namedlabel{dp: weight}{D3}%
 
 % The per-sample magnitude of the EMA loss in~\eqref{eq: ema-mf-loss} is still heterogeneous across $(\vx_{t},r,t)$: the inner expectation contains the curvature-amplified noise $\Tr(\mJ\Sigma_{\vv'}\mJ^{\!\top})$ from~\cref{thm: jacobi-variance}.
 Although the EMA tangent removes the Jacobian-amplified variance from the \emph{gradient}, samples with large $\|\mJ\|$ still produce loss values that dwarf samples in flat, low-curvature regions, biasing the empirical-risk estimator toward the noisy regime. We addresses this by \emph{adaptively weighting} each sample to equalize its contribution to the expected loss.
 
-\paragraph{BLUE matrix weight.} Treating the conditional fluctuation $\vv'$ as Gaussian noise, the Best Linear Unbiased Estimator (BLUE) of the mean-field residual $\tilde{\vr}^{\text{EMA}}$ uses the inverse-covariance matrix weight $(\mJ\Sigma_{\vv'}\mJ^{\!\top})^{-1}$. Two practical obstacles rule out the matrix form: \textbf{(i)} the per-sample $d\!\times\!d$ matrix inversion costs $\gO(d^{3})$ and is intractable for high-dimensional images or latents; \textbf{(ii)} the matrix is ill-conditioned whenever $(t{-}r)\partial_{\vz}\vu_{\vtheta}\!\approx\!\mI_{d}$, where $\mJ\!\approx\!\bm{0}$ pushes the inverse to $+\infty$.
+We derive the adaptive weight using the Gauss-Markov Theorem. In OT-CFM, we argue it is fair to treat the conditional fluctuation $\vv'$ as Gaussian noise, and derive the Best Linear Unbiased Estimator (BLUE) of the mean-field residual $\tilde{\vr}^{\text{EMA}}$ with the inverse-covariance matrix weight $(\mJ\Sigma_{\vv'}\mJ^{\!\top})^{-1}$. However, it further introduce two practical pathologies. First, the per-sample $d\!\times\!d$ matrix inversion has a cubic-cost $\gO(d^{3})$ and is intractable for high-dimensional data or latents. Meanwhile, the matrix is ill-conditioned whenever $(t{-}r)\partial_{\vz}\vu_{\vtheta}\to\mI_{d}$ and $\mJ\!\approx\!\bm{0}$, which pushes the inverse to $+\infty$.
 
-\paragraph{Scalar surrogate.} Under the isotropic-noise approximation $\Sigma_{\vv'}\!\approx\!\sigma_{t}^{2}\mI_{d}$, both pathologies are absorbed by replacing the matrix weight with a single-scalar trace-based surrogate. Because $\Tr(\mJ\Sigma_{\vv'}\mJ^{\!\top})\!=\!\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top})$, we define the per-sample \textit{trace weight}
+To address these pathologies, we propose to use isotropic-noise approximation $\Sigma_{\vv'}\!\approx\!\sigma_{t}^{2}\mI_{d}$. Because $\Tr(\mJ\Sigma_{\vv'}\mJ^{\!\top})\!=\!\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top})$, we define the per-sample \textit{trace weight}
+
 \begin{equation}
-    w(\vx_{t},r,t)\;:=\;\frac{1}{1+\sigma_{t}^{2}\,\texttt{sg}\!\left[\Tr(\mJ\mJ^{\!\top})\right]\big/d}\,,
+    w(\vx_{t},r,t)\;:=\;\frac{d}{1+\sigma_{t}^{2}\,\texttt{sg}\!\left[\Tr(\mJ\mJ^{\!\top})\right]}\,,
     \label{eq: trace-weight}
 \end{equation}
-where the constant $d$ in the denominator of the curvature term is the per-sample dimensionality and the additive $1$ provides the numerical stability that the BLUE inverse lacks: $w\!\to\!1$ as $\mJ\!\to\!\bm{0}$ (low curvature, no reweighting) and $w\!\to\!d/(\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top}))$ as the curvature term dominates (recovering the proportionality of the BLUE-scalar limit). The stop-gradient on $\Tr(\mJ\mJ^{\!\top})$ ensures the weight does not contribute to the parameter update, so $w$ acts purely as a per-sample reweighting.
-
-\paragraph{Hutchinson estimator.} Direct evaluation of $\Tr(\mJ\mJ^{\!\top})$ requires $d$ Jacobian-vector products and is intractable for image-scale data. We instead use a single Rademacher (or Gaussian) probe $\vz\!\sim\!\gN(\bm{0},\mI_{d})$ and the unbiased estimator~\cite{hutchinson1989stochastic}
+where $d$ is the data dimensionality.
+% The additive $1$ provides the numerical stability that the BLUE inverse lacks: $w\!\to\!1$ as $\mJ\!\to\!\bm{0}$ (low curvature, no reweighting) and $w\!\to\!d/(\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top}))$ as the curvature term dominates (recovering the proportionality of the BLUE-scalar limit). The stop-gradient on $\Tr(\mJ\mJ^{\!\top})$ ensures the weight does not contribute to the parameter update, so $w$ acts purely as a per-sample reweighting.
+Still, the direct evaluation of $\Tr(\mJ\mJ^{\!\top})$ requires $d$ Jacobian-vector products and is intractable for high-dimensional data. We instead use a single Rademacher probe $\vz\!\sim\!\gN(\bm{0},\mI_{d})$ and the unbiased Hutchinson's estimator~\cite{hutchinson1989stochastic}
 \begin{equation}
     \widehat{\Tr(\mJ\mJ^{\!\top})}\;=\;\bigl\|\mJ\vz\bigr\|_{2}^{2}\;=\;\bigl\|(t{-}r)\,\partial_{\vz}\vu_{\vtheta}\,\vz-\vz\bigr\|_{2}^{2},
     \label{eq: hutchinson}
 \end{equation}
-which costs a single JVP per step. Multiple probes can be averaged when extra accuracy is needed; $K\!=\!1$ is sufficient for the experiments in this paper.
+which costs a single JVP per step. Multiple probes can be averaged when extra accuracy is needed. We find $K=1$ is sufficient for our experiment with DiT on ImageNet dataset.
 
-\paragraph{Schedule $\sigma_{t}$.} The scalar $\sigma_{t}$ in~\eqref{eq: trace-weight} is the per-time standard-deviation scale of the isotropic-noise approximation $\Sigma_{\vv'}\!\approx\!\sigma_{t}^{2}\mI_{d}$; the actual conditional-velocity variance depends on $\pdata$ and is generally not closed-form. Under the tractable approximation $\vx_{0}\!\sim\!\gN(\bm{0},\sigma_{d}^{2}\mI_{d})$, conjugate-Gaussian inference (\Cref{appx: sigma-schedule}) yields
+In addition, the scalar $\sigma_{t}$ in~\eqref{eq: trace-weight} is the \textit{time-dependent} standard-deviation scale of the isotropic-noise approximation $\Sigma_{\vv'}\!\approx\!\sigma_{t}^{2}\mI_{d}$; the actual conditional-velocity variance depends on $\pdata$ and is generally not closed-form. Under the tractable Laplacian approximation $\vx_{0}\!\sim\!\gN(\bm{0},\sigma_{d}^{2}\mI_{d})$, we use conjugate-Gaussian inference to derive
 \begin{equation}
     \Sigma_{\vv'}(\vx_{t},t)
     \;=\;\frac{\sigma_{d}^{2}}{\sigma_{d}^{2}(1-t)^{2}+t^{2}}\,\mI_{d},
     \label{eq: gauss-sigma}
 \end{equation}
-which is U-shaped in $t$ and peaks near $t\!=\!0.5$ where conditional paths most strongly intersect---the same regime where the Jacobian-deviation norm peaks in~\cref{thm: jacobi-variance}. Since $\pdata$ is generally non-Gaussian, we treat $\sigma_{t}$ as a hyperparameter and benchmark five candidates: the constant baseline $\sigma_{t}\!=\!1$; the monotone schedules $\sigma_{t}\!=\!t$ and $\sigma_{t}\!=\!t^{2}$; the U-shape $\sigma_{t}\!=\!\sqrt{t(1-t)}$ matching the qualitative peak of~\eqref{eq: gauss-sigma}; and the closed-form Gaussian-data schedule $\sigma_{t}^{2}\!=\!1/(\sigma_{d}^{2}(1-t)^{2}+t^{2})$. \Cref{appx: sigma-schedule} sweeps all five across the toy benchmark; the empirical winner is reported in~\Cref{sec: experiment}.
+which is U-shaped in $t$ and peaks near $t\!=\!0.5$ where conditional paths most strongly intersect---the same regime where the Jacobian-deviation norm peaks in~\cref{thm: jacobi-variance}. Nevertheless, $\pdata$ in practice is generally non-Gaussian, we thereby treat $\sigma_{t}$ as a hyperparameter and sweep five candidates in our experiments. See derivation and additional results in~\cref{appx: sigma-schedule}.
 
-\paragraph{VaMF objective.} Combining the EMA tangent~\eqref{eq: ema-mf-loss}, FM anchor~\eqref{eq: fm-anchor}, and trace weight~\eqref{eq: trace-weight} yields the full \textbf{Variance-Aware MeanFlow} loss
-\begin{equation}
-    \gL_{\text{VaMF}}(\vtheta)\;=\;\E_{r,t,\vx_{0},\vx_{1}}\!\left[w(\vx_{t},r,t)\,\bigl\|\tilde{\vr}^{\text{EMA}}_{\vtheta}\bigr\|_{2}^{2}\right]\;+\;\lambda\,\gL_{\text{FM}}(\vtheta),
-    \label{eq: vamf-tw-loss}
-\end{equation}
-which preserves the original MeanFlow MSE form---no additional network heads, no NLL.
+% The constant baseline $\sigma_{t}\!=\!1$; the monotone schedules $\sigma_{t}\!=\!t$ and $\sigma_{t}\!=\!t^{2}$; the U-shape $\sigma_{t}\!=\!\sqrt{t(1-t)}$ matching the qualitative peak of~\eqref{eq: gauss-sigma}; and the closed-form Gaussian-data schedule $\sigma_{t}^{2}\!=\!1/(\sigma_{d}^{2}(1-t)^{2}+t^{2})$. \Cref{appx: sigma-schedule} sweeps all five across the toy benchmark; the empirical winner is reported in~\Cref{sec: experiment}.
+
+% \paragraph{VaMF objective.} Combining the EMA tangent~\eqref{eq: ema-mf-loss}, FM anchor~\eqref{eq: fm-anchor}, and trace weight~\eqref{eq: trace-weight} yields the full \textbf{Variance-Aware MeanFlow} loss
+% \begin{equation}
+%     \gL_{\text{VaMF}}(\vtheta)\;=\;\E_{r,t,\vx_{0},\vx_{1}}\!\left[w(\vx_{t},r,t)\,\bigl\|\tilde{\vr}^{\text{EMA}}_{\vtheta}\bigr\|_{2}^{2}\right]\;+\;\lambda\,\gL_{\text{FM}}(\vtheta),
+%     \label{eq: vamf-tw-loss}
+% \end{equation}
+% which preserves the original MeanFlow MSE form---no additional network heads, no NLL.
+
+\input{assets/algorithms/vamf}
 
 \begin{proposition}[Trace-Weight Properties]
     Under the trace-weight loss~\eqref{eq: vamf-tw-loss} and the isotropic approximation $\Sigma_{\vv'}\!\approx\!\sigma_{t}^{2}\mI_{d}$:
@@ -310,27 +312,5 @@ which preserves the original MeanFlow MSE form---no additional network heads, no
     \label[proposition]{prop: trace-weight}
 \end{proposition}
 
-The full training procedure is given in~\Cref{alg: va-mf}; the connection between the trace weight and the acceleration-to-noise ratio $\text{ANR}\!=\!(t{-}r)\|\frac{\mathrm{D}\vv}{\mathrm{D}t}\|/\sqrt{\Tr(\Sigma_{\vv'})}$ is formalized in~\Cref{appx: additional-results}. At generation time only $\vu_{\vtheta}(\vx_{1},0,1)$ is needed; the trace-weight machinery exists purely to stabilize training.
-
-\begin{algorithm}[t]
-    \caption{Variance-Aware MeanFlow Training}
-    \label{alg: va-mf}
-    \begin{algorithmic}
-        \Require Dataset $\gD$, EMA decay $\mu$, anchor weight $\lambda$, anchor interval $[\delta_{\min},\delta_{\max}]$, schedule $\sigma_{t}$, probes $K$
-        \State Initialize $\bar{\vtheta}\gets\vtheta$
-        \For{$k=1,2,\ldots$}
-            \State Sample $(\vx_{0},\vx_{1})\sim\gD\times\gN(\bm{0},\mI_{d})$,\; $t\sim\gU[0,1]$,\; $r\sim\gU[0,t]$,\; $\delta\sim\gU[\delta_{\min},\delta_{\max}]$
-            \State $\vx_{t}\gets(1-t)\vx_{0}+t\,\vx_{1}$,\quad $\vv_{\text{cond}}\gets\vx_{1}-\vx_{0}$
-            \State $\vv_{\text{tang}}\gets\texttt{sg}[\vu_{\bar{\vtheta}}(\vx_{t},t,t)]$ \Comment{EMA tangent (D1)}
-            \State $V_{\vtheta}\gets\vu_{\vtheta}(\vx_{t},r,t)+(t{-}r)\,\texttt{sg}[\texttt{JVP}(\vu_{\vtheta},(\vx_{t},r,t),(\vv_{\text{tang}},0,1))]$
-            \State Sample $K$ probes $\{\vz_{i}\}_{i=1}^{K}\!\sim\!\gN(\bm{0},\mI_{d})$
-            \State $\widehat{\Tr(\mJ\mJ^{\!\top})}\gets\frac{1}{K}\sum_{i=1}^{K}\bigl\|(t{-}r)\,\partial_{\vz}\vu_{\vtheta}(\vx_{t},r,t)\,\vz_{i}-\vz_{i}\bigr\|_{2}^{2}$
-            \State $w\gets 1\,/\,\bigl(1+\sigma_{t}^{2}\,\texttt{sg}[\widehat{\Tr(\mJ\mJ^{\!\top})}]/d\bigr)$ \Comment{trace weight (D3)}
-            \State $\ell_{\text{MF}}\gets w\cdot\|V_{\vtheta}-\vv_{\text{cond}}\|_{2}^{2}$
-            \State $\ell_{\text{FM}}\gets\|\vu_{\vtheta}(\vx_{t},t{-}\delta,t)-\vv_{\text{cond}}\|_{2}^{2}$ \Comment{FM anchor (D2)}
-            \State $\vtheta\gets\vtheta-\eta\,\nabla_{\vtheta}(\ell_{\text{MF}}+\lambda\,\ell_{\text{FM}})$
-            \State $\bar{\vtheta}\gets\mu\bar{\vtheta}+(1-\mu)\vtheta$ \Comment{EMA update}
-        \EndFor
-        \State \Return $\vtheta$ \Comment{Generate: $\hat{\vx}_{0}=\vx_{1}-\vu_{\vtheta}(\vx_{1},0,1)$}
-    \end{algorithmic}
-\end{algorithm}
+The full training procedure is given in~\Cref{alg: va-mf}. Furthermore, we establish a connection between the trace weight and the acceleration-to-noise ratio $\text{ANR}\!=\!(t{-}r)\|\frac{\mathrm{D}\vv}{\mathrm{D}t}\|/\sqrt{\Tr(\Sigma_{\vv'})}$ in~\Cref{appx: additional-results}.
+% At generation time only $\vu_{\vtheta}(\vx_{1},0,1)$ is needed; the trace-weight machinery exists purely to stabilize training.

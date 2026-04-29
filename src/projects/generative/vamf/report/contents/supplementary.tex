@@ -288,34 +288,6 @@
     \end{itemize}
     The trace weight remains a valid BLUE-scalar approximation in all three cases (\Cref{appx: blue-scalar}); only the ANR \emph{interpretation} of $\rho$ is schedule-sensitive.
 
-    \subsection{Compound Prediction Error: $\mathrm{d}/\mathrm{d}t$ vs.\ $\mathrm{d}/\mathrm{d}s$ Formulations}
-
-    The design space of two-parameter flow training objectives has a fundamental fork: which time variable to differentiate. Here we formalize the tradeoff between the $\mathrm{d}/\mathrm{d}t$ formulation (used in MeanFlow and this work) and the $\mathrm{d}/\mathrm{d}s$ formulation (used in TVM~\cite{zhou2026terminalvelocitymatching}).
-
-    \begin{proposition}[Compound Prediction Error Comparison]
-        Consider two compound predictions under stop-gradient:
-
-        \noindent\textbf{($\mathrm{d}/\mathrm{d}t$, ours):} $V_{\vtheta}^{dt}\!=\vu_{\vtheta}(\vx_{t},r,t)+(t{-}r)\,\texttt{sg}[\texttt{JVP}(\vu_{\vtheta},(\vx_{t},r,t),(\hat{\vv}_{t},0,1))]$, where $\hat{\vv}_{t}$ is an estimate of $\vv(\vx_{t},t)$.
-
-        \noindent\textbf{($\mathrm{d}/\mathrm{d}s$, TVM~\cite{zhou2026terminalvelocitymatching}):} $V_{\vtheta}^{ds}\!=F_{\vtheta}(\vx_{t},t,s)+(s{-}t)\,\texttt{sg}[\partial_{s}F_{\vtheta}(\vx_{t},t,s)]$.
-
-        \noindent The mean-field residuals satisfy:
-        \begin{equation}
-            \|\tilde{\vr}^{dt}\|\leq\|\vr_{\text{true}}\|+(t{-}r)\,\|\partial_{\vz}\vu_{\vtheta}\|\,\|\hat{\vv}_{t}-\vv(\vx_{t},t)\|,\qquad
-            \|\tilde{\vr}^{ds}\|\leq\|\vr_{\text{true}}^{ds}\|.
-        \end{equation}
-        The $\mathrm{d}/\mathrm{d}s$ formulation has no tangent estimation error because $\partial_{s}F_{\vtheta}$ is a partial derivative w.r.t.\ a network input---no spatial Jacobian or velocity estimate is needed.
-        \label[proposition]{prop: dt-vs-ds}
-    \end{proposition}
-
-    \begin{proof}
-        For $\mathrm{d}/\mathrm{d}t$: by~\cref{prop: bias-var}, $\tilde{\vr}^{dt}=\vr_{\text{true}}+(t-r)\,\partial_{\vz}\vu_{\vtheta}(\hat{\vv}_{t}-\vv)$. The triangle inequality gives the upper bound. The tangent estimation error $(t-r)\|\partial_{\vz}\vu_{\vtheta}\|\|\hat{\vv}_{t}-\vv\|$ shrinks as the EMA model improves ($\hat{\vv}_{t}\to\vv$).
-
-        For $\mathrm{d}/\mathrm{d}s$: the JVP tangent is $\partial_{s}F_{\vtheta}$, a partial derivative of the network w.r.t.\ its third scalar input $s$. This is deterministic and exact---no velocity field estimate is needed. The compound prediction error reduces to the true identity residual $\vr_{\text{true}}^{ds}$.
-    \end{proof}
-
-    \textbf{Tradeoff.} The $\mathrm{d}/\mathrm{d}s$ formulation eliminates the spatial Jacobian entirely (a strict advantage in compound prediction error), but requires parameterizing $f_{\vtheta}(\vx_{t},t,s)=(s-t)F_{\vtheta}(\vx_{t},t,s)$ with explicit dependence on both time endpoints---a different architecture from standard velocity networks. The $\mathrm{d}/\mathrm{d}t$ formulation retains compatibility with the standard MeanFlow parameterization and benefits from the curvature-variance theory developed in this work. The bias term $(t-r)\|\partial_{\vz}\vu_{\vtheta}\|\|\hat{\vv}_{t}-\vv\|$ shrinks during training, so the gap between the two formulations closes as the EMA anchor improves.
-
     \subsection{Schedule $\sigma_{t}$ in the Trace Weight}
     \label{appx: sigma-schedule}
 

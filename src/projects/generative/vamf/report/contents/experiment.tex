@@ -6,12 +6,12 @@ We evaluate VaMF on three fronts: \textbf{(i)} a 2-D toy benchmark spanning four
 \subsection{Variance Amplification and the Trace Term}
 \label{subsec: exp-diagnostic}
 
-We first probe the per-sample loss variance and Jacobian-deviation norm on a frozen checkpoint trained on the eight-Gaussians dataset. \Cref{fig: teaser} plots the variance ratio $\Var[\gL_{\text{stoch}}]/\Var[\gL_{\text{det}}]$ as a function of $t$ (panel a), the Frobenius norm $\|(t{-}r)J - I\|_F$ that drives this amplification (panel b), and the resulting effect on swiss\_roll generation (panel c). The variance ratio peaks at $\sim\!259\!\times$ near $t\!\approx\!0.4$, in direct empirical agreement with~\cref{thm: jacobi-variance}; the Jacobian-deviation norm peaks in the same regime, identifying it as the immediate source of the amplification. The trace-weight reweighting reduces SW$_1$ on swiss\_roll from $0.072$ (MeanFlow) to $0.044$ (VaMF-TW) at matched seed and step count.
+We first probe the per-sample loss variance and Jacobian-deviation norm on a frozen checkpoint trained on the eight-Gaussians dataset. \Cref{fig: teaser} plots the variance ratio $\Var[\gL_{\text{stoch}}]/\Var[\gL_{\text{det}}]$ as a function of $t$ (panel a) and, on a shared $t$-axis, the per-sample loss variance $\Var[\gL_{\text{det}}]$ alongside the Frobenius norm $\|(t{-}r)J - I\|_F$ that drives the amplification (panel b). The variance ratio peaks at $\sim\!259\!\times$ near $t\!\approx\!0.4$, in direct empirical agreement with~\cref{thm: jacobi-variance}; the per-sample loss variance does not vanish anywhere on $t\!\in\![0,1]$ and its scale tracks $\|(t{-}r)J - I\|_F$ across the integration window, identifying the Jacobi factor as the immediate source of the amplification.
 
 \begin{figure}[t]
     \centering
-    \includegraphics[width=\textwidth]{assets/figures/teaser.pdf}
-    \caption{Variance amplification in vanilla MeanFlow and the trace-weight fix. \textbf{(a)} Variance ratio $\Var[\gL_{\text{stoch}}]/\Var[\gL_{\text{det}}]$ peaks at $\sim\!259\!\times$ near $t\!\approx\!0.4$, in direct empirical agreement with~\cref{thm: jacobi-variance}. \textbf{(b)} Frobenius norm $\|(t{-}r)J - I\|_F$ peaks in the same regime, identifying the linearised flow Jacobian's deviation from identity as the immediate source of (a). \textbf{(c)} The trace-weight reweighting reduces SW$_1$ on swiss\_roll from $0.072$ (MeanFlow) to $0.044$ (VaMF-TW) at matched seed and step count.}
+    \includegraphics[width=0.85\textwidth]{assets/figures/teaser.pdf}
+    \caption{Variance amplification in vanilla MeanFlow. \textbf{(a)} The stochastic-vs-deterministic variance ratio $\Var[\gL_{\text{stoch}}]/\Var[\gL_{\text{det}}]$ peaks at $\sim\!259\!\times$ near $t\!\approx\!0.4$, in direct empirical agreement with~\cref{thm: jacobi-variance}. \textbf{(b)} The per-sample loss variance $\Var[\gL_{\text{det}}]$ (left axis) is non-vanishing across $t$ and co-varies with the Jacobi-factor norm $\|(t{-}r)J - I\|_F$ (right axis): both quantities peak in the same mid-$t$ regime, empirically certifying that the Frobenius norm of $(t{-}r)J - I$ governs the per-sample loss scale.}
     \label{fig: teaser}
 \end{figure}
 
@@ -122,7 +122,7 @@ The single-probe Hutchinson estimator adds approximately one additional JVP per 
     \end{tabular}
 \end{table}
 
-\todo[inline]{Add the final FID$_{50\text{k}}$ comparison at $300$k once the VaMF-TW DiT run finishes (ETA 2026-04-30 evening). The toy and DGMM tables and the teaser figure are final; only the DiT FID row needs updating.}
+\todo[inline]{Add the final FID$_{50\text{k}}$ comparison at $300$k once the VaMF-TW DiT run finishes with the corrected $\sigma_t$ schedule. The toy and DGMM tables and the teaser figure are final; only the DiT FID row needs updating.}
 
 \subsection{Discussion}
 \label{subsec: exp-discussion}
