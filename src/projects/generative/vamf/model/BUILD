@@ -8,6 +8,16 @@ ml_py_library(
     deps = ["jax"],
 )
 
+ml_py_library(
+    name = "diagnostic",
+    srcs = ["diagnostic.py"],
+    deps = [
+        "jax",
+        "numpy",
+        ":trace",
+    ],
+)
+
 ml_py_test(
     name = "test_trace",
     srcs = ["tests/test_trace.py"],
