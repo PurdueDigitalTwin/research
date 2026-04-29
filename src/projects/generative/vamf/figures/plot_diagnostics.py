@@ -9,45 +9,61 @@ from absl import flags
 import matplotlib.pyplot as plt
 import numpy as np
 
-# Camera-ready NeurIPS-class style. Resolved relative to this file so the
-# script works regardless of the caller's cwd.
-plt.style.use(
-    os.path.join(
-        os.path.dirname(os.path.abspath(__file__)),
-        "constants",
-        "paper.mplstyle",
-    )
+from src.projects.generative.vamf.figures import _style
+
+# ==============================================================================
+# Constants
+
+# NOTE: Color dict is populated from the active style palette in ``main()``
+# hence the same plotting code renders both the light (paper) and dark (slides)
+# variants without per-call changes.
+COLORS: typing.Dict[str, str] = {}
+_COLOR_ROLES = (
+    "stochastic",
+    "deterministic",
+    "ratio",
+    "loss",
+    "grad",
+    "fid",
+    "mf_v0",
+    "mf_v1",
+    "baseline",
 )
 
-COLORS = {
-    "stochastic": "#d62728",
-    "deterministic": "#2ca02c",
-    "ratio": "#1f77b4",
-    "loss": "#1f77b4",
-    "grad": "#ff7f0e",
-    "fid": "#2ca02c",
-    "mf_v0": "#1f77b4",
-    "mf_v1": "#ff7f0e",
-    "baseline": "#7f7f7f",
-}
+
+def _apply_style_palette(name: str) -> None:
+    """Activate the named matplotlib style and populate the COLORS dict."""
+    _style.apply_style(name)
+    palette = _style.palette(name)
+    COLORS.clear()
+    COLORS.update({k: palette[k] for k in _COLOR_ROLES})
 
 
 # ==============================================================================
 # Flags
-flags.DEFINE_string(
-    "--diagnostic_results",
-    default=None,
-    required=True,
-    help="Directory to the JSON file of diagnostic runs.",
+flags.DEFINE_enum(
+    name="style",
+    default=_style.DEFAULT_STYLE,
+    enum_values=list(_style.STYLES),
+    help=(
+        "Render target. 'paper' = light/serif (camera-ready); "
+        "'slides' = dark/sans-serif (talks)."
+    ),
 )
 flags.DEFINE_string(
-    "--wandb_metrics",
+    name="diagnostic_results",
     default=None,
     required=True,
-    help="Directory to the JSON file of WandB logged metrics.",
+    help="Path to the JSON file of diagnostic runs.",
 )
 flags.DEFINE_string(
-    "--work_dir",
+    name="wandb_metrics",
+    default=None,
+    required=True,
+    help="Path to the JSON file of WandB logged metrics.",
+)
+flags.DEFINE_string(
+    name="work_dir",
     default=None,
     required=True,
     help="Output directory.",
@@ -283,6 +299,8 @@ def main(argv: typing.List[str]):
     del argv  # unused arguments
 
     os.makedirs(flags.FLAGS.work_dir, exist_ok=True)
+    _apply_style_palette(flags.FLAGS.style)
+    print(f"Style: {flags.FLAGS.style}")
 
     # Plot wandb training curves (Exp 3) — always available
     if os.path.exists(flags.FLAGS.wandb_metrics):

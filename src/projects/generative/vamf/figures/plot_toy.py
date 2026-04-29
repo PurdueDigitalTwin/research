@@ -8,18 +8,19 @@ from matplotlib import axes as mpl_axes
 from matplotlib import pyplot as plt
 import numpy as np
 
-# Camera-ready NeurIPS-class style. Resolved relative to this file so the
-# script works regardless of the caller's cwd.
-plt.style.use(
-    os.path.join(
-        os.path.dirname(os.path.abspath(__file__)),
-        "constants",
-        "paper.mplstyle",
-    )
-)
+from src.projects.generative.vamf.figures import _style
 
 # ==============================================================================
 # Flags
+flags.DEFINE_enum(
+    name="style",
+    default=_style.DEFAULT_STYLE,
+    enum_values=list(_style.STYLES),
+    help=(
+        "Render target. 'paper' = light/serif (camera-ready); "
+        "'slides' = dark/sans-serif (talks)."
+    ),
+)
 flags.DEFINE_string(
     name="base_dir",
     default=None,
@@ -63,25 +64,30 @@ METHOD_LABELS = {
     "vamf_l2": r"VaMF ($\ell_2$)",
     "vamf_tw": r"VaMF (TW, $\sigma_t{=}t^2$)",
 }
-METHOD_COLORS = {
-    "meanflow": "#1f77b4",
-    "vamf_l2": "#ff7f0e",
-    "vamf_tw": "#2ca02c",
-}
-
 DGMM_DIMS = [2, 4, 8, 16, 32, 64]
 
-# Labels and colors for the σ_t ablation (DGMM scaling figure)
+# Labels for the σ_t ablation (DGMM scaling figure).
 SIGMA_LABELS = {
     "sigma_none": r"TW ($\sigma_t{=}1$)",
     "sigma_t2": r"TW ($\sigma_t{=}t^2$)",
     "sigma_learned": r"TW ($\sigma_t$ learned)",
 }
-SIGMA_COLORS = {
-    "sigma_none": "#d62728",
-    "sigma_t2": "#2ca02c",
-    "sigma_learned": "#9467bd",
-}
+
+# Colors are populated from the active style palette in ``main()`` so the
+# same plotting code renders both the light (paper) and dark (slides)
+# variants. They start empty and are filled by ``_apply_style_palette``.
+METHOD_COLORS: typing.Dict[str, str] = {}
+SIGMA_COLORS: typing.Dict[str, str] = {}
+
+
+def _apply_style_palette(name: str) -> None:
+    """Activate the named matplotlib style and populate color dicts."""
+    _style.apply_style(name)
+    palette = _style.palette(name)
+    METHOD_COLORS.clear()
+    METHOD_COLORS.update({m: palette[m] for m in METHODS})
+    SIGMA_COLORS.clear()
+    SIGMA_COLORS.update({k: palette[k] for k in SIGMA_LABELS})
 
 
 # ==============================================================================
@@ -527,7 +533,8 @@ def main(argv: typing.List[str]) -> None:
     FLAGS = flags.FLAGS
     os.makedirs(FLAGS.work_dir, exist_ok=True)
 
-    print("Plotting toy experiment results...")
+    _apply_style_palette(FLAGS.style)
+    print(f"Plotting toy experiment results (style={FLAGS.style})...")
     plot_samples_grid(FLAGS.base_dir, FLAGS.work_dir, FLAGS.seed)
     plot_training_curves(FLAGS.base_dir, FLAGS.work_dir, FLAGS.seed)
     plot_swiss_roll_stability(FLAGS.base_dir, FLAGS.work_dir, FLAGS.seed)
