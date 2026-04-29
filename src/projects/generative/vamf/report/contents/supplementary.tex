@@ -30,7 +30,7 @@
             $V_{\vtheta}^{\text{EMA}}$ & Compound prediction~\eqref{eq: ema-mf-loss} \\
             $\mJ$ & Jacobi factor: $\mJ=(t-r)\partial_{\vz}\vu_{\vtheta}-\mI_{d}$ \\
             $\Sigma_{\vv'}$ & Conditional velocity covariance: $\Cov_{\vx_{0}\mid\vx_{t}}[\vv']$ \\
-            $\sigma_{t}$ & Conditional-velocity variance scale (schedule, default $\sigma_{t}\!=\!t^{2}$) \\
+            $\sigma_{t}$ & Conditional-velocity variance scale (schedule, default $\sigma_{t}\!=\!1$) \\
             $w$ & Trace weight: $w\!=\!1/(1+\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top})/d)$, see~\eqref{eq: trace-weight} \\
             $\frac{\mathrm{D}\vv}{\mathrm{D}t}$ & Material derivative (flow acceleration): $\partial_{t}\vv+(\nabla_{\vx}\vv)\vv$ \\
             $\Delta(\vx_{t},r,t)$ & Curvature gap: $\vu(\vx_{t},r,t)-\vv(\vx_{t},t)$ \\
