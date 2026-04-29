@@ -212,6 +212,7 @@ We propose a concrete and simple training framework to, Variance-Aware MeanFlow 
 
 \subsubsection{Target Network}
 \label{subsubsec: v-anchor}
+\namedlabel{dp: var}{D1}%
 
 In~\eqref{eq: expanded-mf-loss}, the $\mJ\vv^{\prime}$ amplification arises because $\vv^{\prime}$ enters the JVP tangent, where it multiplies the spatial Jacobian $(t-r)\partial_{\vz}\vu_{\vtheta}$. We notice that, if the tangent were replaced by any \textit{deterministic estimate $\hat{\vv}$}, the fluctuation $\vv^{\prime}$ would only appear in the regression target, entering the residual linearly rather than through $\mJ$. In this case, the per-sample loss reduces to $\left\|\tilde{\vr}_{\vtheta}\right\|_{2}^{2}+\Tr(\Sigma_{\vv^{\prime}})$, where $\tilde{\vr}_{\vtheta}$ is a deterministic residual. As a result, the variance drops to the irreducible level $\Tr(\Sigma_{\vv^{\prime}})$ without any Jacobian amplification. We higlight this as a theoretical foundation missing from the proposed method in a recent study~\cite{geng2025improvedmeanflowschallenges}. The remaining question is whether we can achieve this without learning a separate velocity model.
 
@@ -231,6 +232,7 @@ where $\vu_{\bar{\vtheta},t}=\vu(\vx_{t},t,t)$ and $\bar{\vtheta}$ is updated by
 
 \subsubsection{Flow-matching Anchor}
 \label{subsubsec: va-obj}
+\namedlabel{dp: bias}{D2}%
 
 The EMA tangent helps resolve the Jacobian variance amplification but introduces a transient bias when $\vu_{\bar{\vtheta}}(\vx_{t},t,t)\neq\vv(\vx_{t},t)$. To correct this, we add a \textit{flow matching anchor} that provides direct velocity supervision at the boundary $r\to t$:
 \begin{equation}
@@ -264,6 +266,7 @@ where $\lambda>0$ balances the two terms. This establishes the following proposi
 
 \subsubsection{Adaptive Weights}
 \label{subsubsec: trace-weight}
+\namedlabel{dp: weight}{D3}%
 
 % The per-sample magnitude of the EMA loss in~\eqref{eq: ema-mf-loss} is still heterogeneous across $(\vx_{t},r,t)$: the inner expectation contains the curvature-amplified noise $\Tr(\mJ\Sigma_{\vv'}\mJ^{\!\top})$ from~\cref{thm: jacobi-variance}.
 Although the EMA tangent removes the Jacobian-amplified variance from the \emph{gradient}, samples with large $\|\mJ\|$ still produce loss values that dwarf samples in flat, low-curvature regions, biasing the empirical-risk estimator toward the noisy regime. We addresses this by \emph{adaptively weighting} each sample to equalize its contribution to the expected loss.
@@ -284,7 +287,13 @@ where the constant $d$ in the denominator of the curvature term is the per-sampl
 \end{equation}
 which costs a single JVP per step. Multiple probes can be averaged when extra accuracy is needed; $K\!=\!1$ is sufficient for the experiments in this paper.
 
-\paragraph{Schedule $\sigma_{t}$.} The scaling factor $\sigma_{t}$ in~\eqref{eq: trace-weight} absorbs the conditional-velocity variance scale and re-introduces a controllable schedule along the time axis. We consider three options: $\sigma_{t}\!=\!1$ (no schedule; the curvature term is the only modulation), $\sigma_{t}\!=\!t^{2}$ (default; matches the variance growth along linear interpolation paths), and a small learned MLP $\sigma_{t}\!=\!\texttt{NN}_{\phi}(t)$. We use $\sigma_{t}\!=\!t^{2}$ unless stated otherwise; the ablation in~\Cref{appx: additional-results} confirms it is the most robust across our toy datasets.
+\paragraph{Schedule $\sigma_{t}$.} The scalar $\sigma_{t}$ in~\eqref{eq: trace-weight} is the per-time standard-deviation scale of the isotropic-noise approximation $\Sigma_{\vv'}\!\approx\!\sigma_{t}^{2}\mI_{d}$; the actual conditional-velocity variance depends on $\pdata$ and is generally not closed-form. Under the tractable approximation $\vx_{0}\!\sim\!\gN(\bm{0},\sigma_{d}^{2}\mI_{d})$, conjugate-Gaussian inference (\Cref{appx: sigma-schedule}) yields
+\begin{equation}
+    \Sigma_{\vv'}(\vx_{t},t)
+    \;=\;\frac{\sigma_{d}^{2}}{\sigma_{d}^{2}(1-t)^{2}+t^{2}}\,\mI_{d},
+    \label{eq: gauss-sigma}
+\end{equation}
+which is U-shaped in $t$ and peaks near $t\!=\!0.5$ where conditional paths most strongly intersect---the same regime where the Jacobian-deviation norm peaks in~\cref{thm: jacobi-variance}. Since $\pdata$ is generally non-Gaussian, we treat $\sigma_{t}$ as a hyperparameter and benchmark five candidates: the constant baseline $\sigma_{t}\!=\!1$; the monotone schedules $\sigma_{t}\!=\!t$ and $\sigma_{t}\!=\!t^{2}$; the U-shape $\sigma_{t}\!=\!\sqrt{t(1-t)}$ matching the qualitative peak of~\eqref{eq: gauss-sigma}; and the closed-form Gaussian-data schedule $\sigma_{t}^{2}\!=\!1/(\sigma_{d}^{2}(1-t)^{2}+t^{2})$. \Cref{appx: sigma-schedule} sweeps all five across the toy benchmark; the empirical winner is reported in~\Cref{sec: experiment}.
 
 \paragraph{VaMF objective.} Combining the EMA tangent~\eqref{eq: ema-mf-loss}, FM anchor~\eqref{eq: fm-anchor}, and trace weight~\eqref{eq: trace-weight} yields the full \textbf{Variance-Aware MeanFlow} loss
 \begin{equation}
