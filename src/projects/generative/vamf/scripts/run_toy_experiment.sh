@@ -38,7 +38,7 @@ source "${RUNFILES_DIR:-/dev/null}/$f" 2>/dev/null \
 set -e
 # --- end runfiles.bash initialization v3 ---
 
-RUN_TOY="$(rlocation _main/src/projects/generative/meanflow/experiments/run_toy)"
+RUN_TOY="$(rlocation _main/src/projects/generative/vamf/experiments/run_toy)"
 if [[ -z "$RUN_TOY" || ! -x "$RUN_TOY" ]]; then
   echo "ERROR: could not locate run_toy launcher in runfiles." >&2
   exit 1
