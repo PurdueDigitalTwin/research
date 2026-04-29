@@ -401,6 +401,25 @@ def meanflow_dit_imagenet_256_latent() -> _config.ExperimentConfig:
     )
 
 
+def vamf_tw_dit_imagenet_256_latent() -> _config.ExperimentConfig:
+    r"""VaMF (trace-weighted) DiT-B/4 on ImageNet 256x256 latents.
+
+    Identical to :func:`meanflow_dit_imagenet_256_latent` except the
+    per-sample loss is multiplied by the variance-aware trace weight
+    ``1 / (1 + sigma_t * tr(BB^T) / d)`` with ``B = (t-r) J - I`` and
+    the default ``sigma_t = t^2`` schedule. Adaptive loss weighting is
+    disabled to avoid double-weighting.
+    """
+    config = meanflow_dit_imagenet_256_latent()
+    config.exp_name = "vamf_tw_dit_b4_imagenet_256_latent"
+    # Replace MeanFlow model with VaMF-TW variant.
+    config.model.adaptive_weight_power = 0.0
+    config.model.use_trace_weight = True
+    config.model.tw_n_probes = 1
+    config.model.tw_sigma_schedule = "t_squared"
+    return config
+
+
 def improved_meanflow_unet_cifar_10() -> _config.ExperimentConfig:
     r"""Improved MeanFlow (iMF) with U-Net on CIFAR-10."""
     return _config.ExperimentConfig(

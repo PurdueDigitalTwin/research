@@ -15,6 +15,7 @@ from src.projects.generative.model import dit
 from src.projects.generative.model import unet
 from src.projects.generative.model import vae as _vae
 from src.projects.generative.pipeline import edm
+from src.projects.generative.vamf.model import trace as _trace
 
 # Type Aliases
 PyTree = jaxtyping.PyTree
@@ -954,6 +955,12 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
         timestamp_sampler_version: str = "v0",
         adaptive_weight_power: float = 1.0,
         norm_eps: float = 0.01,
+        use_trace_weight: bool = False,
+        tw_n_probes: int = 1,
+        tw_sigma_schedule: typing.Literal[
+            "none", "t_squared", "constant"
+        ] = "t_squared",
+        tw_sigma_constant: float = 1.0,
         vae_path: typing.Optional[str] = None,
         vae_scaling_factor: float = 0.18215,
         dtype: typing.Any = None,
@@ -975,6 +982,12 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
         self.timestamp_sampler_version = timestamp_sampler_version
         self.adaptive_weight_power = adaptive_weight_power
         self.norm_eps = norm_eps
+        # VaMF trace-weight: per-sample weight =
+        # 1 / (1 + sigma_t * tr(BB^T) / d)  with B = (t-r) J - I.
+        self.use_trace_weight = use_trace_weight
+        self.tw_n_probes = tw_n_probes
+        self.tw_sigma_schedule = tw_sigma_schedule
+        self.tw_sigma_constant = tw_sigma_constant
 
         # DiT backbone (no EDM augmentation for ImageNet)
         self._augment = None
@@ -1089,7 +1102,8 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
             m_rng,
             e_rng,
             cfg_rng,
-        ) = jax.random.split(local_rng, 6)
+            tw_rng,
+        ) = jax.random.split(local_rng, 7)
 
         # Encode to latent space
         if "latent_mean" in batch:
@@ -1250,14 +1264,38 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
             )
             raw_loss = jnp.mean(per_sample_loss)
 
-            if self.adaptive_weight_power > 0.0:
-                ada_wt = jnp.power(
-                    per_sample_loss + self.norm_eps,
-                    self.adaptive_weight_power,
+            # --- VaMF trace weight (mutually exclusive with adaptive wt) ---
+            if self.use_trace_weight:
+                if self.tw_sigma_schedule == "t_squared":
+                    sigma_t = jnp.square(t)
+                elif self.tw_sigma_schedule == "constant":
+                    sigma_t = jnp.full_like(t, self.tw_sigma_constant)
+                else:  # "none"
+                    sigma_t = jnp.ones_like(t)
+                # Per-sample data dimensionality (H * W * C in latent space).
+                d = float(jnp.prod(jnp.asarray(z.shape[1:])))
+                tr_bbt = _trace.hutchinson_trace(
+                    key=tw_rng,
+                    u_fn=u_fn,
+                    z=z,
+                    r=r,
+                    t=t,
+                    n_probes=self.tw_n_probes,
                 )
-                per_sample_loss = per_sample_loss / jax.lax.stop_gradient(
-                    ada_wt
-                )
+                tw = 1.0 / (1.0 + sigma_t * tr_bbt / d)
+                per_sample_loss = per_sample_loss * jax.lax.stop_gradient(tw)
+            else:
+                tw = jnp.ones_like(t)
+                sigma_t = jnp.zeros_like(t)
+                if self.adaptive_weight_power > 0.0:
+                    ada_wt = jnp.power(
+                        per_sample_loss + self.norm_eps,
+                        self.adaptive_weight_power,
+                    )
+                    per_sample_loss = (
+                        per_sample_loss
+                        / jax.lax.stop_gradient(ada_wt)
+                    )
             loss = jnp.mean(per_sample_loss)
 
             # --- diagnostic metrics (not in gradient graph) ---
@@ -1302,6 +1340,8 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
                 boundary_loss,
                 interior_loss,
                 dudt_magnitude,
+                tw,
+                sigma_t,
             )
             return loss, diagnostics
 
@@ -1313,6 +1353,8 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
             boundary_loss,
             interior_loss,
             dudt_magnitude,
+            tw,
+            sigma_t,
         ) = diagnostics
         global_grad_norm = optax.global_norm(grads)
         grads = jax.lax.pmean(grads, axis_name="batch")
@@ -1326,6 +1368,8 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
                 "velocity_loss": velocity_loss.mean(),
                 "dudt_magnitude": dudt_magnitude.mean(),
                 "global_grad_norm": global_grad_norm,
+                "tw_mean": tw.mean(),
+                "sigma_mean": sigma_t.mean(),
             },
             histograms={
                 "t": t,
