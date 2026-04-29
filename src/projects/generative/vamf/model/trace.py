@@ -5,41 +5,58 @@ from jax import numpy as jnp
 from jax import random as jrnd
 
 
+def _gap_broadcast(gap: jax.Array, ndim: int) -> jax.Array:
+    """Reshape a per-sample scalar to broadcast against ``z`` of rank ``ndim``."""
+    return jnp.reshape(gap, (-1,) + (1,) * (ndim - 1))
+
+
+def _data_axes(ndim: int) -> typing.Tuple[int, ...]:
+    """All non-batch axes for a tensor of rank ``ndim`` (axis 0 is batch)."""
+    return tuple(range(1, ndim))
+
+
 def exact_trace(
     u_fn: typing.Callable[[jax.Array, jax.Array, jax.Array], jax.Array],
     z: jax.Array,
     r: jax.Array,
     t: jax.Array,
 ) -> jax.Array:
-    r"""Evaluate the exact trace term :math:`\mathrm{tr}(BB^{\top})`.
+    r"""Evaluate the exact trace term :math:`\mathrm{tr}(BB^{\top})`,
+    where :math:`B = (t-r) J - I` and :math:`J = \partial_z u`.
+
+    Iterates over each scalar coordinate of ``z`` (treating axis 0 as the
+    batch axis) and accumulates :math:`\| B e_i \|^2`. Tractable only for
+    very low total data dimension; use :func:`hutchinson_trace` for images.
 
     Args:
-        u_fn (Callable): Average velocity field function ``u_fn(z, r, t)``.
-        z (jax.Array): Noisy input at time step ``t`` of shape ``(*, d)``.
-        r (jax.Array): Start time step of shape ``(*,)``.
-        t (jax.Array): End time step of shape ``(*,)``.
+        u_fn: Velocity field ``u_fn(z, r, t)``; output has the same shape as ``z``.
+        z: Noisy input of shape ``(B,) + data_dims``.
+        r: Start timestamps of shape ``(B,)``.
+        t: End timestamps of shape ``(B,)``.
 
     Returns:
-        Calculated trace term of shape ``(*,)``.
+        Per-sample trace estimate of shape ``(B,)``.
     """
-    dim = z.shape[-1]
-    out = jnp.zeros_like(z[..., 0])
+    flat_dim = int(jnp.prod(jnp.asarray(z.shape[1:])))
+    out = jnp.zeros(z.shape[:1], dtype=jnp.float32)
+    gap = _gap_broadcast(t - r, z.ndim)
+    sum_axes = _data_axes(z.ndim)
 
     def _body_fn(i: int, val: jax.Array) -> jax.Array:
-        e_i = jnp.zeros_like(z).at[..., i].set(1.0)
+        e_i_flat = jax.nn.one_hot(i, flat_dim, dtype=z.dtype)
+        e_i = e_i_flat.reshape(z.shape[1:])
+        e_i = jnp.broadcast_to(e_i[None], z.shape)
         _, jv = jax.jvp(lambda x: u_fn(x, r, t), (z,), (e_i,))
-        jv = (t - r)[..., None] * jv - e_i
-
-        return val + jnp.sum(jnp.square(jv), axis=-1)
+        bv = gap * jv - e_i
+        return val + jnp.sum(jnp.square(bv), axis=sum_axes).astype(val.dtype)
 
     out = jax.lax.fori_loop(
         lower=0,
-        upper=dim,
+        upper=flat_dim,
         body_fun=_body_fn,
         init_val=out,
     )
-
-    return out
+    return out.astype(z.dtype)
 
 
 def hutchinson_trace(
@@ -50,35 +67,36 @@ def hutchinson_trace(
     t: jax.Array,
     n_probes: int = 1,
 ) -> jax.Array:
-    r"""Computes the Huntchinson's estimate of :math:`\mathrm{tr}(BB^{\top})`.
+    r"""Hutchinson estimate of :math:`\mathrm{tr}(BB^{\top})`,
+    where :math:`B = (t-r) J - I` and :math:`J = \partial_z u`.
 
-    .. note::
-
-        The trace is estimated by
-        :math:`\\frac{1}{N}\\sum_{i}\|(t-r)Jv_{i}-v_{i}\|_{2}^{2}`.
+    Estimates :math:`\mathrm{tr}(BB^{\top}) \approx \tfrac{1}{N}\sum_{i}
+    \| B v_i \|_2^2` with i.i.d. Rademacher probes :math:`v_i` of the same
+    shape as ``z``. Treats axis 0 as the batch axis and sums squares over
+    all remaining axes, so it works for both flat ``(B, d)`` and image
+    ``(B, H, W, C)`` inputs.
 
     Args:
-        key (Any): Random generator key for reproducibility.
-        u_fn (Callable): Average velocity field function ``u_fn(z, r, t)``.
-        z (jax.Array): Noisy input at time step ``t`` of shape ``(*, d)``.
-        r (jax.Array): Start time step of shape ``(*,)``.
-        t (jax.Array): End time step of shape ``(*,)``.
-        n_probes (int, optional): Number of Rademacher probes ``v_{i}``.
-            Default is :math:`1`.
+        key: PRNG key for probe sampling.
+        u_fn: Velocity field ``u_fn(z, r, t)``; output has the same shape as ``z``.
+        z: Noisy input of shape ``(B,) + data_dims``.
+        r: Start timestamps of shape ``(B,)``.
+        t: End timestamps of shape ``(B,)``.
+        n_probes: Number of Rademacher probes. Default ``1``.
 
     Returns:
-        Calculated trace term of shape ``(*,)``.
+        Per-sample trace estimate of shape ``(B,)``.
     """
-    # NOTE: enforce the accumulator to use ``float32`` for numerical stability
-    out = jnp.zeros(z.shape[:-1], dtype=jnp.float32)
+    out = jnp.zeros(z.shape[:1], dtype=jnp.float32)
+    gap = _gap_broadcast(t - r, z.ndim)
+    sum_axes = _data_axes(z.ndim)
 
     def _body_fn(i: int, val: jax.Array) -> jax.Array:
         local_key = jrnd.fold_in(key, i)
         v = jrnd.rademacher(local_key, z.shape, dtype=z.dtype)
         _, jv = jax.jvp(lambda z_: u_fn(z_, r, t), (z,), (v,))
-        jv = (t - r)[..., None] * jv - v
-
-        return val + jnp.sum(jnp.square(jv), axis=-1).astype(val.dtype)
+        bv = gap * jv - v
+        return val + jnp.sum(jnp.square(bv), axis=sum_axes).astype(val.dtype)
 
     out = jax.lax.fori_loop(
         lower=0,
@@ -86,5 +104,4 @@ def hutchinson_trace(
         body_fun=_body_fn,
         init_val=out,
     )
-
     return (out / n_probes).astype(z.dtype)
