@@ -112,25 +112,6 @@ def _mc_marginal_velocity(z, data):
 
 
 # -- panels --------------------------------------------------------------------
-def _draw_top_panel(ax, t_steps, mean_diffs, palette):
-    ax.plot(
-        t_steps,
-        mean_diffs,
-        color=palette["top_curve"],
-        linewidth=2.0,
-    )
-    ax.set_xlim(0.0, 1.0)
-    ax.set_xlabel(r"flow time step $t$")
-    ax.set_ylabel(
-        r"$\mathbb{E}_{x_0 \mid x_t}\,\|v(x_t,t) - v(x_t,t\mid x_0)\|$"
-    )
-    ax.set_title(
-        "Conditional-marginal velocity gap along the conditional paths",
-        loc="left",
-        fontweight="bold",
-    )
-
-
 def _draw_heatmap_panel(
     ax: plt.Axes,
     X: jax.Array,
@@ -262,30 +243,12 @@ def main(argv: typing.List[str]) -> int:
 
     velocity_fn = _mc_marginal_velocity(z, data)
 
-    fig = plt.figure(figsize=(10.5, 7.5))
-    gs = gridspec.GridSpec(
-        2,
-        3,
-        height_ratios=[1, 1.4],
-        hspace=0.32,
-        wspace=0.28,
-        figure=fig,
-    )
-    ax_top = fig.add_subplot(gs[0, :])
-
-    t_steps = jnp.linspace(0.01, 0.99, 50)
-
-    def eval_path_mean(t):
-        x_t = (1 - t) * data + t * z
-        _, exp_diff = velocity_fn(x_t, t)
-        return jnp.mean(exp_diff)
-
-    mean_diffs = jax.vmap(eval_path_mean)(t_steps)
-    _draw_top_panel(ax_top, t_steps, mean_diffs, palette)
+    fig = plt.figure(figsize=(10.5, 4.0))
+    gs = gridspec.GridSpec(1, 3, wspace=0.28, figure=fig)
 
     for i, t_str in enumerate(F.t_evals):
         t_eval = float(t_str)
-        ax = fig.add_subplot(gs[1, i])
+        ax = fig.add_subplot(gs[0, i])
         ax = _draw_heatmap_panel(
             ax,
             X,
