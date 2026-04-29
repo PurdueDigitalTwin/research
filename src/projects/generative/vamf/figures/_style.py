@@ -44,12 +44,12 @@ _PALETTES: typing.Dict[str, typing.Dict[str, typing.Any]] = {
         "ref": "#888888",
         "baseline": "#7f7f7f",
         # --- illustration roles (conditional-marginal gap figure) ---
-        "latent": "#1f77b4",
-        "data": "#d62728",
+        "latent": "#a7d9d5",
+        "data": "#f3c6a0",
         "path": "#777777",
         "state": "#ff7f0e",
         "top_curve": "#2ca02c",
-        "heatmap_cmap": "viridis",
+        "heatmap_cmap": "inferno",
         # --- methods (must align with plot_toy.METHOD_LABELS keys) ---
         "meanflow": "#1f77b4",
         "vamf_l2": "#ff7f0e",
@@ -86,9 +86,11 @@ _PALETTES: typing.Dict[str, typing.Dict[str, typing.Any]] = {
         "state": "#f4e0b0",
         "top_curve": "#c9e5c6",
         "heatmap_cmap": "magma",
+        # --- methods (for plot_toy) ---
         "meanflow": "#4cc9f0",
         "vamf_l2": "#ffb627",
         "vamf_tw": "#7ed957",
+        # --- aliases for convenience ---
         "mf": "#4cc9f0",
         "vamf": "#7ed957",
         "sigma_none": "#f72585",

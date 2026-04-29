@@ -1,25 +1,4 @@
-"""Conditional-marginal velocity gap illustration.
-
-Plots the per-sample velocity fluctuation $\\|v' \\|=\\|v_{\\text{cond}} - v\\|$
-on a 3-mode 2-D mixture --- the physical quantity behind the Reynolds
-decomposition that motivates VaMF's trace weight. Layout:
-
-  Top row (full width):
-    Mean expected gap evaluated *along* the conditional paths as a function
-    of t. This is the empirical realisation of $\\Tr(\\Sigma_{v'})^{1/2}$ that
-    enters Theorem ``thm: jacobi-variance''.
-
-  Bottom row (3 panels):
-    Spatial heatmap of the same gap at $t \\in \\{0.25, 0.5, 0.75\\}$ over a
-    grid in the plane, with conditional-path endpoints overlaid. Highlights
-    that the gap is heterogeneous and peaks in mode-mixing regions ---
-    the same regions where the curvature gap from Theorem
-    ``thm: material-derivative-expansion'' is large.
-
-Use ``--style=paper`` for the camera-ready light variant or
-``--style=slides`` for the dark presentation variant. Both styles share
-the same layout; only the palette and typography differ.
-"""
+"""Conditional-marginal velocity gap illustration."""
 
 import os
 import typing
@@ -153,22 +132,21 @@ def _draw_top_panel(ax, t_steps, mean_diffs, palette):
 
 
 def _draw_heatmap_panel(
-    ax,
-    fig,
-    X,
-    Y,
-    grid_points,
-    t_eval,
-    z,
-    data,
-    velocity_fn,
-    grid_min,
-    grid_max,
-    buffer_radius,
-    show_samples,
+    ax: plt.Axes,
+    X: jax.Array,
+    grid_points: jax.Array,
+    t_eval: float,
+    z: jax.Array,
+    data: jax.Array,
+    velocity_fn: typing.Callable,
+    grid_min: float,
+    grid_max: float,
+    buffer_radius: float,
+    show_samples: bool,
     palette,
-    is_first,
-):
+    is_first: bool,
+    is_last: bool,
+) -> plt.Axes:
     _, expected_diff = velocity_fn(grid_points, t_eval)
     diff_heatmap = expected_diff.reshape(X.shape)
 
@@ -194,8 +172,12 @@ def _draw_heatmap_panel(
         alpha=0.95,
         zorder=1,
     )
-    cbar = fig.colorbar(mesh, ax=ax, fraction=0.046, pad=0.04)
-    cbar.set_label(r"$\mathbb{E}_{x_0 \mid x_t}\,\|v - v_{\mathrm{cond}}\|$")
+    if is_last:
+        fig = ax.get_figure()
+        cbar = fig.colorbar(mesh, ax=ax, fraction=0.046, pad=0.04)
+        cbar.set_label(
+            r"$\mathbb{E}_{x_0 \mid x_t}\,\|v - v_{\mathrm{cond}}\|$"
+        )
 
     # Conditional paths.
     ax.plot(
@@ -247,12 +229,16 @@ def _draw_heatmap_panel(
     ax.set_xlabel(r"$x^{(1)}$")
     if is_first:
         ax.set_ylabel(r"$x^{(2)}$")
+    else:
+        ax.set_ylabel("")
     ax.set_title(
         rf"$t = {t_eval:.2f}$",
         loc="left",
         fontweight="bold",
     )
     ax.legend(loc="upper right", fontsize=7)
+
+    return ax
 
 
 # -- main ----------------------------------------------------------------------
@@ -300,11 +286,9 @@ def main(argv: typing.List[str]) -> int:
     for i, t_str in enumerate(F.t_evals):
         t_eval = float(t_str)
         ax = fig.add_subplot(gs[1, i])
-        _draw_heatmap_panel(
+        ax = _draw_heatmap_panel(
             ax,
-            fig,
             X,
-            Y,
             grid_points,
             t_eval,
             z,
@@ -316,6 +300,7 @@ def main(argv: typing.List[str]) -> int:
             F.show_samples,
             palette,
             is_first=(i == 0),
+            is_last=(i == len(F.t_evals) - 1),
         )
 
     out_path = os.path.join(F.work_dir, F.filename)
