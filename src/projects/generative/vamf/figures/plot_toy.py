@@ -1,5 +1,3 @@
-"""Plot toy experiment results for paper figures."""
-
 import json
 import os
 import typing
@@ -281,7 +279,7 @@ def plot_training_curves(
         axes = [axes]
 
     for idx, dataset in enumerate(DATASETS):
-        ax: mpl_axes.Axes = axes[idx]
+        ax: mpl_axes.Axes = axes[idx]  # type: ignore
         for method in METHODS:
             subdir = "200k_t2" if method == "vamf_tw" else "200k"
             hist = _load_history(

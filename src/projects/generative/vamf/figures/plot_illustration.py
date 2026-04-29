@@ -12,7 +12,6 @@ import matplotlib.gridspec as gridspec
 # Configure plotting style
 plt.rcParams.update(
     {
-        "text.usetex": False,
         "font.family": "sans-serif",
         "font.sans-serif": [
             "Open Sans",
@@ -28,7 +27,10 @@ flags.DEFINE_float(
     name="buffer_radius",
     default=None,
     required=False,
-    help="Radius around the conditional paths for heatmap evaluation. If `None`, evaluate the full area.",
+    help=(
+        "Radius around the conditional paths for heatmap evaluation. "
+        "If `None`, evaluate the full area."
+    ),
 )
 flags.DEFINE_integer(
     name="n_grid_points",
