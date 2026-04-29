@@ -31,21 +31,6 @@ ml_py_test(
 )
 
 ml_py_binary(
-    name = "diagnostic",
-    srcs = ["diagnostic.py"],
-    deps = [
-        "Pillow",
-        "datasets",
-        "etils",
-        "jax",
-        "jaxtyping",
-        "numpy",
-        "orbax-checkpoint",
-        "//src/projects/generative:meanflow",
-    ],
-)
-
-ml_py_binary(
     name = "precompute_fid_stats",
     srcs = ["precompute_fid_stats.py"],
     deps = [
