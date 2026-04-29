@@ -26,8 +26,9 @@ plt.rcParams.update(
 # Flags
 flags.DEFINE_float(
     name="buffer_radius",
-    default=0.5,
-    help="Radius around the conditional paths for heatmap evaluation.",
+    default=None,
+    required=False,
+    help="Radius around the conditional paths for heatmap evaluation. If `None`, evaluate the full area.",
 )
 flags.DEFINE_integer(
     name="n_grid_points",
@@ -44,13 +45,22 @@ flags.DEFINE_boolean(
     default=False,
     help="Whether to show the conditional samples xt on the plot.",
 )
+flags.DEFINE_list(
+    name="t_evals",
+    default=["0.25", "0.5", "0.75"],
+    required=False,
+    help="Timesteps at which the velocity field difference heatmap to plot.",
+)
 flags.DEFINE_integer(
     name="seed",
     default=42,
     help="Random seed for reproducibility.",
 )
 flags.DEFINE_string(
-    name="work_dir", default=None, required=True, help="Output directory."
+    name="work_dir",
+    default=None,
+    required=True,
+    help="Output directory.",
 )
 
 
@@ -178,9 +188,8 @@ def main(argv: typing.List[str]) -> int:
     # ---------------------------------------------------------
     # BOTTOM ROW: Heatmaps with Current States x_t overlaid
     # ---------------------------------------------------------
-    t_evals = [0.25, 0.5, 0.75]
-
-    for i, t_eval in enumerate(t_evals):
+    for i, t_eval in enumerate(flags.FLAGS.t_evals):
+        t_eval = float(t_eval)
         ax = fig.add_subplot(gs[1, i])
 
         # evaluate velocity and expected difference on the grid
@@ -191,19 +200,22 @@ def main(argv: typing.List[str]) -> int:
         x_t_eval = (1 - t_eval) * data + t_eval * z
 
         # evaluate distances with shape: (n_grid_points**2, n_samples)
-        dists = jnp.linalg.norm(
-            grid_points[:, None, :] - x_t_eval[None, :, :],
-            axis=-1,
-        )
-        min_dists = jnp.min(dists, axis=-1)
+        if flags.FLAGS.buffer_radius is not None:
+            dists = jnp.linalg.norm(
+                grid_points[:, None, :] - x_t_eval[None, :, :],
+                axis=-1,
+            )
+            min_dists = jnp.min(dists, axis=-1)
 
-        # 3. Create a boolean mask and apply it
-        mask = min_dists > flags.FLAGS.buffer_radius
-        diff_heatmap_masked = jnp.where(
-            mask.reshape(X.shape),
-            jnp.nan,
-            diff_heatmap,
-        )
+            # 3. Create a boolean mask and apply it
+            mask = min_dists > flags.FLAGS.buffer_radius
+            diff_heatmap_masked = jnp.where(
+                mask.reshape(X.shape),
+                jnp.nan,
+                diff_heatmap,
+            )
+        else:
+            diff_heatmap_masked = diff_heatmap
 
         # Plot the expected difference heatmap
         mesh = ax.imshow(
@@ -300,7 +312,6 @@ def main(argv: typing.List[str]) -> int:
             pad=15,
         )
 
-    fig.tight_layout()
     fig.savefig(
         os.path.join(flags.FLAGS.work_dir, "illustration.pdf"),
         dpi=300,

@@ -118,6 +118,16 @@ def _load_history(path: str) -> typing.Optional[typing.List[dict]]:
         return json.load(f)["history"]
 
 
+def _swd_key(record: dict, p: int = 1) -> str:
+    """Pick the SW_p key in a history record (back-compat with legacy ``swd``)."""
+    new_key = f"swd{p}"
+    if new_key in record:
+        return new_key
+    if p == 1 and "swd" in record:
+        return "swd"
+    raise KeyError(f"No {new_key} or legacy swd key in record")
+
+
 # ==============================================================================
 # Figure 1: Samples grid (datasets x methods)
 #   MeanFlow & VaMF-L2 from 200k/; VaMF-TW from 200k_t2/
@@ -284,7 +294,10 @@ def plot_training_curves(
             if hist is None:
                 continue
             steps = np.array([h["step"] for h in hist]) / 1000
-            key = "swd" if "swd" in hist[0] else "raw_loss"
+            try:
+                key = _swd_key(hist[0], p=1)
+            except KeyError:
+                key = "raw_loss"
             values = np.array([h[key] for h in hist])
             smoothed = _smooth(values, window=7)
 
@@ -345,7 +358,7 @@ def plot_swiss_roll_stability(
         if hist is None:
             continue
         steps = np.array([h["step"] for h in hist]) / 1000
-        swds = np.array([h["swd"] for h in hist])
+        swds = np.array([h[_swd_key(h, p=1)] for h in hist])
         smoothed = _smooth(swds, window=7)
 
         ax.plot(
@@ -407,7 +420,7 @@ def plot_dgmm_scaling(
             )
             if hist is None:
                 continue
-            swds = np.array([h["swd"] for h in hist])
+            swds = np.array([h[_swd_key(h, p=1)] for h in hist])
             steps = np.array([h["step"] for h in hist])
             best_swds.append(float(swds.min()))
             dims_data.append(d)
@@ -462,7 +475,7 @@ def plot_dgmm_scaling(
             )
             if hist is None:
                 continue
-            swds = np.array([h["swd"] for h in hist])
+            swds = np.array([h[_swd_key(h, p=1)] for h in hist])
             steps = np.array([h["step"] for h in hist])
             best_swds.append(float(swds.min()))
             dims_data.append(d)
