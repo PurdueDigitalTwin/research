@@ -239,10 +239,10 @@ We derive the adaptive weight using the Gauss-Markov Theorem. In OT-CFM, we argu
 To address these pathologies, we propose to use isotropic-noise approximation $\Sigma_{\vv'}\!\approx\!\sigma_{t}^{2}\mI_{d}$. Because $\Tr(\mJ\Sigma_{\vv'}\mJ^{\!\top})\!=\!\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top})$, we define the per-sample \textit{trace weight}
 
 \begin{equation}
-    w(\vx_{t},r,t)\;:=\;\frac{d}{1+\sigma_{t}^{2}\,\texttt{sg}\!\left[\Tr(\mJ\mJ^{\!\top})\right]}\,,
+    w(\vx_{t},r,t)\;:=\;\frac{1}{1+\sigma_{t}^{2}\,\texttt{sg}\!\left[\Tr(\mJ\mJ^{\!\top})\right]/d}\;=\;\frac{d}{d+\sigma_{t}^{2}\,\texttt{sg}\!\left[\Tr(\mJ\mJ^{\!\top})\right]},
     \label{eq: trace-weight}
 \end{equation}
-where $d$ is the data dimensionality.
+where $d$ is the data dimensionality. \Cref{appx: blue-scalar} derives this form as a Tikhonov-regularized BLUE-scalar approximation under $\Sigma_{\vv'}\!\approx\!\sigma_{t}^{2}\mI_{d}$, in which the additive $d$ caps the per-sample noise contribution at the data dimensionality.
 % The additive $1$ provides the numerical stability that the BLUE inverse lacks: $w\!\to\!1$ as $\mJ\!\to\!\bm{0}$ (low curvature, no reweighting) and $w\!\to\!d/(\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top}))$ as the curvature term dominates (recovering the proportionality of the BLUE-scalar limit). The stop-gradient on $\Tr(\mJ\mJ^{\!\top})$ ensures the weight does not contribute to the parameter update, so $w$ acts purely as a per-sample reweighting.
 Still, the direct evaluation of $\Tr(\mJ\mJ^{\!\top})$ requires $d$ Jacobian-vector products and is intractable for high-dimensional data. We instead use a single Rademacher probe $\vz\!\sim\!\gN(\bm{0},\mI_{d})$ and the unbiased Hutchinson's estimator~\cite{hutchinson1989stochastic}
 \begin{equation}
@@ -251,7 +251,7 @@ Still, the direct evaluation of $\Tr(\mJ\mJ^{\!\top})$ requires $d$ Jacobian-vec
 \end{equation}
 which costs a single JVP per step. Multiple probes can be averaged when extra accuracy is needed. We find $K=1$ is sufficient for our experiment with DiT on ImageNet dataset.
 
-In addition, the scalar $\sigma_{t}$ in~\eqref{eq: trace-weight} is the \textit{time-dependent} standard-deviation scale of the isotropic-noise approximation $\Sigma_{\vv'}\!\approx\!\sigma_{t}^{2}\mI_{d}$; the actual conditional-velocity variance depends on $\pdata$ and is generally not closed-form. Under the tractable Laplacian approximation $\vx_{0}\!\sim\!\gN(\bm{0},\sigma_{d}^{2}\mI_{d})$, we use conjugate-Gaussian inference to derive
+In addition, the scalar $\sigma_{t}$ in~\eqref{eq: trace-weight} is the \textit{time-dependent} standard-deviation scale of the isotropic-noise approximation $\Sigma_{\vv'}\!\approx\!\sigma_{t}^{2}\mI_{d}$; the actual conditional-velocity variance depends on $\pdata$ and is generally not closed-form. Under Laplace's approximation $\pdata\!\approx\!\gN(\bm{0},\sigma_{d}^{2}\mI_{d})$~\cite{tierney1986accurate,mackay1992practical}, we use conjugate-Gaussian inference to derive
 \begin{equation}
     \Sigma_{\vv'}(\vx_{t},t)
     \;=\;\frac{\sigma_{d}^{2}}{\sigma_{d}^{2}(1-t)^{2}+t^{2}}\,\mI_{d},

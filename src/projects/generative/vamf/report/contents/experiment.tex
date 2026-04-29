@@ -1,7 +1,7 @@
 \section{Experiments}
 \label{sec: experiment}
 
-We evaluate VaMF on three fronts: \textbf{(i)} a 2-D toy benchmark spanning four standard distributions, where we measure both sliced Wasserstein-$1$ and the variance-amplification diagnostics that motivate the trace weight; \textbf{(ii)} a high-dimensional dense-Gaussian-mixture (DGMM) scaling study in which we sweep the data dimensionality from $d{=}2$ up to $d{=}64$; and \textbf{(iii)} a class-conditional latent-space training of DiT-B/4 on ImageNet-256$\times$256 against the matched baseline MeanFlow recipe of~\cite{geng2025meanflowsonestepgenerative}. \Cref{subsec: exp-ablation} ablates the trace-weight component and the schedule $\sigma_t$ in~\eqref{eq: trace-weight}. All toy and DGMM experiments use a $3$-layer MLP with $128$ hidden units, $200{,}000$ optimization steps, and three random seeds $\{42,0,1\}$; the DiT experiment uses a single seed and $300{,}000$ steps, matching the official recipe of~\cite{geng2025meanflowsonestepgenerative}. Code, configurations, and result JSONs are released with the paper.
+We evaluate VaMF on two fronts: \textbf{(i)} a 2-D toy benchmark spanning four standard distributions, where we measure both sliced Wasserstein-$1$ and the variance-amplification diagnostics that motivate the trace weight, and \textbf{(ii)} a high-dimensional dense-Gaussian-mixture (DGMM) scaling study in which we sweep the data dimensionality from $d{=}2$ up to $d{=}64$. \Cref{subsec: exp-ablation} ablates the trace-weight component and the schedule $\sigma_t$ in~\eqref{eq: trace-weight}; a class-conditional DiT-B/4 latent-space scale-up on ImageNet-$256$ is reported in~\Cref{appx: dit-results}. All toy and DGMM experiments use a $3$-layer MLP with $128$ hidden units, $200{,}000$ optimization steps, and three random seeds $\{42,0,1\}$. Code, configurations, and result JSONs are released with the paper.
 
 \subsection{Variance Amplification and the Trace Term}
 \label{subsec: exp-diagnostic}
@@ -72,7 +72,7 @@ We sweep the data dimensionality on the dense Gaussian mixture (DGMM) defined in
 \subsection{Ablation Studies}
 \label{subsec: exp-ablation}
 
-\paragraph{Component ablation: is the trace weight load-bearing?} VaMF-L$_2$ keeps the EMA tangent and FM anchor (\Cref{subsubsec: v-anchor,subsubsec: va-obj}) but drops the trace weight; comparing it against vanilla MeanFlow and VaMF-TW isolates the contribution of the curvature-aware reweighting (\Cref{subsubsec: trace-weight}). On the toy benchmark, VaMF-L$_2$ recovers a partial improvement over MeanFlow but trails VaMF-TW on every dataset (\Cref{tab: ablation-component}); the gap is largest on \texttt{checkerboard} ($-19\%$ trace weight vs MeanFlow, $-6\%$ for VaMF-L$_2$) and \texttt{two\_moons} ($-22\%$ vs $-6\%$). The same picture appears dynamically in \Cref{fig: swiss-roll-stability}: vanilla MeanFlow plateaus with persistent high-frequency oscillations driven by the gradient variance of~\cref{thm: jacobi-variance}; VaMF-L$_2$ converges smoothly but to a higher steady-state SW$_1$ than VaMF-TW. The trace weight is the load-bearing piece.
+\paragraph{Component ablation: is the trace weight load-bearing?} VaMF-L$_2$ keeps the EMA tangent and FM anchor (\Cref{subsubsec: v-anchor,subsubsec: va-obj}) but drops the trace weight; comparing it against vanilla MeanFlow and VaMF-TW isolates the contribution of the curvature-aware reweighting (\Cref{subsubsec: trace-weight}). On the toy benchmark, VaMF-L$_2$ recovers a partial improvement over MeanFlow but trails VaMF-TW on every dataset (\Cref{tab: ablation-component}); the gap is largest on \texttt{checkerboard} ($-19\%$ trace weight vs MeanFlow, $-6\%$ for VaMF-L$_2$) and \texttt{two\_moons} ($-22\%$ vs $-6\%$). The same picture appears dynamically in \Cref{fig: convergence-stability}: vanilla MeanFlow plateaus with persistent high-frequency oscillations driven by the gradient variance of~\cref{thm: jacobi-variance}; VaMF-L$_2$ converges smoothly but to a higher steady-state SW$_1$ than VaMF-TW on every dataset. The trace weight is the load-bearing piece.
 
 \begin{table}[t]
     \centering
@@ -91,17 +91,17 @@ We sweep the data dimensionality on the dense Gaussian mixture (DGMM) defined in
 
 \begin{figure}[t]
     \centering
-    \includegraphics[width=0.85\textwidth]{assets/figures/toy_swiss_roll_stability.pdf}
-    \caption{Convergence stability on \texttt{swiss\_roll}: SW$_1$ vs training step (smoothed). Vanilla MeanFlow plateaus at high SW$_1$ with persistent oscillations driven by the per-step gradient variance of~\cref{thm: jacobi-variance}; VaMF-L$_2$ converges smoothly but to a higher floor than VaMF-TW with $\sigma_t\!=\!1$.}
-    \label{fig: swiss-roll-stability}
+    \includegraphics[width=\textwidth]{assets/figures/toy_training_curves.pdf}
+    \caption{Convergence stability across the 2-D toy benchmark: SW$_1$ vs training step (smoothed) for each dataset. Vanilla MeanFlow plateaus with persistent high-frequency oscillations driven by the per-step gradient variance of~\cref{thm: jacobi-variance}; VaMF-L$_2$ converges smoothly but to a higher floor than VaMF-TW with $\sigma_t\!=\!1$, and the gap between VaMF-L$_2$ and VaMF-TW is what the trace weight contributes.}
+    \label{fig: convergence-stability}
 \end{figure}
 
-\paragraph{Schedule sweep on toy benchmark.} \Cref{fig: toy-sigma-sweep} compares the five $\sigma_{t}$ schedules of~\Cref{appx: sigma-schedule}---\textsc{none} ($\sigma_t\!=\!1$), $\sigma_t\!=\!t$, $\sigma_t\!=\!t^{2}$, the U-shape $\sigma_t\!=\!\sqrt{t(1{-}t)}$, and the Gaussian-data BLUE---across the four toy datasets. The bare BLUE-scalar form $\sigma_t\!=\!1$ delivers the best mean SW$_1$ ($0.084$) and ties the U-shape on \texttt{swiss\_roll}; the monotone schedules ($\sigma_t\!=\!t$, $\sigma_t\!=\!t^{2}$) trail by $4{-}6\%$, and the Gaussian-data \textsc{blue-gauss} schedule is consistently worst (the data here is mode-mixed, not isotropic Gaussian). We therefore adopt $\sigma_t\!=\!1$ as the default for all toy and DiT experiments.
+\paragraph{Schedule sweep on toy benchmark.} \Cref{fig: toy-sigma-sweep} compares the five $\sigma_{t}$ schedules of~\Cref{appx: sigma-schedule}---\textsc{none} ($\sigma_t\!=\!1$), $\sigma_t\!=\!t$, $\sigma_t\!=\!t^{2}$, the U-shape $\sigma_t\!=\!\sqrt{t(1{-}t)}$, and the BLUE under Laplace's approximation of $\pdata$---across the four toy datasets. The bare BLUE-scalar form $\sigma_t\!=\!1$ delivers the best mean SW$_1$ ($0.084$) and ties the U-shape on \texttt{swiss\_roll}; the monotone schedules ($\sigma_t\!=\!t$, $\sigma_t\!=\!t^{2}$) trail by $4{-}6\%$, and the \textsc{blue-gauss} schedule is consistently worst (the data here is multimodal, so the unimodal-Gaussian Laplace approximation is loose). We therefore adopt $\sigma_t\!=\!1$ as the default for all toy and DiT experiments.
 
 \begin{figure}[t]
     \centering
     \includegraphics[width=0.85\textwidth]{assets/figures/toy_sigma_sweep.pdf}
-    \caption{$\sigma_{t}$ schedule sweep on the 2-D toy benchmark (mean SW$_1$ over 3 seeds, error bars $\pm 1$ standard error). The bare BLUE-scalar $\sigma_t\!=\!1$ has the best per-dataset average and is parameter-free, motivating its choice as the VaMF-TW default. \textsc{blue-gauss} underperforms because the toy data is mode-mixed rather than isotropic Gaussian.}
+    \caption{$\sigma_{t}$ schedule sweep on the 2-D toy benchmark (mean SW$_1$ over 3 seeds, error bars $\pm 1$ standard error). The bare BLUE-scalar $\sigma_t\!=\!1$ has the best per-dataset average and is parameter-free, motivating its choice as the VaMF-TW default. \textsc{blue-gauss} underperforms because the toy data is multimodal, so the unimodal-Gaussian Laplace approximation of $\pdata$ is loose.}
     \label{fig: toy-sigma-sweep}
 \end{figure}
 
@@ -122,32 +122,7 @@ We sweep the data dimensionality on the dense Gaussian mixture (DGMM) defined in
     \end{tabular}
 \end{table}
 
-\subsection{Latent-Space Training of DiT-B/4 on ImageNet-256}
-\label{subsec: exp-dit}
-
-We test whether the curvature-variance principle scales beyond toys by training DiT-B/4~\cite{peebles2023scalablediffusion} on ImageNet-$256\!\times\!256$ in the latent space of a frozen Stable Diffusion VAE, following the recipe of~\cite{geng2025meanflowsonestepgenerative} (logit-normal $(r,t)$ sampling with mean $-0.4$ and stddev $1$, overlap rate $0.75$, AdamW with constant learning rate $10^{-4}$, EMA decay $0.9999$, batch size $256$ across $32$ TPU v4 chips, $300{,}000$ steps). Both runs share identical hyperparameters and code paths; only the loss differs (vanilla MeanFlow MSE versus the trace-weighted MSE in~\eqref{eq: vamf-obj} with $\sigma_t\!=\!1$, the toy-sweep winner of~\Cref{fig: toy-sigma-sweep}, and a single Hutchinson probe).
-
-The single-probe Hutchinson estimator adds approximately one additional JVP per step, which we measure as a $\sim\!22\%$ wall-clock overhead on TPU v4 ($2.20$ steps/s for VaMF-TW versus $2.65$ steps/s for the baseline). At identical optimizer step counts, VaMF-TW maintains a small but consistently lower per-sample loss than the baseline beyond $\sim\!20{,}000$ steps. The matched-step loss comparison in \Cref{tab: dit-loss} (baseline run \texttt{fidpdet7} and VaMF-TW run \texttt{ymxp1xfg} on Weights\&Biases) reflects the latest snapshot before submission; the VaMF-TW run is on track to complete the full $300{,}000$ steps shortly after the abstract deadline.
-
-\begin{table}[t]
-    \centering
-    \caption{Matched-step training-loss comparison on the DiT-B/4 ImageNet-$256$ latent run. Each cell averages the per-step training MSE over the $30$ logged points immediately preceding the listed step. Negative deltas indicate VaMF-TW is lower; the trace weight provides a small but consistent improvement once it becomes load-bearing past step $\sim\!20$k.}
-    \label{tab: dit-loss}
-    \begin{tabular}{rrrr}
-        \toprule
-        Step & MeanFlow (\texttt{fidpdet7}) & VaMF-TW (\texttt{ymxp1xfg}) & $\Delta$ \\
-        \midrule
-        $10{,}000$ & $3{,}718$ & $3{,}736$ & $+0.5\%$ \\
-        $20{,}000$ & $3{,}827$ & $3{,}759$ & $-1.8\%$ \\
-        $30{,}000$ & $3{,}888$ & $3{,}884$ & $-0.1\%$ \\
-        $35{,}500$ & $3{,}953$ & $3{,}885$ & $-1.7\%$ \\
-        \bottomrule
-    \end{tabular}
-\end{table}
-
-\todo[inline]{Add the final FID$_{50\text{k}}$ comparison at $300$k once the VaMF-TW DiT run finishes with the corrected $\sigma_t$ schedule. The toy and DGMM tables and the teaser figure are final; only the DiT FID row needs updating.}
-
 \subsection{Discussion}
 \label{subsec: exp-discussion}
 
-The toy and DGMM experiments are direct empirical instances of the curvature-variance principle: VaMF-TW dominates exactly where the trace term $\Tr(\mJ\mJ^{\!\top})$ is large enough to matter (high-curvature regions of swiss\_roll, high-$d$ DGMM, and the variance-amplified middle of the integration window in~\Cref{subsec: exp-diagnostic}), and reduces to the baseline behavior in low-curvature regimes (e.g.\ low-$d$ DGMM at $d{=}2$). The DiT-B/4 results confirm that the same mechanism transfers from $d{=}2$ toys to $d{=}4096$ image latents without architectural modification, and the $\sim\!22\%$ wall-clock overhead is a favorable trade for stable single-step training under a fixed compute budget.
+The toy and DGMM experiments are direct empirical instances of the curvature-variance principle: VaMF-TW dominates exactly where the trace term $\Tr(\mJ\mJ^{\!\top})$ is large enough to matter (high-curvature regions of swiss\_roll, high-$d$ DGMM, and the variance-amplified middle of the integration window in~\Cref{subsec: exp-diagnostic}), and reduces to the baseline behavior in low-curvature regimes (e.g.\ low-$d$ DGMM at $d{=}2$). The same mechanism transfers from $d{=}2$ toys to $d{=}4096$ image latents without architectural modification: a class-conditional DiT-B/4 / ImageNet-$256$ latent-space training shows VaMF-TW maintains a small but consistent training-loss improvement over the matched MeanFlow baseline at a $\sim\!22\%$ wall-clock overhead per step (\Cref{appx: dit-results}).
