@@ -9,6 +9,7 @@ ml_py_binary(
         "absl-py",
         "jax",
         "matplotlib",
+        ":_style",
     ],
 )
 

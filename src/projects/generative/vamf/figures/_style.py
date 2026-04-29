@@ -43,6 +43,13 @@ _PALETTES: typing.Dict[str, typing.Dict[str, typing.Any]] = {
         # --- shared neutrals ---
         "ref": "#888888",
         "baseline": "#7f7f7f",
+        # --- illustration roles (conditional-marginal gap figure) ---
+        "latent": "#1f77b4",
+        "data": "#d62728",
+        "path": "#777777",
+        "state": "#ff7f0e",
+        "top_curve": "#2ca02c",
+        "heatmap_cmap": "viridis",
         # --- methods (must align with plot_toy.METHOD_LABELS keys) ---
         "meanflow": "#1f77b4",
         "vamf_l2": "#ff7f0e",
@@ -72,6 +79,13 @@ _PALETTES: typing.Dict[str, typing.Dict[str, typing.Any]] = {
         "trace": "#b388eb",
         "ref": "#666666",
         "baseline": "#aaaaaa",
+        # --- illustration roles ---
+        "latent": "#a8d3e0",
+        "data": "#f1c6d1",
+        "path": "#9d9795",
+        "state": "#f4e0b0",
+        "top_curve": "#c9e5c6",
+        "heatmap_cmap": "magma",
         "meanflow": "#4cc9f0",
         "vamf_l2": "#ffb627",
         "vamf_tw": "#7ed957",
