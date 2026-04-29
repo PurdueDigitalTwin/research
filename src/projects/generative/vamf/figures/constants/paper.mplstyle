@@ -1,0 +1,99 @@
+# Camera-ready paper style for NeurIPS-class publications.
+#
+# Conservative serif typography on a white background, single-column-friendly
+# sizing (~3.3 in wide), modern open-spine look with a subtle grid. Color
+# cycle matches the tab10 palette already used by plot_toy.py.
+#
+# Usage (in a plotting script):
+#   from matplotlib import pyplot as plt
+#   plt.style.use(
+#       "src/projects/generative/vamf/figures/constants/paper.mplstyle"
+#   )
+#
+# To render math with LaTeX (recommended for camera-ready, requires a
+# working TeX install), override `text.usetex: True` after style.use.
+
+# --- Typography ---------------------------------------------------------------
+font.family       : serif
+font.serif        : STIX Two Text, DejaVu Serif, Liberation Serif, Times New Roman, serif
+font.size         : 9
+text.usetex       : False
+mathtext.fontset  : stix
+mathtext.default  : it
+pdf.fonttype      : 42
+ps.fonttype       : 42
+
+# --- Figure -------------------------------------------------------------------
+figure.facecolor  : ffffff
+figure.edgecolor  : ffffff
+figure.dpi        : 120
+figure.constrained_layout.use : False
+figure.autolayout : False
+
+# --- Axes ---------------------------------------------------------------------
+axes.facecolor    : ffffff
+axes.edgecolor    : 333333
+axes.labelcolor   : 000000
+axes.titlecolor   : 000000
+axes.linewidth    : 0.7
+axes.titlesize    : 9
+axes.titleweight  : normal
+axes.titlepad     : 4
+axes.labelsize    : 9
+axes.labelpad     : 2.5
+axes.spines.top   : False
+axes.spines.right : False
+axes.axisbelow    : True
+axes.prop_cycle   : cycler('color', ['1f77b4', 'ff7f0e', '2ca02c', 'd62728', '9467bd', '8c564b', 'e377c2', '7f7f7f', 'bcbd22', '17becf'])
+
+# --- Grid ---------------------------------------------------------------------
+axes.grid         : True
+grid.color        : dddddd
+grid.linestyle    : -
+grid.linewidth    : 0.4
+grid.alpha        : 0.6
+
+# --- Ticks --------------------------------------------------------------------
+xtick.color       : 333333
+xtick.labelsize   : 8
+xtick.direction   : out
+xtick.major.size  : 2.5
+xtick.major.width : 0.7
+xtick.minor.size  : 1.5
+xtick.minor.width : 0.5
+
+ytick.color       : 333333
+ytick.labelsize   : 8
+ytick.direction   : out
+ytick.major.size  : 2.5
+ytick.major.width : 0.7
+ytick.minor.size  : 1.5
+ytick.minor.width : 0.5
+
+# --- Lines, markers, patches --------------------------------------------------
+lines.linewidth       : 1.2
+lines.markersize      : 3.5
+lines.markeredgewidth : 0.5
+patch.linewidth       : 0.5
+patch.edgecolor       : 333333
+
+# --- Legend -------------------------------------------------------------------
+legend.fontsize      : 8
+legend.frameon       : True
+legend.framealpha    : 0.9
+legend.fancybox      : False
+legend.edgecolor     : cccccc
+legend.borderpad     : 0.4
+legend.handlelength  : 1.5
+legend.handletextpad : 0.4
+legend.columnspacing : 1.0
+legend.labelspacing  : 0.3
+
+# --- Saved output -------------------------------------------------------------
+savefig.dpi         : 300
+savefig.format      : pdf
+savefig.bbox        : tight
+savefig.pad_inches  : 0.02
+savefig.facecolor   : ffffff
+savefig.edgecolor   : ffffff
+savefig.transparent : False

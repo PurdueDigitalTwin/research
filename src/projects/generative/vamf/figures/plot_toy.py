@@ -4,24 +4,18 @@ import typing
 
 from absl import app
 from absl import flags
-import matplotlib
 from matplotlib import axes as mpl_axes
 from matplotlib import pyplot as plt
 import numpy as np
 
-matplotlib.rcParams.update(
-    {
-        "font.size": 10,
-        "font.family": "serif",
-        "text.usetex": False,
-        "axes.labelsize": 11,
-        "legend.fontsize": 9,
-        "xtick.labelsize": 9,
-        "ytick.labelsize": 9,
-        "figure.dpi": 150,
-        "savefig.dpi": 300,
-        "savefig.bbox": "tight",
-    }
+# Camera-ready NeurIPS-class style. Resolved relative to this file so the
+# script works regardless of the caller's cwd.
+plt.style.use(
+    os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "constants",
+        "paper.mplstyle",
+    )
 )
 
 # ==============================================================================
