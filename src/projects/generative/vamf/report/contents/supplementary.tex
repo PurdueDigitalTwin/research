@@ -70,6 +70,14 @@
 
     \subsection{Proof of~\Cref{thm: jacobi-variance} (Jacobian Variance Amplification)}
 
+    \begin{theorem}[Jacobian Variance Amplification]
+        The Jacobi factor amplifies the gradient variance of the original MeanFlow loss:
+        \begin{equation*}
+            \boxed{\Var\!\left[\nabla_{\vtheta}\ell_{\text{MF}}(\vtheta)\mid\vx_{t}\right]\;\propto\;\Tr\!\left(\mJ\,\Sigma_{\vv'}\,\mJ^{\!\top}\right).}
+        \end{equation*}
+        \label[theorem]{thm: jacobi-variance}
+    \end{theorem}
+
     \begin{proof}
         Under the stop-gradient operator, the compound prediction $V_{\vtheta}^{\texttt{sg}}$ depends on $\vtheta$ only through $\vu_{\vtheta}(\vx_{t},r,t)$. Let $\nabla_{\vtheta}\vu_{\vtheta}\in\mathbb{R}^{d\times p}$ denote the parameter Jacobian of the network output. The per-step gradient is
         \begin{equation}
@@ -92,7 +100,18 @@
         where $\mG_{\vtheta}=(\nabla_{\vtheta}\vu_{\vtheta})(\nabla_{\vtheta}\vu_{\vtheta})^{\!\top}\in\mathbb{R}^{d\times d}$ is the parameter-space Gram matrix and the last step uses $\mG_{\vtheta}\succeq\bm{0}$ to establish proportionality via the cyclic property of the trace.
     \end{proof}
 
-    \subsection{Proof of Semi-Gradient Gap}
+    \subsection{Proof of~\Cref{thm: semi-gradient-gap} (Semi-Gradient Gap)}
+
+    \begin{theorem}[Semi-Gradient Gap]
+        The gradients of the MeanFlow loss with and without the stop-gradient operator differ by
+        \begin{equation*}
+            \boxed{
+                \underbrace{2(t{-}r)\,\E_{r,t,\vx_{0},\vx_{1}}\!\left[\nabla_{\vtheta}\!\left(\partial_{\vx_{t}}\vu_{\vtheta}\!\cdot\!\vv(\vx_{t},t)+\partial_{t}\vu_{\vtheta}\right)\!\cdot\!\vr_{\vtheta}\right]}_{\text{mean-field gradient difference}}
+                +\underbrace{\E_{r,t,\vx_{0},\vx_{1}}\!\left[\nabla_{\vtheta}\Tr\!\left(\mJ\,\Sigma_{\vv'}\,\mJ^{\!\top}\right)\right]}_{\text{variance-driven gradient difference}}.
+            }
+        \end{equation*}
+        \label[theorem]{thm: semi-gradient-gap}
+    \end{theorem}
 
     \begin{proof}
         The MeanFlow loss conditioned on $\vx_{t}$ decomposes as (cf.~\eqref{eq: expanded-mf-loss}):
@@ -119,6 +138,15 @@
 
     \subsection{Proof of~\Cref{thm: material-derivative-expansion} (Flow Acceleration Expansion)}
 
+    \begin{theorem}[Flow Acceleration Expansion of the Curvature Gap]
+        Let $\vv(\vx,t)\!\in\!C^{2}$ be twice continuously differentiable. The curvature gap admits a Taylor expansion at $(\vx_{t},t)$ along the flow:
+        \begin{equation*}
+            \Delta(\vx_{t},r,t)\;=\;-\frac{(t{-}r)}{2}\frac{\mathrm{D}\vv}{\mathrm{D}t}(\vx_{t},t)+\gR_{2}(\vx_{t},r,t),
+        \end{equation*}
+        where $\frac{\mathrm{D}\vv}{\mathrm{D}t}(\vx,t)\!\triangleq\!\partial_{t}\vv(\vx,t)+(\nabla_{\vx}\vv(\vx,t))\,\vv(\vx,t)$ is the material derivative (\textit{a.k.a.\ flow acceleration}) and $\gR_{2}\!=\!\gO((t{-}r)^{2})$ is the second-order remainder.
+        \label[theorem]{thm: material-derivative-expansion}
+    \end{theorem}
+
     \begin{proof}
         Let $\vx_{\tau}$ solve the ODE $\frac{\mathrm{d}\vx_{\tau}}{\mathrm{d}\tau}=\vv(\vx_{\tau},\tau)$ with terminal condition $\vx_{t}=\vx_{t}$. The curvature gap $\Delta=\vu(\vx_{t},r,t)-\vv(\vx_{t},t)$ can be written as:
         \begin{equation}
@@ -138,7 +166,16 @@
         where $\gR_{3}=O((t-r)^{3})$ is the remainder.
     \end{proof}
 
-    \subsection{Proof of~\Cref{prop: vamf-grad} (Gradient of VA-MF Loss)}
+    \subsection{Proof of~\Cref{prop: vamf-grad} (Gradient of VaMF Loss)}
+
+    \begin{proposition}[Gradient of VaMF Loss]
+        The gradient of $\gL_{\text{MF}}^{\text{EMA}}$ takes the form
+        \begin{equation*}
+            \nabla_{\vtheta}\gL_{\text{MF}}^{\text{EMA}}\;=\;2\,\E\!\left[\nabla_{\vtheta}\vu_{\vtheta}(\vx_{t},r,t)\cdot\tilde{\vr}^{\text{EMA}}\right],
+        \end{equation*}
+        where $\tilde{\vr}^{\text{EMA}}\!:=\!V_{\vtheta}^{\text{EMA}}\!-\!\vv(\vx_{t},t)$ is the mean-field residual under the EMA tangent, and no $\mJ\vv'$ noise term appears.
+        \label[proposition]{prop: vamf-grad}
+    \end{proposition}
 
     \begin{proof}
         The EMA velocity anchor $\vu_{\bar{\vtheta}}(\vx_{t},t,t)$ is deterministic given $\vx_{t}$, since the EMA parameters $\bar{\vtheta}$ are fixed during the gradient step. Under stop-gradient, $V_{\vtheta}^{\text{EMA}}$ depends on $\vtheta$ only through $\vu_{\vtheta}(\vx_{t},r,t)$. By the same argument as~\eqref{eq: per-step-grad}, the per-step gradient is:
@@ -153,6 +190,15 @@
     \end{proof}
 
     \subsection{Proof of~\Cref{prop: bias-var} (Bias-Variance Tradeoff)}
+
+    \begin{proposition}[Bias-Variance Tradeoff]
+        The EMA mean-field residual decomposes as
+        \begin{equation*}
+            \tilde{\vr}^{\text{EMA}}\;=\;\vr_{\vtheta}\;+\;(t{-}r)\,\partial_{\vz}\vu_{\vtheta}\!\left(\vu_{\bar{\vtheta}}(\vx_{t},t,t)-\vv(\vx_{t},t)\right),
+        \end{equation*}
+        where $\vr_{\vtheta}$ is the true MeanFlow residual from~\eqref{eq: expanded-mf-loss}. At convergence, $\vr_{\vtheta}\!\to\!\bm{0}$ and the FM anchor drives $\vu_{\bar{\vtheta}}(\vx_{t},t,t)\!\to\!\vv(\vx_{t},t)$, giving $\tilde{\vr}^{\text{EMA}}\!\to\!\bm{0}$.
+        \label[proposition]{prop: bias-var}
+    \end{proposition}
 
     \begin{proof}
         Expanding $V_{\vtheta}^{\text{EMA}}$ from~\eqref{eq: ema-mf-loss}, the value of the compound prediction (ignoring the stop-gradient, which does not affect values) is:
@@ -176,7 +222,7 @@
 
     Before proving~\Cref{prop: trace-weight}, we derive the trace-weight formula~\eqref{eq: trace-weight} as a regularized BLUE-scalar approximation under the isotropic-noise model.
 
-    \paragraph{Setup.} Under the EMA tangent (\ref{dp: var}), \cref{prop: vamf-grad} and the Reynolds decomposition imply that the per-sample loss conditioned on $\vx_{t}$ admits the noise-decomposition
+    \paragraph{Setup.} Under the EMA tangent (\Cref{subsubsec: v-anchor}), \cref{prop: vamf-grad} and the Reynolds decomposition imply that the per-sample loss conditioned on $\vx_{t}$ admits the noise-decomposition
     \begin{equation}
         \E_{\vx_{0}\mid\vx_{t}}\!\left[\bigl\|V_{\vtheta}^{\text{EMA}}-\vv_{\text{cond}}\bigr\|_{2}^{2}\right]
         \;=\;\underbrace{\bigl\|\tilde{\vr}^{\text{EMA}}\bigr\|_{2}^{2}}_{\text{deterministic signal}}
@@ -219,8 +265,16 @@
 
     \subsection{Proof of~\Cref{prop: trace-weight} (Trace-Weight Properties)}
 
+    \begin{proposition}[Trace-Weight Properties]
+        Under the trace-weight loss~\eqref{eq: vamf-obj} and the isotropic approximation $\Sigma_{\vv'}\!\approx\!\sigma_{t}^{2}\mI_{d}$:
+        \textbf{(a)} the mean-parameter gradient is the trace-weighted form of~\cref{prop: vamf-grad} with $w$ as a stop-gradient scalar, so the BLUE-style normalization does not enter the parameter update;
+        \textbf{(b)} the expected per-sample contribution to the loss decomposes into a deterministic signal $w\,\|\tilde{\vr}^{\text{EMA}}\|_{2}^{2}$ and a constant noise floor $w\,\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top})\!=\!d\,\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top})/(d+\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top}))\!\le\!d$, eliminating the unbounded curvature growth from~\cref{thm: jacobi-variance};
+        \textbf{(c)} $w$ is monotonically decreasing in $\Tr(\mJ\mJ^{\!\top})$ and, by~\cref{thm: material-derivative-expansion}, in $(t{-}r)^{2}\|\frac{\mathrm{D}\vv}{\mathrm{D}t}\|^{2}$, so high-curvature long-interval samples are automatically downweighted---subsuming inverse-variance weighting, progressive scheduling, and acceleration-aware interval sampling in a single per-sample scalar.
+        \label[proposition]{prop: trace-weight}
+    \end{proposition}
+
     \begin{proof}
-        \textbf{(a) Gradient form.} The trace weight $w$ in~\eqref{eq: trace-weight} is wrapped in a stop-gradient operator on $\Tr(\mJ\mJ^{\!\top})$, so $\nabla_{\vtheta}w\!=\!0$ and $w$ acts as a fixed scalar multiplier. Differentiating the trace-weighted MSE in~\eqref{eq: vamf-tw-loss} therefore gives
+        \textbf{(a) Gradient form.} The trace weight $w$ in~\eqref{eq: trace-weight} is wrapped in a stop-gradient operator on $\Tr(\mJ\mJ^{\!\top})$, so $\nabla_{\vtheta}w\!=\!0$ and $w$ acts as a fixed scalar multiplier. Differentiating the trace-weighted MSE in~\eqref{eq: vamf-obj} therefore gives
         \begin{equation}
             \nabla_{\vtheta}\gL_{\text{VaMF}}^{\text{MF}}\;=\;2\,\E\!\left[w\,(\nabla_{\vtheta}\vu_{\vtheta})^{\!\top}\,\tilde{\vr}^{\text{EMA}}\right]\!,
         \end{equation}
@@ -236,7 +290,7 @@
         \end{equation}
         with equality only in the limit $\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top})\!\to\!\infty$. The trace weight thus caps the noise term at the data dimensionality, eliminating the unbounded curvature growth from~\cref{thm: jacobi-variance}.
 
-        \textbf{(c) Curvature-aware downweighting.} The map $w(\xi)\!=\!1/(1+\sigma_{t}^{2}\xi/d)$ is strictly decreasing in $\xi\!=\!\Tr(\mJ\mJ^{\!\top})\!\ge\!0$. By~\cref{thm: material-derivative-expansion} and the Reynolds decomposition, $\E[\Tr(\mJ\mJ^{\!\top})]$ scales with $(t{-}r)^{2}\|\frac{\mathrm{D}\vv}{\mathrm{D}t}\|^{2}$ to leading order, so $w$ shrinks on the same factor and high-curvature long-interval samples are automatically downweighted---realizing the curvature-aware schedule prescribed by~\ref{dp: weight} in a single per-sample scalar without requiring an explicit progressive schedule or interval-importance sampling.
+        \textbf{(c) Curvature-aware downweighting.} The map $w(\xi)\!=\!1/(1+\sigma_{t}^{2}\xi/d)$ is strictly decreasing in $\xi\!=\!\Tr(\mJ\mJ^{\!\top})\!\ge\!0$. By~\cref{thm: material-derivative-expansion} and the Reynolds decomposition, $\E[\Tr(\mJ\mJ^{\!\top})]$ scales with $(t{-}r)^{2}\|\frac{\mathrm{D}\vv}{\mathrm{D}t}\|^{2}$ to leading order, so $w$ shrinks on the same factor and high-curvature long-interval samples are automatically downweighted---realizing the curvature-aware schedule prescribed in~\Cref{subsubsec: trace-weight} in a single per-sample scalar without requiring an explicit progressive schedule or interval-importance sampling.
     \end{proof}
 
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -259,7 +313,7 @@
     \end{proposition}
 
     \begin{proof}
-        \textbf{Step 1: noise floor and curvature gap.} Under the EMA tangent (\ref{dp: var}) and at convergence, \cref{prop: bias-var} gives $\tilde{\vr}^{\text{EMA}}\!\approx\!\bm{0}$, so the per-sample loss reduces to its noise floor $\Tr(\mJ\Sigma_{\vv'}\mJ^{\!\top})$ (cf.~\eqref{eq: blue-decomp}). Substituting the Reynolds-residual expansion $\vr_{\vtheta}^{\texttt{sg}}\!=\!\Delta+(t-r)\frac{\mathrm{d}}{\mathrm{d}t}\vu_{\vtheta}$ from~\Cref{subsec: mf-bias-vars} and using the MeanFlow identity $(t-r)\frac{\mathrm{d}}{\mathrm{d}t}\vu\!=\!-\Delta$ gives the per-sample noise floor $\bigl\|\mJ\vv'\bigr\|_{2}^{2}$ at first order; taking expectations and applying the trace identity yields
+        \textbf{Step 1: noise floor and curvature gap.} Under the EMA tangent (\Cref{subsubsec: v-anchor}) and at convergence, \cref{prop: bias-var} gives $\tilde{\vr}^{\text{EMA}}\!\approx\!\bm{0}$, so the per-sample loss reduces to its noise floor $\Tr(\mJ\Sigma_{\vv'}\mJ^{\!\top})$ (cf.~\eqref{eq: blue-decomp}). Substituting the Reynolds-residual expansion $\vr_{\vtheta}^{\texttt{sg}}\!=\!\Delta+(t-r)\frac{\mathrm{d}}{\mathrm{d}t}\vu_{\vtheta}$ from~\Cref{subsec: mf-bias-vars} and using the MeanFlow identity $(t-r)\frac{\mathrm{d}}{\mathrm{d}t}\vu\!=\!-\Delta$ gives the per-sample noise floor $\bigl\|\mJ\vv'\bigr\|_{2}^{2}$ at first order; taking expectations and applying the trace identity yields
         \begin{equation}
             \E_{\vx_{0}\mid\vx_{t}}\!\bigl[\|\mJ\vv'\|_{2}^{2}\bigr]
             \;=\;\Tr\!\left(\mJ\,\Sigma_{\vv'}\,\mJ^{\!\top}\right)
