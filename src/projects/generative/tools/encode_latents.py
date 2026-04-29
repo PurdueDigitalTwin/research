@@ -9,8 +9,8 @@ Usage::
 
     bazelisk run --config=tpu \
         //src/projects/generative/tools:encode_latents -- \
-        --output_dir gs://pdt_training/juanwu/cache/imagenet-1k-latent \
-        --split train
+        --output_dir "$CACHE_DIR" \
+        --split "$SPLIT"
 """
 
 import functools
