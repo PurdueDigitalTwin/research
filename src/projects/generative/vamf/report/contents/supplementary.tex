@@ -1,0 +1,280 @@
+\newpage
+\appendix
+\setcounter{theorem}{0}
+\begin{appendices}
+    % 1. Start a new local contents list
+    \startcontents[appendices]
+
+    % 2. Print the local table of contents (only for what follows)
+    \printcontents[appendices]{l}{1}{\setcounter{tocdepth}{2}}
+    \newpage
+
+    \section{Notations}
+    \label[appendix]{appx: notation}
+    \Cref{tab: notation} lists all the notations we use in this work.
+    \begin{table}[!ht]
+        \caption{Table of Notations.}
+        \label{tab: notation}
+        \centering
+        \begin{tabular}{@{}ll@{}}
+            \toprule
+            \textbf{Notation}  &   \textbf{Description}   \\
+            \midrule
+            $\rvx$, $\rvx_{t}$  & Random variable / random variable at time $t$ \\
+            $\vx$, $\vx_{t}$ & Realized state / state at time $t$: $\vx_{t}=(1-t)\vx_{0}+t\vx_{1}$ \\
+            $\vv(\rvx,t)$ & Marginal velocity field \\
+            $\vv_{\text{cond}}$ & Conditional velocity: $\vv_{\text{cond}}=\vx_{1}-\vx_{0}$ \\
+            $\vv'$ & Velocity fluctuation: $\vv'=\vv_{\text{cond}}-\vv(\vx_{t},t)$, \; $\E_{\vx_{0}\mid\vx_{t}}[\vv']=\bm{0}$ \\
+            $\vu_{\vtheta}(\vx,r,t)$ & Learned average velocity field (two-parameter) \\
+            $\vu_{\bar{\vtheta}}$ & EMA average velocity with parameters $\bar{\vtheta}$ \\
+            $V_{\vtheta}^{\text{EMA}}$ & Compound prediction~\eqref{eq: ema-mf-loss} \\
+            $\mJ$ & Jacobi factor: $\mJ=(t-r)\partial_{\vz}\vu_{\vtheta}-\mI_{d}$ \\
+            $\Sigma_{\vv'}$ & Conditional velocity covariance: $\Cov_{\vx_{0}\mid\vx_{t}}[\vv']$ \\
+            $\sigma_{\vtheta}^{2}$ & Learned scalar variance output \\
+            $\frac{\mathrm{D}\vv}{\mathrm{D}t}$ & Material derivative (flow acceleration): $\partial_{t}\vv+(\nabla_{\vx}\vv)\vv$ \\
+            $\Delta(\vx_{t},r,t)$ & Curvature gap: $\vu(\vx_{t},r,t)-\vv(\vx_{t},t)$ \\
+            $\texttt{sg}[\cdot]$ & Stop-gradient operator \\
+            \bottomrule
+        \end{tabular}
+    \end{table}
+
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    \section{Derivation of Conditional-Marginal Velocity Relationship}
+    \label[appendix]{appx: first}
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+    We derive~\eqref{eq: margv-condv-relation}: $\vv(\rvx,t)=\E_{\rvx_{0}\sim p(\rvx_{0}\mid\rvx_{t}=\rvx)}\!\left[\vv(\rvx,t\mid\rvx_{0})\right]$.
+
+    \begin{proof}
+        The marginal velocity field generates the marginal density $p(\vx,t)$ via the continuity equation. By the law of total probability and the definition of the conditional velocity field:
+        \begin{equation}
+            p(\vx,t)\,\vv(\vx,t)=\int p(\vx,t\mid\vx_{0})\,\vv(\vx,t\mid\vx_{0})\,p(\vx_{0})\,\mathrm{d}\vx_{0},
+        \end{equation}
+        since both sides satisfy the continuity equation and generate the same marginal path $p(\vx,t)$. Dividing by $p(\vx,t)=\int p(\vx,t\mid\vx_{0})\,p(\vx_{0})\,\mathrm{d}\vx_{0}$ and applying Bayes' rule $p(\vx_{0}\mid\vx_{t}=\vx)=p(\vx,t\mid\vx_{0})\,p(\vx_{0})/p(\vx,t)$:
+        \begin{equation}
+            \vv(\vx,t)=\int\vv(\vx,t\mid\vx_{0})\,p(\vx_{0}\mid\vx_{t}=\vx)\,\mathrm{d}\vx_{0}=\E_{\rvx_{0}\mid\rvx_{t}=\vx}\!\left[\vv(\vx,t\mid\rvx_{0})\right].
+        \end{equation}
+    \end{proof}
+
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    \section{Proofs of Main Results}
+    \label[appendix]{appx: theorem-proof}
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+    \subsection{Proof of~\Cref{thm: jacobi-variance} (Jacobian Variance Amplification)}
+
+    \begin{proof}
+        Under the stop-gradient operator, the compound prediction $V_{\vtheta}^{\texttt{sg}}$ depends on $\vtheta$ only through $\vu_{\vtheta}(\vx_{t},r,t)$. Let $\nabla_{\vtheta}\vu_{\vtheta}\in\mathbb{R}^{d\times p}$ denote the parameter Jacobian of the network output. The per-step gradient is
+        \begin{equation}
+            \nabla_{\vtheta}\ell_{\text{MF}}=2\left(\nabla_{\vtheta}\vu_{\vtheta}\right)^{\!\top}\!\left(\vr_{\vtheta}^{\texttt{sg}}+\mJ\vv'\right),
+            \label{eq: per-step-grad}
+        \end{equation}
+        where $\vr_{\vtheta}^{\texttt{sg}}$ is the mean-field residual and $\mJ=(t-r)\partial_{\vz}\vu_{\vtheta}-\mI_{d}$ is the Jacobi factor. All three quantities---$\nabla_{\vtheta}\vu_{\vtheta}$, $\vr_{\vtheta}^{\texttt{sg}}$, and $\mJ$---are deterministic conditioned on $\vx_{t}$.
+
+        Since $\E_{\vx_{0}\mid\vx_{t}}[\vv']=\bm{0}$ by~\eqref{eq: margv-condv-relation}, the conditional mean gradient is:
+        \begin{equation}
+            \E\!\left[\nabla_{\vtheta}\ell\mid\vx_{t}\right]=2\left(\nabla_{\vtheta}\vu_{\vtheta}\right)^{\!\top}\vr_{\vtheta}^{\texttt{sg}}.
+        \end{equation}
+        The centered gradient is $\nabla_{\vtheta}\ell-\E[\nabla_{\vtheta}\ell\mid\vx_{t}]=2(\nabla_{\vtheta}\vu_{\vtheta})^{\!\top}\mJ\vv'$, so the conditional variance is:
+        \begin{align}
+            \Var\!\left[\nabla_{\vtheta}\ell\mid\vx_{t}\right]
+            &=\E\!\left[\left\|2(\nabla_{\vtheta}\vu_{\vtheta})^{\!\top}\mJ\vv'\right\|^{2}\mid\vx_{t}\right] \nonumber\\
+            &=4\,\E\!\left[(\vv')^{\!\top}\mJ^{\!\top}\underbrace{(\nabla_{\vtheta}\vu_{\vtheta})(\nabla_{\vtheta}\vu_{\vtheta})^{\!\top}}_{\mG_{\vtheta}\;\succeq\;\bm{0}}\mJ\vv'\;\middle|\;\vx_{t}\right] \nonumber\\
+            &=4\,\Tr\!\left(\mG_{\vtheta}\,\mJ\,\Sigma_{\vv'}\,\mJ^{\!\top}\right)\;\propto\;\Tr\!\left(\mJ\,\Sigma_{\vv'}\,\mJ^{\!\top}\right),
+        \end{align}
+        where $\mG_{\vtheta}=(\nabla_{\vtheta}\vu_{\vtheta})(\nabla_{\vtheta}\vu_{\vtheta})^{\!\top}\in\mathbb{R}^{d\times d}$ is the parameter-space Gram matrix and the last step uses $\mG_{\vtheta}\succeq\bm{0}$ to establish proportionality via the cyclic property of the trace.
+    \end{proof}
+
+    \subsection{Proof of Semi-Gradient Gap}
+
+    \begin{proof}
+        The MeanFlow loss conditioned on $\vx_{t}$ decomposes as (cf.~\eqref{eq: expanded-mf-loss}):
+        \begin{equation}
+            \E_{\vx_{0}\mid\vx_{t}}\!\left[\ell_{\text{MF}}\right]=\left\|\vr_{\vtheta}^{\texttt{sg}}\right\|^{2}+\Tr\!\left(\mJ\,\Sigma_{\vv'}\,\mJ^{\!\top}\right).
+            \label{eq: cond-loss-decomp}
+        \end{equation}
+        \textbf{Without stop-gradient.} Both terms depend on $\vtheta$ (through $\vu_{\vtheta}$ and $\partial_{\vz}\vu_{\vtheta}$), so the full gradient is:
+        \begin{equation}
+            \nabla_{\vtheta}\E\!\left[\ell\right]=\nabla_{\vtheta}\left\|\vr_{\vtheta}\right\|^{2}+\nabla_{\vtheta}\Tr\!\left(\mJ\,\Sigma_{\vv'}\,\mJ^{\!\top}\right).
+        \end{equation}
+        \textbf{With stop-gradient.} The JVP terms in $\vr_{\vtheta}^{\texttt{sg}}$ and $\mJ$ are treated as constants, so:
+        \begin{equation}
+            \nabla_{\vtheta}^{\texttt{sg}}\left\|\vr^{\texttt{sg}}\right\|^{2}=2\left(\nabla_{\vtheta}\vu_{\vtheta}\right)^{\!\top}\vr^{\texttt{sg}},\qquad
+            \nabla_{\vtheta}^{\texttt{sg}}\Tr\!\left(\mJ\,\Sigma_{\vv'}\,\mJ^{\!\top}\right)=\bm{0}.
+        \end{equation}
+        The gap between the full and stop-gradient gradients is therefore:
+        \begin{align}
+            &\nabla_{\vtheta}\E\!\left[\ell\right]-\nabla_{\vtheta}^{\texttt{sg}}\E\!\left[\ell\right] \nonumber\\
+            &\quad=\underbrace{\nabla_{\vtheta}\left\|\vr_{\vtheta}\right\|^{2}-2\left(\nabla_{\vtheta}\vu_{\vtheta}\right)^{\!\top}\vr^{\texttt{sg}}}_{\text{mean-field gradient difference}}+\underbrace{\nabla_{\vtheta}\Tr\!\left(\mJ\,\Sigma_{\vv'}\,\mJ^{\!\top}\right)}_{\text{variance-driven difference}}.
+        \end{align}
+        Expanding the first term: $\nabla_{\vtheta}\|\vr\|^{2}=2(\nabla_{\vtheta}\vr_{\vtheta})^{\!\top}\vr_{\vtheta}$, and $\nabla_{\vtheta}\vr_{\vtheta}$ includes the derivative of the JVP terms $(t-r)(\partial_{\vz}\vu_{\vtheta}\cdot\vv+\partial_{t}\vu_{\vtheta})$ w.r.t.\ $\vtheta$, yielding the second-order mean-field difference $2(t-r)\E[\nabla_{\vtheta}(\partial_{\vz}\vu_{\vtheta}\cdot\vv+\partial_{t}\vu_{\vtheta})\cdot\vr_{\vtheta}]$. At convergence $\vr_{\vtheta}\to\bm{0}$, this term vanishes, and the gap is dominated by the variance-driven term $\nabla_{\vtheta}\Tr(\mJ\,\Sigma_{\vv'}\,\mJ^{\!\top})$.
+    \end{proof}
+
+    \subsection{Proof of~\Cref{thm: material-derivative-expansion} (Flow Acceleration Expansion)}
+
+    \begin{proof}
+        Let $\vx_{\tau}$ solve the ODE $\frac{\mathrm{d}\vx_{\tau}}{\mathrm{d}\tau}=\vv(\vx_{\tau},\tau)$ with terminal condition $\vx_{t}=\vx_{t}$. The curvature gap $\Delta=\vu(\vx_{t},r,t)-\vv(\vx_{t},t)$ can be written as:
+        \begin{equation}
+            \Delta(\vx_{t},r,t)=\frac{1}{t-r}\int_{r}^{t}\!\vv(\vx_{\tau},\tau)\,\mathrm{d}\tau-\vv(\vx_{t},t)=\frac{1}{t-r}\int_{r}^{t}\!\left[\vv(\vx_{\tau},\tau)-\vv(\vx_{t},t)\right]\mathrm{d}\tau.
+        \end{equation}
+        Define $h=\tau-t\in[-(t-r),0]$. Since $\vv\in C^{2}$, we Taylor-expand $\vv(\vx_{\tau},\tau)$ about $(\vx_{t},t)$ along the ODE trajectory:
+        \begin{equation}
+            \vv(\vx_{\tau},\tau)=\vv(\vx_{t},t)+\frac{\mathrm{D}\vv}{\mathrm{D}t}(\vx_{t},t)\,h+\frac{1}{2}\frac{\mathrm{D}^{2}\vv}{\mathrm{D}t^{2}}(\vx_{t},t)\,h^{2}+O(h^{3}),
+        \end{equation}
+        where $\frac{\mathrm{D}}{\mathrm{D}t}$ denotes the material derivative along the flow. Substituting and integrating over $h\in[-(t-r),0]$:
+        \begin{align}
+            \Delta&=\frac{1}{t-r}\int_{-(t-r)}^{0}\!\left[\frac{\mathrm{D}\vv}{\mathrm{D}t}\,h+\frac{1}{2}\frac{\mathrm{D}^{2}\vv}{\mathrm{D}t^{2}}\,h^{2}+O(h^{3})\right]\mathrm{d}h \nonumber\\
+            &=\frac{1}{t-r}\left[\frac{\mathrm{D}\vv}{\mathrm{D}t}\cdot\frac{h^{2}}{2}\bigg|_{-(t-r)}^{0}+\frac{1}{2}\frac{\mathrm{D}^{2}\vv}{\mathrm{D}t^{2}}\cdot\frac{h^{3}}{3}\bigg|_{-(t-r)}^{0}+O\!\left((t-r)^{4}\right)\right] \nonumber\\
+            &=\frac{1}{t-r}\left[-\frac{(t-r)^{2}}{2}\frac{\mathrm{D}\vv}{\mathrm{D}t}+\frac{(t-r)^{3}}{6}\frac{\mathrm{D}^{2}\vv}{\mathrm{D}t^{2}}+O\!\left((t-r)^{4}\right)\right] \nonumber\\
+            &=-\frac{(t-r)}{2}\frac{\mathrm{D}\vv}{\mathrm{D}t}(\vx_{t},t)+\frac{(t-r)^{2}}{6}\frac{\mathrm{D}^{2}\vv}{\mathrm{D}t^{2}}(\vx_{t},t)+\gR_{3}(\vx_{t},r,t),
+        \end{align}
+        where $\gR_{3}=O((t-r)^{3})$ is the remainder.
+    \end{proof}
+
+    \subsection{Proof of~\Cref{cor: lipschitz-bound} (Lipschitz Bound on the Curvature Gap)}
+
+    \begin{proof}
+        From~\cref{thm: material-derivative-expansion}, to leading order $\|\Delta\|\leq\frac{(t-r)}{2}\|\frac{\mathrm{D}\vv}{\mathrm{D}t}\|+O((t-r)^{2})$. The material derivative satisfies:
+        \begin{equation}
+            \left\|\frac{\mathrm{D}\vv}{\mathrm{D}t}\right\|=\left\|\partial_{t}\vv+(\nabla_{\vx}\vv)\,\vv\right\|\leq\|\partial_{t}\vv\|+\|\nabla_{\vx}\vv\|\,\|\vv\|\leq L_{t}+L_{\vx}\,\|\vv(\vx_{t},t)\|,
+        \end{equation}
+        where the first inequality is the triangle inequality and the second follows from the Lipschitz assumptions $\|\partial_{t}\vv\|\leq L_{t}$ and $\|\nabla_{\vx}\vv\|\leq L_{\vx}$.
+    \end{proof}
+
+    \subsection{Proof of~\Cref{prop: vamf-grad} (Gradient of VA-MF Loss)}
+
+    \begin{proof}
+        The EMA velocity anchor $\vu_{\bar{\vtheta}}(\vx_{t},t,t)$ is deterministic given $\vx_{t}$, since the EMA parameters $\bar{\vtheta}$ are fixed during the gradient step. Under stop-gradient, $V_{\vtheta}^{\text{EMA}}$ depends on $\vtheta$ only through $\vu_{\vtheta}(\vx_{t},r,t)$. By the same argument as~\eqref{eq: per-step-grad}, the per-step gradient is:
+        \begin{equation}
+            \nabla_{\vtheta}\ell=2\left(\nabla_{\vtheta}\vu_{\vtheta}\right)^{\!\top}\!\left(V_{\vtheta}^{\text{EMA}}-\vv_{\text{cond}}\right).
+        \end{equation}
+        Writing $\vv_{\text{cond}}=\vv(\vx_{t},t)+\vv'$ and noting that $\tilde{\vr}^{\text{EMA}}:=V_{\vtheta}^{\text{EMA}}-\vv(\vx_{t},t)$ is deterministic given $\vx_{t}$:
+        \begin{equation}
+            \E_{\vx_{0}\mid\vx_{t}}\!\left[\nabla_{\vtheta}\ell\right]=2\left(\nabla_{\vtheta}\vu_{\vtheta}\right)^{\!\top}\tilde{\vr}^{\text{EMA}},
+        \end{equation}
+        since $\E[\vv'\mid\vx_{t}]=\bm{0}$. The tower property $\nabla_{\vtheta}\gL_{\text{MF}}^{\text{EMA}}=\E_{r,t,\vx_{t}}\!\left[\E_{\vx_{0}\mid\vx_{t}}[\nabla_{\vtheta}\ell]\right]$ gives the stated result. Crucially, no $\mJ\vv'$ term appears because the EMA tangent is deterministic---compare with the original MeanFlow gradient~\eqref{eq: per-step-grad} where the stochastic tangent produces the $\mJ\vv'$ noise.
+    \end{proof}
+
+    \subsection{Proof of~\Cref{prop: bias-var} (Bias-Variance Tradeoff)}
+
+    \begin{proof}
+        Expanding $V_{\vtheta}^{\text{EMA}}$ from~\eqref{eq: ema-mf-loss}, the value of the compound prediction (ignoring the stop-gradient, which does not affect values) is:
+        \begin{equation}
+            V_{\vtheta}^{\text{EMA}}=\vu_{\vtheta}+(t-r)\!\left(\partial_{\vz}\vu_{\vtheta}\cdot\vu_{\bar{\vtheta}}(\vx_{t},t,t)+\partial_{t}\vu_{\vtheta}\right).
+        \end{equation}
+        The true MeanFlow residual (with the marginal velocity as tangent) is:
+        \begin{equation}
+            \vr_{\vtheta}=\vu_{\vtheta}+(t-r)\!\left(\partial_{\vz}\vu_{\vtheta}\cdot\vv(\vx_{t},t)+\partial_{t}\vu_{\vtheta}\right)-\vv(\vx_{t},t).
+        \end{equation}
+        Subtracting:
+        \begin{align}
+            \tilde{\vr}^{\text{EMA}}&=V_{\vtheta}^{\text{EMA}}-\vv(\vx_{t},t) \nonumber\\
+            &=\vr_{\vtheta}+(t-r)\,\partial_{\vz}\vu_{\vtheta}\!\left(\vu_{\bar{\vtheta}}(\vx_{t},t,t)-\vv(\vx_{t},t)\right).
+        \end{align}
+        At convergence, the true residual $\vr_{\vtheta}\to\bm{0}$ (the MeanFlow identity is satisfied) and the FM anchor loss~\eqref{eq: fm-anchor} supervises the boundary condition, driving $\vu_{\bar{\vtheta}}(\vx_{t},t,t)\to\vv(\vx_{t},t)$ and hence $\tilde{\vr}^{\text{EMA}}\to\bm{0}$.
+    \end{proof}
+
+    \subsection{Proof of~\Cref{prop: var-head} (Variance Head Properties)}
+
+    \begin{proof}
+        \textbf{(a) Gradient equivalence.} Under stop-gradient on the JVP, $V_{\vtheta}^{\text{EMA}}$ depends on $\vtheta$ only through $\vu_{\vtheta}$. Differentiating the NLL~\eqref{eq: nll-loss} w.r.t.\ the mean parameters:
+        \begin{equation}
+            \nabla_{\vtheta}^{\text{mean}}\gL_{\text{MF}}^{\text{NLL}}=\E\!\left[\frac{(\nabla_{\vtheta}\vu_{\vtheta})^{\!\top}(V_{\vtheta}^{\text{EMA}}-\vv_{\text{cond}})}{\sigma_{\vtheta}^{2}}\right].
+        \end{equation}
+        Since $\sigma_{\vtheta}^{2}$ is deterministic given $(\vx_{t},r,t)$ and $\E_{\vx_{0}\mid\vx_{t}}[\vv']=\bm{0}$, the $\vv'$ cross term vanishes upon conditioning, yielding $\E[(\nabla_{\vtheta}\vu_{\vtheta})^{\!\top}\tilde{\vr}^{\text{EMA}}/\sigma_{\vtheta}^{2}]$.
+
+        \textbf{(b) Optimal variance.} Setting $\frac{\partial}{\partial\sigma^{2}}\gL_{\text{MF}}^{\text{NLL}}=0$ pointwise:
+        \begin{equation}
+            -\frac{\|V_{\vtheta}^{\text{EMA}}-\vv_{\text{cond}}\|^{2}}{2(\sigma^{2})^{2}}+\frac{d}{2\sigma^{2}}=0\;\implies\;\sigma^{2*}=\frac{\|V_{\vtheta}^{\text{EMA}}-\vv_{\text{cond}}\|^{2}}{d}.
+        \end{equation}
+        Taking $\E_{\vx_{0}\mid\vx_{t}}$ and writing $V_{\vtheta}^{\text{EMA}}-\vv_{\text{cond}}=\tilde{\vr}^{\text{EMA}}-\vv'$ with $\E[\vv']=\bm{0}$:
+        \begin{equation}
+            \sigma^{2*}=\frac{\E_{\vx_{0}\mid\vx_{t}}[\|\tilde{\vr}^{\text{EMA}}-\vv'\|^{2}]}{d}=\frac{\|\tilde{\vr}^{\text{EMA}}\|^{2}+\Tr(\Sigma_{\vv'})}{d},
+        \end{equation}
+        where the cross term $\tilde{\vr}^{\text{EMA}\top}\E[\vv']=0$ vanishes. At convergence $\tilde{\vr}^{\text{EMA}}\to\bm{0}$, giving $\sigma^{2*}\to\Tr(\Sigma_{\vv'})/d$.
+
+        \textbf{(c) Automatic curriculum.} By~\cref{prop: bias-var}, $\|\tilde{\vr}^{\text{EMA}}\|\geq\|\vr_{\vtheta}\|$ and by~\cref{thm: material-derivative-expansion}, $\|\vr_{\vtheta}\|\approx\|\Delta\|\propto(t-r)$ to leading order. Therefore $\sigma^{2*}$ is increasing in $(t-r)$, and the effective weight $1/\sigma_{\vtheta}^{2}$ is smaller for large intervals---an automatic progressive curriculum.
+    \end{proof}
+
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    \section{Additional Results}
+    \label[appendix]{appx: additional-results}
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+    \subsection{Acceleration-to-Noise Ratio from the Variance Head}
+
+    The variance head from~\cref{prop: var-head} implicitly learns the flow acceleration structure identified in~\cref{thm: material-derivative-expansion}.
+
+    \begin{proposition}[ANR from the Variance Head]
+        Define the excess variance ratio $\rho(\vx_{t},r,t):=\sigma_{\vtheta}^{2}(\vx_{t},r,t)/\sigma_{\vtheta}^{2}(\vx_{t},t,t)-1$. Near convergence:
+        \begin{equation}
+            \rho\approx\frac{\|\Delta(\vx_{t},r,t)\|^{2}}{\Tr(\Sigma_{\vv'})}\approx\frac{(t-r)^{2}}{4}\cdot\frac{\left\|\frac{\mathrm{D}\vv}{\mathrm{D}t}(\vx_{t},t)\right\|^{2}}{\Tr(\Sigma_{\vv'})}=\frac{\text{ANR}(\vx_{t},t,r)^{2}}{4},
+            \label{eq: anr-var-head}
+        \end{equation}
+        where $\text{ANR}:=(t-r)\left\|\frac{\mathrm{D}\vv}{\mathrm{D}t}\right\|/\sqrt{\Tr(\Sigma_{\vv'})}$ is the acceleration-to-noise ratio.
+        \label[proposition]{prop: anr}
+    \end{proposition}
+
+    \begin{proof}
+        The FM anchor~\eqref{eq: fm-anchor} ensures $\tilde{\vr}^{\text{EMA}}(\vx_{t},t,t)\approx\bm{0}$ near convergence (the boundary condition is well-supervised). By~\cref{prop: var-head}(b), $\sigma^{2*}(\vx_{t},t,t)\approx\Tr(\Sigma_{\vv'})/d$. For $r<t$, $\tilde{\vr}^{\text{EMA}}\approx\Delta(\vx_{t},r,t)$, so $\sigma^{2*}(\vx_{t},r,t)\approx(\|\Delta\|^{2}+\Tr(\Sigma_{\vv'}))/d$. Their ratio gives:
+        \begin{equation}
+            1+\rho=\frac{\sigma^{2*}(\vx_{t},r,t)}{\sigma^{2*}(\vx_{t},t,t)}\approx\frac{\|\Delta\|^{2}+\Tr(\Sigma_{\vv'})}{\Tr(\Sigma_{\vv'})}\;\implies\;\rho\approx\frac{\|\Delta\|^{2}}{\Tr(\Sigma_{\vv'})}.
+        \end{equation}
+        Substituting $\|\Delta\|\approx\frac{(t-r)}{2}\|\frac{\mathrm{D}\vv}{\mathrm{D}t}\|$ from~\cref{thm: material-derivative-expansion} yields~\eqref{eq: anr-var-head}.
+    \end{proof}
+
+    \Cref{prop: anr} shows that the excess variance ratio $\rho$ directly measures the squared acceleration-to-noise ratio, connecting the learned variance head to the curvature-variance principle. This provides a testable prediction: for a trained model, $\rho(\vx_{t},r,t)$ should scale quadratically with $(t-r)$, with a slope proportional to $\|\frac{\mathrm{D}\vv}{\mathrm{D}t}\|^{2}/\Tr(\Sigma_{\vv'})$.
+
+    \subsection{Compound Prediction Error: $\mathrm{d}/\mathrm{d}t$ vs.\ $\mathrm{d}/\mathrm{d}s$ Formulations}
+
+    The design space of two-parameter flow training objectives has a fundamental fork: which time variable to differentiate. Here we formalize the tradeoff between the $\mathrm{d}/\mathrm{d}t$ formulation (used in MeanFlow and this work) and the $\mathrm{d}/\mathrm{d}s$ formulation (used in TVM~\cite{zhou2026terminalvelocitymatching}).
+
+    \begin{proposition}[Compound Prediction Error Comparison]
+        Consider two compound predictions under stop-gradient:
+
+        \noindent\textbf{($\mathrm{d}/\mathrm{d}t$, ours):} $V_{\vtheta}^{dt}\!=\vu_{\vtheta}(\vx_{t},r,t)+(t{-}r)\,\texttt{sg}[\texttt{JVP}(\vu_{\vtheta},(\vx_{t},r,t),(\hat{\vv}_{t},0,1))]$, where $\hat{\vv}_{t}$ is an estimate of $\vv(\vx_{t},t)$.
+
+        \noindent\textbf{($\mathrm{d}/\mathrm{d}s$, TVM~\cite{zhou2026terminalvelocitymatching}):} $V_{\vtheta}^{ds}\!=F_{\vtheta}(\vx_{t},t,s)+(s{-}t)\,\texttt{sg}[\partial_{s}F_{\vtheta}(\vx_{t},t,s)]$.
+
+        \noindent The mean-field residuals satisfy:
+        \begin{equation}
+            \|\tilde{\vr}^{dt}\|\leq\|\vr_{\text{true}}\|+(t{-}r)\,\|\partial_{\vz}\vu_{\vtheta}\|\,\|\hat{\vv}_{t}-\vv(\vx_{t},t)\|,\qquad
+            \|\tilde{\vr}^{ds}\|\leq\|\vr_{\text{true}}^{ds}\|.
+        \end{equation}
+        The $\mathrm{d}/\mathrm{d}s$ formulation has no tangent estimation error because $\partial_{s}F_{\vtheta}$ is a partial derivative w.r.t.\ a network input---no spatial Jacobian or velocity estimate is needed.
+        \label[proposition]{prop: dt-vs-ds}
+    \end{proposition}
+
+    \begin{proof}
+        For $\mathrm{d}/\mathrm{d}t$: by~\cref{prop: bias-var}, $\tilde{\vr}^{dt}=\vr_{\text{true}}+(t-r)\,\partial_{\vz}\vu_{\vtheta}(\hat{\vv}_{t}-\vv)$. The triangle inequality gives the upper bound. The tangent estimation error $(t-r)\|\partial_{\vz}\vu_{\vtheta}\|\|\hat{\vv}_{t}-\vv\|$ shrinks as the EMA model improves ($\hat{\vv}_{t}\to\vv$).
+
+        For $\mathrm{d}/\mathrm{d}s$: the JVP tangent is $\partial_{s}F_{\vtheta}$, a partial derivative of the network w.r.t.\ its third scalar input $s$. This is deterministic and exact---no velocity field estimate is needed. The compound prediction error reduces to the true identity residual $\vr_{\text{true}}^{ds}$.
+    \end{proof}
+
+    \textbf{Tradeoff.} The $\mathrm{d}/\mathrm{d}s$ formulation eliminates the spatial Jacobian entirely (a strict advantage in compound prediction error), but requires parameterizing $f_{\vtheta}(\vx_{t},t,s)=(s-t)F_{\vtheta}(\vx_{t},t,s)$ with explicit dependence on both time endpoints---a different architecture from standard velocity networks. The $\mathrm{d}/\mathrm{d}t$ formulation retains compatibility with the standard MeanFlow parameterization and benefits from the curvature-variance theory developed in this work. The bias term $(t-r)\|\partial_{\vz}\vu_{\vtheta}\|\|\hat{\vv}_{t}-\vv\|$ shrinks during training, so the gap between the two formulations closes as the EMA anchor improves.
+
+    \subsection{MSE Variant without Variance Head}
+
+    As a simpler alternative to~\Cref{alg: va-mf}, one can use explicit weighting $w(t)\geq 0$ in place of the heteroscedastic loss. A principled choice is the signal-to-noise ratio schedule $w(t)=(1-t)^{2}/(t^{2}+\epsilon)$, which captures the qualitative variance structure for linear interpolation paths by downweighting high-variance timesteps near $t=1$.
+
+    \begin{algorithm}[!ht]
+        \caption{VA-MeanFlow Training (MSE Variant)}
+        \label{alg: va-mf-mse}
+        \begin{algorithmic}
+            \Require Dataset $\gD$, EMA decay $\mu$, anchor weight $\lambda$, anchor interval $[\delta_{\min},\delta_{\max}]$, weighting $w(t)$
+            \State Initialize $\bar{\vtheta}\gets\vtheta$
+            \For{$k=1,2,\ldots$}
+                \State Sample $(\vx_{0},\vx_{1})\sim\gD\times\gN(\bm{0},\mI_{d})$,\; $t\sim\gU[0,1]$,\; $r\sim\gU[0,t]$,\; $\delta\sim\gU[\delta_{\min},\delta_{\max}]$
+                \State $\vx_{t}\gets(1-t)\vx_{0}+t\,\vx_{1}$
+                \State $\vv_{\text{tang}}\gets\texttt{sg}[\vu_{\bar{\vtheta}}(\vx_{t},t,t)]$ \Comment{EMA anchor}
+                \State $V_{\vtheta}\gets\vu_{\vtheta}(\vx_{t},r,t)+(t{-}r)\,\texttt{sg}[\texttt{JVP}(\vu_{\vtheta},(\vx_{t},r,t),(\vv_{\text{tang}},0,1))]$
+                \State $\ell_{\text{MF}}\gets w(t)\,\|V_{\vtheta}-\vv_{\text{cond}}\|_{2}^{2}$
+                \State $\ell_{\text{FM}}\gets\|\vu_{\vtheta}(\vx_{t},t{-}\delta,t)-\vv_{\text{cond}}\|_{2}^{2}$ \Comment{FM anchor}
+                \State $\vtheta\gets\vtheta-\eta\,\nabla_{\vtheta}(\ell_{\text{MF}}+\lambda\,\ell_{\text{FM}})$
+                \State $\bar{\vtheta}\gets\mu\bar{\vtheta}+(1-\mu)\vtheta$
+            \EndFor
+            \State \Return $\vtheta$ \Comment{Generate: $\hat{\vx}_{0}=\vx_{1}-\vu_{\vtheta}(\vx_{1},0,1)$}
+        \end{algorithmic}
+    \end{algorithm}
+
+\end{appendices}

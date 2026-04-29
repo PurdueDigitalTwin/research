@@ -1,0 +1,12 @@
+$pdflatex = 'internal bibunits_pdflatex %O %S';
+
+sub bibunits_pdflatex {
+    my $ret = system('pdflatex', @_);
+    return $ret if $ret != 0;
+    foreach my $aux (glob('bu*.aux')) {
+        (my $stem = $aux) =~ s/\.aux$//;
+        print "latexmkrc: running bibtex on $stem\n";
+        system('bibtex', $stem);
+    }
+    return 0;
+}
