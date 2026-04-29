@@ -107,8 +107,19 @@ flags.DEFINE_boolean(
 flags.DEFINE_enum(
     name="tw_sigma",
     default="none",
-    enum_values=["none", "t_squared", "learned"],
-    help="Sigma schedule for trace weight: none (1), t_squared (t^2), learned.",
+    enum_values=[
+        "none",  # sigma_t = 1                   (constant)
+        "t",  # sigma_t = t                   (variance ~ t^2)
+        "t_squared",  # sigma_t = t^2                 (variance ~ t^4)
+        "ushape",  # sigma_t = sqrt(t * (1-t))     (variance peaks at t=0.5)
+        "blue_gauss",  # sigma_t^2 = 1/((1-t)^2 + t^2) (Gaussian-data BLUE)
+        "learned",  # sigma_t = NN_phi(t)           (small MLP)
+    ],
+    help=(
+        "Sigma schedule for trace weight. The schedule sets the per-sample "
+        "standard-deviation scale sigma_t; the trace weight uses sigma_t^2 "
+        "in the denominator (BLUE-scalar form)."
+    ),
 )
 
 # training hyperparameters
@@ -417,7 +428,9 @@ def trace_weight(
         tr_bbt = trace.hutchinson_trace(key, u_fn, z, r, t, n_probes)
     if sigma_t is None:
         sigma_t = jnp.ones_like(t)
-    return 1.0 / (1.0 + sigma_t * tr_bbt / d)
+    # Sigma_t is the conditional-velocity *standard deviation* scale; the
+    # BLUE-scalar trace weight has sigma_t^2 in the denominator.
+    return 1.0 / (1.0 + jnp.square(sigma_t) * tr_bbt / d)
 
 
 ################################################################################
@@ -727,9 +740,22 @@ class MeanFlowMLPModel(_model.Model):
 
             # per-sample trace weight
             if self._method == "vamf_tw":
-                # Compute sigma_t schedule
-                if self._tw_sigma == "t_squared":
+                # Compute sigma_t schedule (sigma_t is the std-dev scale;
+                # trace weight uses sigma_t^2 in the denominator).
+                if self._tw_sigma == "t":
+                    sigma_t = t
+                elif self._tw_sigma == "t_squared":
                     sigma_t = t**2
+                elif self._tw_sigma == "ushape":
+                    # sqrt(t*(1-t)): peaks at t=0.5, zero at endpoints.
+                    sigma_t = jnp.sqrt(jnp.clip(t * (1.0 - t), a_min=1e-8))
+                elif self._tw_sigma == "blue_gauss":
+                    # Closed-form sigma_t^2 = 1/((1-t)^2 + t^2) under the
+                    # Gaussian-data approximation x_0 ~ N(0, I); we store
+                    # the std as sqrt of that.
+                    sigma_t = 1.0 / jnp.sqrt(
+                        jnp.square(1.0 - t) + jnp.square(t)
+                    )
                 elif self._tw_sigma == "learned" and isinstance(
                     self._sigma_net, SigmaModule
                 ):
