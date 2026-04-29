@@ -114,9 +114,9 @@ def _save_shard(
     logging.info("Saved shard %s (%d samples)", path, len(labels))
 
 
-def main(argv: typing.Sequence[str]) -> None:
+def main(argv: typing.Sequence[str]) -> int:
     """Entry point."""
-    del argv
+    del argv  # unused arguments
 
     if FLAGS.distributed:
         jax.distributed.initialize()
@@ -292,8 +292,10 @@ def main(argv: typing.Sequence[str]) -> None:
         shard_idx,
         FLAGS.output_dir,
     )
+
     return 0
 
 
 if __name__ == "__main__":
+    jax.config.config_with_absl()
     app.run(main)

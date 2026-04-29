@@ -404,7 +404,7 @@ def meanflow_dit_imagenet_256_latent() -> _config.ExperimentConfig:
 def vamf_tw_dit_imagenet_256_latent() -> _config.ExperimentConfig:
     r"""VaMF (trace-weighted) DiT-B/4 on ImageNet 256x256 latents.
 
-    Identical to :func:`meanflow_dit_imagenet_256_latent` except the
+    Identical to ``meanflow_dit_imagenet_256_latent`` except the
     per-sample loss is multiplied by the variance-aware trace weight
     ``1 / (1 + sigma_t * tr(BB^T) / d)`` with ``B = (t-r) J - I`` and
     the default ``sigma_t = t^2`` schedule. Adaptive loss weighting is

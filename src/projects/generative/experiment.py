@@ -39,13 +39,7 @@ tf.config.experimental.set_visible_devices([], "TPU")
 # ==============================================================================
 # Helper Functions
 class _LazyFIDMetric:
-    """Defers FID metric initialization to first ``__call__``.
-
-    Building the FID metric eagerly at experiment start downloads the full reference dataset and
-    computes Inception statistics, which blocks the primary process for 30-60 min and deadlocks
-    multi-host pmap training.  This wrapper delays that work until the first evaluation, *after*
-    the pmap-ed image generation completes so that other hosts are not blocked.
-    """
+    r"""Defers FID metric initialization to first ``__call__``."""
 
     def __init__(self, metric_config: fdl.Config) -> None:
         self._config = metric_config
@@ -346,7 +340,7 @@ def train_and_evaluate(
         checkpoint_every_n_steps = exp_config.trainer.checkpoint_every_n_steps
     else:
         checkpoint_every_n_steps = exp_config.trainer.eval_every_n_steps
-    if jax.process_index() == 0:
+    if jax.process_index() == 0 and exp_config.metric is not None:
         fid_metric = _LazyFIDMetric(exp_config.metric)
     else:
         fid_metric = None

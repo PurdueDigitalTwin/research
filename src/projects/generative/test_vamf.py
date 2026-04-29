@@ -125,7 +125,7 @@ def test_nll_perpixel_variance_shape() -> None:
         deterministic=True,
     )
     assert u.shape == (_B, _H, _W, _C)
-    assert log_var is not None
+    assert isinstance(log_var, jax.Array)
     assert log_var.shape == (_B, _H, _W, _C), (
         "expected per-pixel-per-channel variance of shape "
         f"(B,H,W,C) = ({_B},{_H},{_W},{_C}), got {log_var.shape}"

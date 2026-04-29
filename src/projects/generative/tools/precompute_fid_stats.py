@@ -17,14 +17,11 @@ Only process 0 does actual work; other processes poll for completion.
 
 import io
 import os
-import shutil
-import sys
 
 from absl import app
 from absl import flags
 from flax import serialization
-from huggingface_hub import hf_hub_download
-from huggingface_hub import list_repo_tree
+import huggingface_hub as hf_hub
 import jax
 from jax import numpy as jnp
 import numpy as np
@@ -42,8 +39,6 @@ flags.DEFINE_bool(
     help="Enable multi-host JAX distributed initialization.",
 )
 
-_REPO_ID = "ILSVRC/imagenet-1k"
-_REVISION = "49e2ee26f3810fb5a7536bbf732a7b07389a47b5"
 _OUTPUT = "gs://pdt_training/juanwu/cache/imagenet-1k-fid-ref-stats.npz"
 _CHECKPOINT = (
     "gs://pdt_training/juanwu/cache/" "imagenet-1k-fid-ref-stats-ckpt.npz"
@@ -60,7 +55,7 @@ def _build_inception():
         last_block_max_pool=True,
         with_aux_logits=False,
     )
-    weights_path = hf_hub_download(
+    weights_path = hf_hub.hf_hub_download(
         repo_id="ChocolateDave/fid-inception-v3",
         filename="fid_inception_v3.msgpack",
         token=os.getenv("HF_TOKEN", None),
@@ -70,13 +65,13 @@ def _build_inception():
         variables = serialization.msgpack_restore(f.read())
 
     @jax.jit
-    def extract(batch):
+    def extract(batch: jax.Array):
         inputs = (jnp.astype(batch, jnp.float32) - 128.0) / 128.0
         feat, _ = model.apply(
-            variables={
-                "params": variables["params"],
-                "batch_stats": variables["batch_stats"],
-            },
+            variables=dict(  # type: ignore
+                params=variables["params"],
+                batch_stats=variables["batch_stats"],
+            ),
             inputs=inputs,
             deterministic=True,
             with_head=False,
@@ -101,13 +96,14 @@ def _list_train_parquets():
     """List all train-split parquet file paths in the repo."""
     token = os.getenv("HF_TOKEN", None)
     files = []
-    for entry in list_repo_tree(
-        _REPO_ID,
+    for entry in hf_hub.list_repo_tree(
+        repo_id="ILSVRC/imagenet-1k",
         path_in_repo="data",
         repo_type="dataset",
         token=token,
-        revision=_REVISION,
+        revision="49e2ee26f3810fb5a7536bbf732a7b07389a47b5",
     ):
+        assert isinstance(entry, hf_hub.RepoFile)
         name = entry.rfilename
         if name.startswith("data/train-") and name.endswith(".parquet"):
             files.append(name)
@@ -178,12 +174,12 @@ def main(argv) -> None:
             continue
 
         # download this single parquet
-        local_path = hf_hub_download(
-            repo_id=_REPO_ID,
+        local_path = hf_hub.hf_hub_download(
+            repo_id="ILSVRC/imagenet-1k",
+            revision="49e2ee26f3810fb5a7536bbf732a7b07389a47b5",
             filename=parquet_path,
             repo_type="dataset",
             token=token,
-            revision=_REVISION,
         )
 
         # read the parquet and extract images
@@ -263,4 +259,5 @@ def main(argv) -> None:
 
 
 if __name__ == "__main__":
+    jax.config.config_with_absl()
     app.run(main)

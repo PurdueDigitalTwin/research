@@ -1295,9 +1295,8 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
                         per_sample_loss + self.norm_eps,
                         self.adaptive_weight_power,
                     )
-                    per_sample_loss = (
-                        per_sample_loss
-                        / jax.lax.stop_gradient(ada_wt)
+                    per_sample_loss = per_sample_loss / jax.lax.stop_gradient(
+                        ada_wt
                     )
             loss = jnp.mean(per_sample_loss)
 

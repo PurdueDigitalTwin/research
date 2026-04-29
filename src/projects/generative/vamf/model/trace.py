@@ -26,7 +26,7 @@ def exact_trace(
 
     Iterates over each scalar coordinate of ``z`` (treating axis 0 as the
     batch axis) and accumulates :math:`\| B e_i \|^2`. Tractable only for
-    very low total data dimension; use :func:`hutchinson_trace` for images.
+    very low total data dimension; use ``hutchinson_trace`` for images.
 
     Args:
         u_fn: Velocity field ``u_fn(z, r, t)``; output has the same shape as ``z``.
