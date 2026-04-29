@@ -3,12 +3,12 @@
     Mean Flows promise distillation-free, one-step generation by optimizing an identity between the average and instantaneous velocity field. In practice they suffer from a non-decreasing, high-variance loss whose root cause has been diagnosed by concurrent work as gradient conflict, Jacobian amplification, and a curvature bottleneck. We show that all three diagnoses are manifestations of a single quantity---the material derivative of the marginal velocity field---and call this the \textit{curvature-variance principle}. From this principle we derive \textit{Variance-Aware MeanFlow} (VaMF), a backbone-preserving training framework that combines an EMA velocity anchor (deterministic JVP tangent), a flow-matching anchor (boundary supervision), and a Hutchinson-estimated trace weight that downweights each sample by the local Jacobian-deviation norm $\Tr(\mJ\mJ^{\!\top})$---a closed-form scalar approximation to the BLUE per-sample weight under isotropic conditional-velocity noise. \todo[inline]{Add experiment results later...}
 \end{abstract}
 
-\begin{figure}[!htpb]
-    \centering
-    \includegraphics[width=\textwidth]{assets/figures/teaser.pdf}
-    \caption{Variance amplification in vanilla MeanFlow and the trace-weight fix. \textbf{(a)} Variance ratio $\Var[\gL_{\text{stoch}}]/\Var[\gL_{\text{det}}]$ peaks at $\sim\!259\!\times$ near $t\!\approx\!0.4$, in direct empirical agreement with~\cref{thm: jacobi-variance}. \textbf{(b)} Frobenius norm $\|(t{-}r)J - I\|_F$ peaks in the same regime, identifying the linearised flow Jacobian's deviation from identity as the immediate source of (a). \textbf{(c)} The trace-weight reweighting reduces SW$_1$ on swiss\_roll from $0.072$ (MeanFlow) to $0.044$ (VaMF-TW) at matched seed and step count.}
-    \label{fig: teaser}
-\end{figure}
+% \begin{figure}[!htpb]
+%     \centering
+%     \includegraphics[width=\textwidth]{assets/figures/teaser.pdf}
+%     \caption{Variance amplification in vanilla MeanFlow and the trace-weight fix. \textbf{(a)} Variance ratio $\Var[\gL_{\text{stoch}}]/\Var[\gL_{\text{det}}]$ peaks at $\sim\!259\!\times$ near $t\!\approx\!0.4$, in direct empirical agreement with~\cref{thm: jacobi-variance}. \textbf{(b)} Frobenius norm $\|(t{-}r)J - I\|_F$ peaks in the same regime, identifying the linearised flow Jacobian's deviation from identity as the immediate source of (a). \textbf{(c)} The trace-weight reweighting reduces SW$_1$ on swiss\_roll from $0.072$ (MeanFlow) to $0.044$ (VaMF-TW) at matched seed and step count.}
+%     \label{fig: teaser}
+% \end{figure}
 
 % For NeurIPS submission, comment the following line
 % \keywords{Generative Models, Flow-based Models, One-step Generation, Image Generation}
