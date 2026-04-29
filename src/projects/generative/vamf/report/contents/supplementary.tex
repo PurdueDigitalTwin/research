@@ -40,11 +40,17 @@
     \end{table}
 
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    \section{Derivation of Conditional-Marginal Velocity Relationship}
+    \section{Proof of Lemma}
     \label[appendix]{appx: first}
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-    We derive~\eqref{eq: margv-condv-relation}: $\vv(\rvx,t)=\E_{\rvx_{0}\sim p(\rvx_{0}\mid\rvx_{t}=\rvx)}\!\left[\vv(\rvx,t\mid\rvx_{0})\right]$.
+    \begin{lemma}
+        Given vector fields $\vv(\vx,t\mid{\vx_{0}})$ that generate probability paths $p(\vx,t\mid{\vx_{0}})$, for any data distribution $\rvx_{0}\sim p(\rvx_{0})$, the marginal velocity field is equal to the expected conditional velocity field
+        \begin{equation*}
+            \vv(\vx,t)=\E_{\vx_{0}\sim{p(\vx_0,t\mid{\vx})}}
+            \left[\vv(\vx,t\mid{\vx_{0}})\right].
+        \end{equation*}
+    \end{lemma}
 
     \begin{proof}
         The marginal velocity field generates the marginal density $p(\vx,t)$ via the continuity equation. By the law of total probability and the definition of the conditional velocity field:
@@ -58,7 +64,7 @@
     \end{proof}
 
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    \section{Proofs of Main Results}
+    \section{Proofs of Theorems and Propositions}
     \label[appendix]{appx: theorem-proof}
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 

@@ -79,7 +79,7 @@ where $r\sim\gU(0,1)$, $t\sim\gU(0,1)$, $r\leq{t}$, $\vx_{0}\sim\pdata$, $\vx_{1
 \section{Variance-aware Mean Flows}
 \label{sec: method}
 
-The MeanFlow loss in~\eqref{eq: mf-loss} is empirically known to be \textit{non-decreasing} and to suffer from \textit{high-variance gradients}~\cite{zhang2025alphaflowunderstandingimprovingmeanflow,geng2025improvedmeanflowschallenges}. The substitution of the inaccessible marginal velocity $\vv(\vx,t)$ with its conditional surrogate $\vv_{\text{cond}}=\vx_{1}-\vx_{0}$ is convenient---it makes the loss self-supervising---but introduces both a regression-target bias and a stochastic JVP tangent that the spatial Jacobian then amplifies into the gradient. We organize the section around the two complementary questions this discrepancy raises:
+The MeanFlow loss in~\eqref{eq: mf-loss} is empirically known to be \textit{non-decreasing} and to suffer from \textit{high-variance gradients}~\cite{zhang2025alphaflowunderstandingimprovingmeanflow,geng2025improvedmeanflowschallenges}. In this section, we aim to answer the two complementary questions:
 
 \begin{mdframed}[%
     leftline=true,
@@ -109,7 +109,7 @@ Existing works diagnose MeanFlow's instability from three apparently distinct an
 Given the identified mechanism, what is the simplest modification that can drive the gradient variance toward its irreducible level?
 \end{mdframed}
 
-In the following,~\cref{subsec: mf-bias-vars} answers~\textsl{RQ1} at the level of the gradients. We apply Reynolds decomposition to reveal that both the bias of stop-gradient training and the per-step gradient variance are governed by the same Jacobi factor $\mJ=(t-r)\partial_{\vz}\vu_{\vtheta}-\mI_{d}$, which is in turn controlled by a single \textit{curvature gap} $\Delta=\vu-\vv$. \Cref{subsec: flow-acc} then quantifies $\Delta$ in terms of flow acceleration with a Taylor expansion, exposing the material derivative as its physical source of the curvature gap and yielding three design principles. \Cref{subsec: vamf} answers~\textsl{RQ2} by instantiating the three principles and propose our training framework, \textit{Variance-Aware MeanFlow (VaMF)}, comprising an EMA velocity anchor, a flow-matching anchor, and a closed-form trace weight, all applied on top of the original MSE objective without any architectural change. Full proofs are deferred to~\Cref{appx: theorem-proof}.
+In the following,~\cref{subsec: mf-bias-vars} answers~\textsl{RQ1} at the level of the gradients. We apply Reynolds decomposition to reveal both the bias induced by stop-gradient training and the per-step gradient variance governed by the Jacobi factor $\mJ=(t-r)\partial_{\vz}\vu_{\vtheta}-\mI_{d}$, and establish a connection between the bias and the \textit{curvature gap} $\Delta=\vu-\vv$. \Cref{subsec: flow-acc} then quantifies the gap in terms of flow acceleration with a Taylor expansion, exposing the material derivative as its physical source of the curvature gap and deriving three design principles. \Cref{subsec: vamf} answers~\textsl{RQ2} by instantiating the three principles and propose our training framework, \textit{Variance-Aware MeanFlow (VaMF)}, comprising an EMA velocity anchor, a flow-matching anchor, and a closed-form trace weight, all applied on top of the original MSE objective without any architectural change. Full proofs are deferred to~\Cref{appx: theorem-proof}.
 
 \subsection{Bias and Variances in Learning Mean Flows}
 \label{subsec: mf-bias-vars}
