@@ -15,6 +15,11 @@
 #   PLATFORM=cpu  WORK_DIR=/path/to/out STEPS=100000 ./run_toy_experiment.sh
 #   DATASETS="eight_gaussians swiss_roll" METHODS="vamf_tw" SEEDS="0 1 2" \
 #       ./run_toy_experiment.sh
+#   TW_SIGMA="t_squared" METHODS="vamf_tw" \
+#       WORK_DIR=logs/vamf/toy_exp/dgmm_sigma_t2 \
+#       DATASETS="dgmm_2 dgmm_4 dgmm_8 dgmm_16 dgmm_32 dgmm_64" \
+#       ./run_toy_experiment.sh
+# Allowed values: none (=1), t_squared (=t^2), learned (small MLP).
 
 set -euo pipefail
 
@@ -30,6 +35,8 @@ read -ra DATASETS <<< "${DATASETS:-checkerboard eight_gaussians two_moons swiss_
 read -ra METHODS  <<< "${METHODS:-meanflow vamf_l2 vamf_tw}"
 read -ra SEEDS    <<< "${SEEDS:-42 0 1}"
 PLATFORM="${PLATFORM:-cuda}"
+# sigma_t schedule for the trace weight; only used by vamf_tw runs.
+TW_SIGMA="${TW_SIGMA:-none}"
 
 mkdir -p "$WORK_DIR"
 
@@ -37,6 +44,7 @@ echo "Workspace : $WORKSPACE_DIR"
 echo "Output    : $WORK_DIR"
 echo "Platform  : $PLATFORM"
 echo "Steps     : $STEPS"
+echo "TW sigma  : $TW_SIGMA  (vamf_tw only)"
 echo "Datasets  : ${DATASETS[*]}"
 echo "Methods   : ${METHODS[*]}"
 echo "Seeds     : ${SEEDS[*]}"
@@ -52,10 +60,13 @@ for seed in "${SEEDS[@]}"; do
       fi
 
       echo "=== Running ${ds} / ${method} / seed=${seed} ==="
+      # tw_sigma only matters for vamf_tw, but passing it for all methods is
+      # harmless — run_toy ignores it when --method != vamf_tw.
       bazelisk run "--config=${PLATFORM}" \
         //src/projects/generative/vamf/experiments:run_toy -- \
         --dataset="$ds" \
         --method="$method" \
+        --tw_sigma="$TW_SIGMA" \
         --steps="$STEPS" \
         --seed="$seed" \
         --exact_trace=true \
