@@ -30,7 +30,8 @@
             $V_{\vtheta}^{\text{EMA}}$ & Compound prediction~\eqref{eq: ema-mf-loss} \\
             $\mJ$ & Jacobi factor: $\mJ=(t-r)\partial_{\vz}\vu_{\vtheta}-\mI_{d}$ \\
             $\Sigma_{\vv'}$ & Conditional velocity covariance: $\Cov_{\vx_{0}\mid\vx_{t}}[\vv']$ \\
-            $\sigma_{\vtheta}^{2}$ & Learned scalar variance output \\
+            $\sigma_{t}$ & Conditional-velocity variance scale (schedule, default $\sigma_{t}\!=\!t^{2}$) \\
+            $w$ & Trace weight: $w\!=\!1/(1+\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top})/d)$, see~\eqref{eq: trace-weight} \\
             $\frac{\mathrm{D}\vv}{\mathrm{D}t}$ & Material derivative (flow acceleration): $\partial_{t}\vv+(\nabla_{\vx}\vv)\vv$ \\
             $\Delta(\vx_{t},r,t)$ & Curvature gap: $\vu(\vx_{t},r,t)-\vv(\vx_{t},t)$ \\
             $\texttt{sg}[\cdot]$ & Stop-gradient operator \\
@@ -131,16 +132,6 @@
         where $\gR_{3}=O((t-r)^{3})$ is the remainder.
     \end{proof}
 
-    \subsection{Proof of~\Cref{cor: lipschitz-bound} (Lipschitz Bound on the Curvature Gap)}
-
-    \begin{proof}
-        From~\cref{thm: material-derivative-expansion}, to leading order $\|\Delta\|\leq\frac{(t-r)}{2}\|\frac{\mathrm{D}\vv}{\mathrm{D}t}\|+O((t-r)^{2})$. The material derivative satisfies:
-        \begin{equation}
-            \left\|\frac{\mathrm{D}\vv}{\mathrm{D}t}\right\|=\left\|\partial_{t}\vv+(\nabla_{\vx}\vv)\,\vv\right\|\leq\|\partial_{t}\vv\|+\|\nabla_{\vx}\vv\|\,\|\vv\|\leq L_{t}+L_{\vx}\,\|\vv(\vx_{t},t)\|,
-        \end{equation}
-        where the first inequality is the triangle inequality and the second follows from the Lipschitz assumptions $\|\partial_{t}\vv\|\leq L_{t}$ and $\|\nabla_{\vx}\vv\|\leq L_{\vx}$.
-    \end{proof}
-
     \subsection{Proof of~\Cref{prop: vamf-grad} (Gradient of VA-MF Loss)}
 
     \begin{proof}
@@ -174,26 +165,26 @@
         At convergence, the true residual $\vr_{\vtheta}\to\bm{0}$ (the MeanFlow identity is satisfied) and the FM anchor loss~\eqref{eq: fm-anchor} supervises the boundary condition, driving $\vu_{\bar{\vtheta}}(\vx_{t},t,t)\to\vv(\vx_{t},t)$ and hence $\tilde{\vr}^{\text{EMA}}\to\bm{0}$.
     \end{proof}
 
-    \subsection{Proof of~\Cref{prop: var-head} (Variance Head Properties)}
+    \subsection{Proof of~\Cref{prop: trace-weight} (Trace-Weight Properties)}
 
     \begin{proof}
-        \textbf{(a) Gradient equivalence.} Under stop-gradient on the JVP, $V_{\vtheta}^{\text{EMA}}$ depends on $\vtheta$ only through $\vu_{\vtheta}$. Differentiating the NLL~\eqref{eq: nll-loss} w.r.t.\ the mean parameters:
+        \textbf{(a) Gradient form.} The trace weight $w$ in~\eqref{eq: trace-weight} is wrapped in a stop-gradient operator on $\Tr(\mJ\mJ^{\!\top})$, so $\nabla_{\vtheta}w\!=\!0$ and $w$ acts as a fixed scalar multiplier. Differentiating the trace-weighted MSE in~\eqref{eq: vamf-tw-loss} therefore gives
         \begin{equation}
-            \nabla_{\vtheta}^{\text{mean}}\gL_{\text{MF}}^{\text{NLL}}=\E\!\left[\frac{(\nabla_{\vtheta}\vu_{\vtheta})^{\!\top}(V_{\vtheta}^{\text{EMA}}-\vv_{\text{cond}})}{\sigma_{\vtheta}^{2}}\right].
+            \nabla_{\vtheta}\gL_{\text{VaMF}}^{\text{MF}}\;=\;2\,\E\!\left[w\,(\nabla_{\vtheta}\vu_{\vtheta})^{\!\top}\,\tilde{\vr}^{\text{EMA}}\right]\!,
         \end{equation}
-        Since $\sigma_{\vtheta}^{2}$ is deterministic given $(\vx_{t},r,t)$ and $\E_{\vx_{0}\mid\vx_{t}}[\vv']=\bm{0}$, the $\vv'$ cross term vanishes upon conditioning, yielding $\E[(\nabla_{\vtheta}\vu_{\vtheta})^{\!\top}\tilde{\vr}^{\text{EMA}}/\sigma_{\vtheta}^{2}]$.
+        identical to~\cref{prop: vamf-grad} except that each per-sample contribution carries the scalar weight $w$. The conditional fluctuation $\vv'$ produces a cross term $\E[(\nabla_{\vtheta}\vu_{\vtheta})^{\!\top}\vv']\!=\!\bm{0}$ that vanishes by $\E_{\vx_{0}\mid\vx_{t}}[\vv']\!=\!\bm{0}$, so the BLUE-style normalization does not propagate into the gradient computation.
 
-        \textbf{(b) Optimal variance.} Setting $\frac{\partial}{\partial\sigma^{2}}\gL_{\text{MF}}^{\text{NLL}}=0$ pointwise:
+        \textbf{(b) Bounded noise floor.} Writing $V_{\vtheta}^{\text{EMA}}\!-\!\vv_{\text{cond}}\!=\!\tilde{\vr}^{\text{EMA}}\!-\!\vv'$ with the EMA tangent making $\tilde{\vr}^{\text{EMA}}$ deterministic given $\vx_{t}$, the inner expectation of the per-sample loss is
         \begin{equation}
-            -\frac{\|V_{\vtheta}^{\text{EMA}}-\vv_{\text{cond}}\|^{2}}{2(\sigma^{2})^{2}}+\frac{d}{2\sigma^{2}}=0\;\implies\;\sigma^{2*}=\frac{\|V_{\vtheta}^{\text{EMA}}-\vv_{\text{cond}}\|^{2}}{d}.
+            \E_{\vx_{0}\mid\vx_{t}}\!\left[w\,\|V_{\vtheta}^{\text{EMA}}\!-\!\vv_{\text{cond}}\|_{2}^{2}\right]\;=\;w\,\|\tilde{\vr}^{\text{EMA}}\|_{2}^{2}+w\cdot\sigma_{t}^{2}\Tr(\Sigma_{\vv'}),
         \end{equation}
-        Taking $\E_{\vx_{0}\mid\vx_{t}}$ and writing $V_{\vtheta}^{\text{EMA}}-\vv_{\text{cond}}=\tilde{\vr}^{\text{EMA}}-\vv'$ with $\E[\vv']=\bm{0}$:
+        where the cross term vanishes as in (a). Substituting the isotropic-noise approximation $\Sigma_{\vv'}\!\approx\!\sigma_{t}^{2}\mI_{d}$ and the explicit form of $w$ yields the noise contribution
         \begin{equation}
-            \sigma^{2*}=\frac{\E_{\vx_{0}\mid\vx_{t}}[\|\tilde{\vr}^{\text{EMA}}-\vv'\|^{2}]}{d}=\frac{\|\tilde{\vr}^{\text{EMA}}\|^{2}+\Tr(\Sigma_{\vv'})}{d},
+            w\cdot\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top})\;=\;\frac{\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top})}{1+\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top})/d}\;=\;\frac{d\,\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top})}{d+\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top})}\;\le\;d,
         \end{equation}
-        where the cross term $\tilde{\vr}^{\text{EMA}\top}\E[\vv']=0$ vanishes. At convergence $\tilde{\vr}^{\text{EMA}}\to\bm{0}$, giving $\sigma^{2*}\to\Tr(\Sigma_{\vv'})/d$.
+        with equality only in the limit $\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top})\!\to\!\infty$. The trace weight thus caps the noise term at the data dimensionality, eliminating the unbounded curvature growth from~\cref{thm: jacobi-variance}.
 
-        \textbf{(c) Automatic curriculum.} By~\cref{prop: bias-var}, $\|\tilde{\vr}^{\text{EMA}}\|\geq\|\vr_{\vtheta}\|$ and by~\cref{thm: material-derivative-expansion}, $\|\vr_{\vtheta}\|\approx\|\Delta\|\propto(t-r)$ to leading order. Therefore $\sigma^{2*}$ is increasing in $(t-r)$, and the effective weight $1/\sigma_{\vtheta}^{2}$ is smaller for large intervals---an automatic progressive curriculum.
+        \textbf{(c) Curvature-aware downweighting.} The map $w(\xi)\!=\!1/(1+\sigma_{t}^{2}\xi/d)$ is strictly decreasing in $\xi\!=\!\Tr(\mJ\mJ^{\!\top})\!\ge\!0$. By~\cref{thm: material-derivative-expansion} and the Reynolds decomposition, $\E[\Tr(\mJ\mJ^{\!\top})]$ scales with $(t{-}r)^{2}\|\frac{\mathrm{D}\vv}{\mathrm{D}t}\|^{2}$ to leading order, so $w$ shrinks on the same factor and high-curvature long-interval samples are automatically downweighted---realizing the curvature-aware schedule prescribed by~\ref{dp: weight} in a single per-sample scalar without requiring an explicit progressive schedule or interval-importance sampling.
     \end{proof}
 
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -201,29 +192,25 @@
     \label[appendix]{appx: additional-results}
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-    \subsection{Acceleration-to-Noise Ratio from the Variance Head}
+    \subsection{Acceleration-to-Noise Ratio from the Trace Weight}
 
-    The variance head from~\cref{prop: var-head} implicitly learns the flow acceleration structure identified in~\cref{thm: material-derivative-expansion}.
+    The trace weight in~\cref{prop: trace-weight} reweights samples by an empirical proxy for the squared acceleration-to-noise ratio of the curvature-variance principle.
 
-    \begin{proposition}[ANR from the Variance Head]
-        Define the excess variance ratio $\rho(\vx_{t},r,t):=\sigma_{\vtheta}^{2}(\vx_{t},r,t)/\sigma_{\vtheta}^{2}(\vx_{t},t,t)-1$. Near convergence:
+    \begin{proposition}[ANR from the Trace Weight]
+        Define the curvature-amplification ratio $\rho(\vx_{t},r,t)\!:=\!\sigma_{t}^{2}\,\Tr(\mJ\mJ^{\!\top})/d$, i.e.\ the value of the curvature term in the denominator of~\eqref{eq: trace-weight}. Near convergence,
         \begin{equation}
-            \rho\approx\frac{\|\Delta(\vx_{t},r,t)\|^{2}}{\Tr(\Sigma_{\vv'})}\approx\frac{(t-r)^{2}}{4}\cdot\frac{\left\|\frac{\mathrm{D}\vv}{\mathrm{D}t}(\vx_{t},t)\right\|^{2}}{\Tr(\Sigma_{\vv'})}=\frac{\text{ANR}(\vx_{t},t,r)^{2}}{4},
-            \label{eq: anr-var-head}
+            \rho\;\approx\;\frac{\|\Delta(\vx_{t},r,t)\|^{2}}{\Tr(\Sigma_{\vv'})}\;\approx\;\frac{(t-r)^{2}}{4}\cdot\frac{\left\|\frac{\mathrm{D}\vv}{\mathrm{D}t}(\vx_{t},t)\right\|^{2}}{\Tr(\Sigma_{\vv'})}\;=\;\frac{\text{ANR}(\vx_{t},r,t)^{2}}{4},
+            \label{eq: anr-trace-weight}
         \end{equation}
-        where $\text{ANR}:=(t-r)\left\|\frac{\mathrm{D}\vv}{\mathrm{D}t}\right\|/\sqrt{\Tr(\Sigma_{\vv'})}$ is the acceleration-to-noise ratio.
+        where $\text{ANR}\!:=\!(t-r)\|\frac{\mathrm{D}\vv}{\mathrm{D}t}\|/\sqrt{\Tr(\Sigma_{\vv'})}$ is the acceleration-to-noise ratio. The trace weight then takes the form $w\!=\!1/(1+\rho)$, so $w\!\to\!1$ for low-ANR samples (no reweighting) and $w\!\to\!1/\rho$ for high-ANR samples.
         \label[proposition]{prop: anr}
     \end{proposition}
 
     \begin{proof}
-        The FM anchor~\eqref{eq: fm-anchor} ensures $\tilde{\vr}^{\text{EMA}}(\vx_{t},t,t)\approx\bm{0}$ near convergence (the boundary condition is well-supervised). By~\cref{prop: var-head}(b), $\sigma^{2*}(\vx_{t},t,t)\approx\Tr(\Sigma_{\vv'})/d$. For $r<t$, $\tilde{\vr}^{\text{EMA}}\approx\Delta(\vx_{t},r,t)$, so $\sigma^{2*}(\vx_{t},r,t)\approx(\|\Delta\|^{2}+\Tr(\Sigma_{\vv'}))/d$. Their ratio gives:
-        \begin{equation}
-            1+\rho=\frac{\sigma^{2*}(\vx_{t},r,t)}{\sigma^{2*}(\vx_{t},t,t)}\approx\frac{\|\Delta\|^{2}+\Tr(\Sigma_{\vv'})}{\Tr(\Sigma_{\vv'})}\;\implies\;\rho\approx\frac{\|\Delta\|^{2}}{\Tr(\Sigma_{\vv'})}.
-        \end{equation}
-        Substituting $\|\Delta\|\approx\frac{(t-r)}{2}\|\frac{\mathrm{D}\vv}{\mathrm{D}t}\|$ from~\cref{thm: material-derivative-expansion} yields~\eqref{eq: anr-var-head}.
+        Combining the Reynolds decomposition with the convergence argument of~\cref{prop: bias-var} gives $\Tr(\mJ\Sigma_{\vv'}\mJ^{\!\top})\!\approx\!\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top})$ under the isotropic-noise approximation $\Sigma_{\vv'}\!\approx\!\sigma_{t}^{2}\mI_{d}$. The same EMA-anchor argument that gave~\cref{prop: bias-var} relates the inner expectation of $\|\mJ\vv'\|_{2}^{2}$ to the squared curvature gap: $\E[\|\mJ\vv'\|_{2}^{2}]\!\approx\!\|\Delta(\vx_{t},r,t)\|^{2}$ as $\vu_{\bar\vtheta}(\vx_{t},t,t)\!\to\!\vv(\vx_{t},t)$. Dividing by $d\,\Tr(\Sigma_{\vv'})/d\!=\!\Tr(\Sigma_{\vv'})$ converts $\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top})/d$ into $\|\Delta\|^{2}/\Tr(\Sigma_{\vv'})$. Substituting the curvature-gap expansion $\|\Delta\|\!\approx\!\tfrac{t-r}{2}\|\frac{\mathrm{D}\vv}{\mathrm{D}t}\|$ from~\cref{thm: material-derivative-expansion} yields~\eqref{eq: anr-trace-weight}.
     \end{proof}
 
-    \Cref{prop: anr} shows that the excess variance ratio $\rho$ directly measures the squared acceleration-to-noise ratio, connecting the learned variance head to the curvature-variance principle. This provides a testable prediction: for a trained model, $\rho(\vx_{t},r,t)$ should scale quadratically with $(t-r)$, with a slope proportional to $\|\frac{\mathrm{D}\vv}{\mathrm{D}t}\|^{2}/\Tr(\Sigma_{\vv'})$.
+    \Cref{prop: anr} shows that the trace weight is a direct empirical estimator of $1/(1+\text{ANR}^{2}/4)$, connecting the BLUE-scalar derivation in the main text back to the curvature-variance principle. This yields a testable prediction: when a trained model is probed at varying $(r,t)$, the empirical curvature term $\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top})/d$ should scale quadratically with $(t-r)$, with a slope proportional to $\|\frac{\mathrm{D}\vv}{\mathrm{D}t}\|^{2}/\Tr(\Sigma_{\vv'})$.
 
     \subsection{Compound Prediction Error: $\mathrm{d}/\mathrm{d}t$ vs.\ $\mathrm{d}/\mathrm{d}s$ Formulations}
 
@@ -253,28 +240,17 @@
 
     \textbf{Tradeoff.} The $\mathrm{d}/\mathrm{d}s$ formulation eliminates the spatial Jacobian entirely (a strict advantage in compound prediction error), but requires parameterizing $f_{\vtheta}(\vx_{t},t,s)=(s-t)F_{\vtheta}(\vx_{t},t,s)$ with explicit dependence on both time endpoints---a different architecture from standard velocity networks. The $\mathrm{d}/\mathrm{d}t$ formulation retains compatibility with the standard MeanFlow parameterization and benefits from the curvature-variance theory developed in this work. The bias term $(t-r)\|\partial_{\vz}\vu_{\vtheta}\|\|\hat{\vv}_{t}-\vv\|$ shrinks during training, so the gap between the two formulations closes as the EMA anchor improves.
 
-    \subsection{MSE Variant without Variance Head}
+    \subsection{Schedule $\sigma_{t}$ in the Trace Weight}
+    \label{appx: sigma-schedule}
 
-    As a simpler alternative to~\Cref{alg: va-mf}, one can use explicit weighting $w(t)\geq 0$ in place of the heteroscedastic loss. A principled choice is the signal-to-noise ratio schedule $w(t)=(1-t)^{2}/(t^{2}+\epsilon)$, which captures the qualitative variance structure for linear interpolation paths by downweighting high-variance timesteps near $t=1$.
+    The trace weight~\eqref{eq: trace-weight} introduces a single hyperparameter, the time-dependent scalar $\sigma_{t}$ that absorbs the conditional-velocity variance scale. We consider three options.
 
-    \begin{algorithm}[!ht]
-        \caption{VA-MeanFlow Training (MSE Variant)}
-        \label{alg: va-mf-mse}
-        \begin{algorithmic}
-            \Require Dataset $\gD$, EMA decay $\mu$, anchor weight $\lambda$, anchor interval $[\delta_{\min},\delta_{\max}]$, weighting $w(t)$
-            \State Initialize $\bar{\vtheta}\gets\vtheta$
-            \For{$k=1,2,\ldots$}
-                \State Sample $(\vx_{0},\vx_{1})\sim\gD\times\gN(\bm{0},\mI_{d})$,\; $t\sim\gU[0,1]$,\; $r\sim\gU[0,t]$,\; $\delta\sim\gU[\delta_{\min},\delta_{\max}]$
-                \State $\vx_{t}\gets(1-t)\vx_{0}+t\,\vx_{1}$
-                \State $\vv_{\text{tang}}\gets\texttt{sg}[\vu_{\bar{\vtheta}}(\vx_{t},t,t)]$ \Comment{EMA anchor}
-                \State $V_{\vtheta}\gets\vu_{\vtheta}(\vx_{t},r,t)+(t{-}r)\,\texttt{sg}[\texttt{JVP}(\vu_{\vtheta},(\vx_{t},r,t),(\vv_{\text{tang}},0,1))]$
-                \State $\ell_{\text{MF}}\gets w(t)\,\|V_{\vtheta}-\vv_{\text{cond}}\|_{2}^{2}$
-                \State $\ell_{\text{FM}}\gets\|\vu_{\vtheta}(\vx_{t},t{-}\delta,t)-\vv_{\text{cond}}\|_{2}^{2}$ \Comment{FM anchor}
-                \State $\vtheta\gets\vtheta-\eta\,\nabla_{\vtheta}(\ell_{\text{MF}}+\lambda\,\ell_{\text{FM}})$
-                \State $\bar{\vtheta}\gets\mu\bar{\vtheta}+(1-\mu)\vtheta$
-            \EndFor
-            \State \Return $\vtheta$ \Comment{Generate: $\hat{\vx}_{0}=\vx_{1}-\vu_{\vtheta}(\vx_{1},0,1)$}
-        \end{algorithmic}
-    \end{algorithm}
+    \paragraph{Constant ($\sigma_{t}\!=\!1$).} The simplest choice, in which $\rho\!=\!\Tr(\mJ\mJ^{\!\top})/d$ is the only modulation. This recovers the bare BLUE-scalar form of the trace weight (\Cref{prop: trace-weight}) and serves as the cleanest test of the curvature term in isolation.
+
+    \paragraph{Quadratic ($\sigma_{t}\!=\!t^{2}$, default).} Matches the variance growth along linear interpolation paths: under $\vx_{t}\!=\!(1-t)\vx_{0}+t\vx_{1}$ with $\vx_{1}\!\sim\!\gN(\bm{0},\mI_{d})$, the conditional-velocity covariance scales as $\Tr(\Sigma_{\vv'})\!\propto\!t^{2}$, so $\sigma_{t}^{2}\!=\!t^{4}$ is the natural normalizer. We instead use $\sigma_{t}\!=\!t^{2}$ (i.e.\ $\sigma_{t}^{2}\!=\!t^{4}$) as the default; this gives the most consistent improvement across our toy benchmarks.
+
+    \paragraph{Learned ($\sigma_{t}\!=\!\texttt{NN}_{\phi}(t)$).} A small two-layer MLP with $\texttt{softplus}$ output trained jointly with $\vtheta$. The learned schedule subsumes the previous two as special cases and adapts to dataset-specific noise structure, at the cost of one extra hyperparameter family ($\phi$) and a small additional forward pass.
+
+    Empirical comparison of the three schedules across the dense-GMM scaling benchmarks appears in~\Cref{sec: experiment}; the quadratic schedule is consistently the best or tied-best in five of the six dimensions tested.
 
 \end{appendices}

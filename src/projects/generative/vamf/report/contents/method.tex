@@ -171,7 +171,7 @@ Herein, it is reasonable to assume $\vv(\rvx,t)\in{C^{2}}$ since existing work p
 
 Meanwhile, methods that employ progressive scheduling~\cite{geng2025improvedmeanflowschallenges} address the problem by initially training with a small interval $r\to{t}$. According to~\cref{thm: material-derivative-expansion}, the expectation gap grows at a rate factor $\frac{(t-r)}{2}\left\|\frac{\mathrm{D}}{\mathrm{D}t}(\rvx,r,t)\right\|$ and hence it is reasonable to constrain the maximum interval during training by bounding this factor. The expansion enables us to establish a Lipschitz bound on the expectation gap.
 
-In addition, the relationship between the expectation gap and the flow acceleration reveals a challenge in the intermediate time step $t$, where the flow acceleration maximizes due to the intersection of conditional trajectories. The issue is exacerbated for high-resolution, multi-modal data, where marginal velocity field changes occur rapidly. See~\Cref{appx: theorem-proof} for a complementary Lipschitz bound on $\Delta$.
+In addition, the relationship between the expectation gap and the flow acceleration reveals a challenge in the intermediate time step $t$, where the flow acceleration maximizes due to the intersection of conditional trajectories. The issue is exacerbated for high-resolution, multi-modal data, where marginal velocity field changes occur rapidly.
 
 Together with the variance analysis in~\cref{subsec: mf-bias-vars}, the material derivative expansion yields three design principles for stabilizing MeanFlow training:
 \begin{description}
@@ -234,46 +234,62 @@ where $\lambda>0$ balances the two terms. The following propositions characteriz
 
 \Cref{prop: vamf-grad} confirms that the VA-MF gradient has a first-order structure with no Jacobian-mediated variance amplification (cf.~\cref{thm: jacobi-variance}). \Cref{prop: bias-var} shows the transient bias is bounded by $(t-r)\|\partial_{\vz}\vu_{\vtheta}\|\|\vu_{\bar{\vtheta}}(\vx_{t},t,t)-\vv(\vx_{t},t)\|$ and shrinks as the EMA velocity improves.
 
-\subsubsection{Heteroscedastic Extension (\ref{dp: weight})}
-\label{subsubsec: hetero}
+\subsubsection{Trace Weight (\ref{dp: weight})}
+\label{subsubsec: trace-weight}
 
-With~\ref{dp: var} and~\ref{dp: bias} resolved, the remaining per-sample variance stems from the conditional velocity fluctuation $\vv'=\vv_{\text{cond}}-\vv(\vx_{t},t)$, whose magnitude $\Tr(\Sigma_{\vv'})$ varies with both $t$ and $\vx_{t}$. By~\cref{thm: material-derivative-expansion}, the curvature gap contributes an additional $(t-r)^{2}\left\|\frac{\mathrm{D}\vv}{\mathrm{D}t}\right\|^{2}/4$ to the per-sample difficulty, so the total difficulty depends on both the irreducible noise $\Tr(\Sigma_{\vv'})$ and the curvature-driven term---precisely the structure that~\ref{dp: weight} calls for. Moreover, this difficulty is not spatially uniform: different regions of a natural image (flat backgrounds, sharp edges, fine textures) have markedly different local predictability. We capture this local structure by extending the model with a \emph{per-pixel-per-channel} variance output $\sigma_{\vtheta}^{2}:\mathbb{R}^{d}\times[0,1]^{2}\to\mathbb{R}^{d}_{>0}$ and replacing the MSE with a heteroscedastic diagonal-Gaussian negative log-likelihood~\cite{nix1994estimating,kendall2017uncertainties}:
+With~\ref{dp: var} and~\ref{dp: bias} resolved, the per-sample magnitude of the EMA loss in~\eqref{eq: ema-mf-loss} is still heterogeneous across $(\vx_{t},r,t)$: the inner expectation contains the curvature-amplified noise $\Tr(\mJ\Sigma_{\vv'}\mJ^{\!\top})$ from~\cref{thm: jacobi-variance}. Even though the EMA tangent removes this term from the \emph{gradient}, samples with large $\|\mJ\|$ still produce loss values that dwarf samples in flat, low-curvature regions, biasing the empirical-risk estimator toward the noisy regime. Design principle~\ref{dp: weight} addresses this by \emph{reweighting} each sample to equalize its contribution to the expected loss.
+
+\paragraph{BLUE matrix weight.} Treating the conditional fluctuation $\vv'$ as Gaussian noise, the Best Linear Unbiased Estimator (BLUE) of the mean-field residual $\tilde{\vr}^{\text{EMA}}$ uses the inverse-covariance matrix weight $(\mJ\Sigma_{\vv'}\mJ^{\!\top})^{-1}$. Two practical obstacles rule out the matrix form: \textbf{(i)} the per-sample $d\!\times\!d$ matrix inversion costs $\gO(d^{3})$ and is intractable for high-dimensional images or latents; \textbf{(ii)} the matrix is ill-conditioned whenever $(t{-}r)\partial_{\vz}\vu_{\vtheta}\!\approx\!\mI_{d}$, where $\mJ\!\approx\!\bm{0}$ pushes the inverse to $+\infty$.
+
+\paragraph{Scalar surrogate.} Under the isotropic-noise approximation $\Sigma_{\vv'}\!\approx\!\sigma_{t}^{2}\mI_{d}$, both pathologies are absorbed by replacing the matrix weight with a single-scalar trace-based surrogate. Because $\Tr(\mJ\Sigma_{\vv'}\mJ^{\!\top})\!=\!\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top})$, we define the per-sample \textit{trace weight}
 \begin{equation}
-    \gL_{\text{MF}}^{\text{NLL}}(\vtheta)=\E_{t,r,\vx_{0},\vx_{1}}\!\left[\frac{1}{2}\sum_{i=1}^{d}\!\left(\frac{\bigl(V_{\vtheta,i}^{\text{EMA}}-\vv_{\text{cond},i}\bigr)^{2}}{\sigma_{\vtheta,i}^{2}(\vx_{t},r,t)}+\log\sigma_{\vtheta,i}^{2}(\vx_{t},r,t)\right)\right],
-    \label{eq: nll-loss}
+    w(\vx_{t},r,t)\;:=\;\frac{1}{1+\sigma_{t}^{2}\,\texttt{sg}\!\left[\Tr(\mJ\mJ^{\!\top})\right]\big/d}\,,
+    \label{eq: trace-weight}
 \end{equation}
-equivalently $\tfrac{1}{2}\bigl(\tilde{\vr}^{\text{EMA}\top}\Sigma_{\vtheta}^{-1}\tilde{\vr}^{\text{EMA}} + \log\det\Sigma_{\vtheta}\bigr)$ with $\Sigma_{\vtheta}=\mathrm{diag}(\sigma_{\vtheta,1}^{2},\ldots,\sigma_{\vtheta,d}^{2})$. Here $\sigma_{\vtheta,i}^{2}=\texttt{softplus}(s_{\vtheta,i})+\sigma_{\min}^{2}$, where $s_{\vtheta}$ is a \emph{per-location} linear projection from the shared backbone (one log-variance per pixel per channel) and $\sigma_{\min}^{2}>0$ prevents collapse. The full heteroscedastic objective is $\gL_{\text{VA-MF}}^{\text{NLL}}=\gL_{\text{MF}}^{\text{NLL}}+\lambda\,\gL_{\text{FM}}^{\text{NLL}}$, where $\gL_{\text{FM}}^{\text{NLL}}$ applies the same per-pixel Gaussian NLL to the FM anchor prediction using the variance head evaluated at the anchor interval (rather than the plain MSE in~\eqref{eq: fm-anchor}), so that the two terms live on a common per-element NLL scale and $\lambda$ has a consistent meaning across training.
+where the constant $d$ in the denominator of the curvature term is the per-sample dimensionality and the additive $1$ provides the numerical stability that the BLUE inverse lacks: $w\!\to\!1$ as $\mJ\!\to\!\bm{0}$ (low curvature, no reweighting) and $w\!\to\!d/(\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top}))$ as the curvature term dominates (recovering the proportionality of the BLUE-scalar limit). The stop-gradient on $\Tr(\mJ\mJ^{\!\top})$ ensures the weight does not contribute to the parameter update, so $w$ acts purely as a per-sample reweighting.
 
-\begin{proposition}[Variance Head as Automatic Per-Element Weighting]
-    Under the heteroscedastic loss~\eqref{eq: nll-loss}: \textbf{(a)} the mean-parameter gradient is the per-element-weighted form of~\cref{prop: vamf-grad} with $1/(2\sigma_{\vtheta,i}^{2})$ as the learned weight on the $i$-th pixel-channel residual; \textbf{(b)} for fixed mean parameters, the optimal per-element variance is $\sigma_{i}^{2*}=\E[(\tilde{\vr}_{i}^{\text{EMA}})^{2}]+\mathrm{Var}(\vv'_{i})$, reducing to $\mathrm{Var}(\vv'_{i})$ at convergence of the mean head; \textbf{(c)} each $\sigma_{\vtheta,i}^{2}$ grows with $(t-r)$ via the pixel-local curvature gap~(\cref{thm: material-derivative-expansion}), automatically downweighting hard intervals \emph{and} hard spatial regions without an explicit schedule.
-    \label[proposition]{prop: var-head}
+\paragraph{Hutchinson estimator.} Direct evaluation of $\Tr(\mJ\mJ^{\!\top})$ requires $d$ Jacobian-vector products and is intractable for image-scale data. We instead use a single Rademacher (or Gaussian) probe $\vz\!\sim\!\gN(\bm{0},\mI_{d})$ and the unbiased estimator~\cite{hutchinson1989stochastic}
+\begin{equation}
+    \widehat{\Tr(\mJ\mJ^{\!\top})}\;=\;\bigl\|\mJ\vz\bigr\|_{2}^{2}\;=\;\bigl\|(t{-}r)\,\partial_{\vz}\vu_{\vtheta}\,\vz-\vz\bigr\|_{2}^{2},
+    \label{eq: hutchinson}
+\end{equation}
+which costs a single JVP per step. Multiple probes can be averaged when extra accuracy is needed; $K\!=\!1$ is sufficient for the experiments in this paper.
+
+\paragraph{Schedule $\sigma_{t}$.} The scaling factor $\sigma_{t}$ in~\eqref{eq: trace-weight} absorbs the conditional-velocity variance scale and re-introduces a controllable schedule along the time axis. We consider three options: $\sigma_{t}\!=\!1$ (no schedule; the curvature term is the only modulation), $\sigma_{t}\!=\!t^{2}$ (default; matches the variance growth along linear interpolation paths), and a small learned MLP $\sigma_{t}\!=\!\texttt{NN}_{\phi}(t)$. We use $\sigma_{t}\!=\!t^{2}$ unless stated otherwise; the ablation in~\Cref{appx: additional-results} confirms it is the most robust across our toy datasets.
+
+\paragraph{VaMF objective.} Combining the EMA tangent~\eqref{eq: ema-mf-loss}, FM anchor~\eqref{eq: fm-anchor}, and trace weight~\eqref{eq: trace-weight} yields the full \textbf{Variance-Aware MeanFlow} loss
+\begin{equation}
+    \gL_{\text{VaMF}}(\vtheta)\;=\;\E_{r,t,\vx_{0},\vx_{1}}\!\left[w(\vx_{t},r,t)\,\bigl\|\tilde{\vr}^{\text{EMA}}_{\vtheta}\bigr\|_{2}^{2}\right]\;+\;\lambda\,\gL_{\text{FM}}(\vtheta),
+    \label{eq: vamf-tw-loss}
+\end{equation}
+which preserves the original MeanFlow MSE form---no additional network heads, no NLL.
+
+\begin{proposition}[Trace-Weight Properties]
+    Under the trace-weight loss~\eqref{eq: vamf-tw-loss} and the isotropic approximation $\Sigma_{\vv'}\!\approx\!\sigma_{t}^{2}\mI_{d}$:
+    \textbf{(a)} The mean-parameter gradient is the trace-weighted form of~\cref{prop: vamf-grad} with $w$ as a stop-gradient scalar, so the BLUE-style normalization does not enter the parameter update.
+    \textbf{(b)} The expected per-sample contribution to the loss decomposes into a deterministic signal $w\,\|\tilde{\vr}^{\text{EMA}}\|_{2}^{2}$ and a constant noise floor $w\,\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top})\!=\!d\,\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top})/(d+\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top}))\!\le\!d$, eliminating the unbounded curvature growth from~\cref{thm: jacobi-variance}.
+    \textbf{(c)} $w$ is monotonically decreasing in $\Tr(\mJ\mJ^{\!\top})$ and, by~\cref{thm: material-derivative-expansion}, in the squared interval length $(t{-}r)^{2}\|\frac{\mathrm{D}\vv}{\mathrm{D}t}\|^{2}$, so high-curvature long-interval samples are automatically downweighted---subsuming inverse-variance weighting, progressive scheduling, and acceleration-aware interval sampling in a single per-sample scalar.
+    \label[proposition]{prop: trace-weight}
 \end{proposition}
 
-The per-pixel variance head replaces inverse-variance weighting, progressive scheduling, and EMA-based variance proxies with a single learned spatially-varying map, and simultaneously captures the spatial heteroscedasticity of natural images that a scalar variance cannot represent. At generation time, only $\vu_{\vtheta}(\vx_{1},0,1)$ is needed. The complete training procedure is given in~\Cref{alg: va-mf}; see~\Cref{appx: additional-results} for the connection to the acceleration-to-noise ratio and an MSE variant without the variance head.
-
-\begin{remark}[MSE-to-NLL ramp]
-    Switching abruptly from MSE to NLL at step $N_{w}$ leaves the variance head with zero gradient throughout the warm-up, so every $\sigma_{\vtheta,i}^{2}$ must traverse from its initialization to its optimum at a single step. We instead linearly interpolate $\ell_{\text{MF}}\gets(1-\alpha_{k})\ell_{\text{MF}}^{\text{MSE}}+\alpha_{k}\ell_{\text{MF}}^{\text{NLL}}$ with $\alpha_{k}$ ramping from $0$ to $1$ over $[N_{w}-N_{\text{ramp}},\,N_{w}]$, giving the variance head non-zero gradient during the transition and avoiding a discontinuity in the loss landscape.
-    \label{rmk: nll-ramp}
-\end{remark}
+The full training procedure is given in~\Cref{alg: va-mf}; the connection between the trace weight and the acceleration-to-noise ratio $\text{ANR}\!=\!(t{-}r)\|\frac{\mathrm{D}\vv}{\mathrm{D}t}\|/\sqrt{\Tr(\Sigma_{\vv'})}$ is formalized in~\Cref{appx: additional-results}. At generation time only $\vu_{\vtheta}(\vx_{1},0,1)$ is needed; the trace-weight machinery exists purely to stabilize training.
 
 \begin{algorithm}[t]
     \caption{Variance-Aware MeanFlow Training}
     \label{alg: va-mf}
     \begin{algorithmic}
-        \Require Dataset $\gD$, EMA decay $\mu$, anchor weight $\lambda$, anchor interval $[\delta_{\min},\delta_{\max}]$, variance floor $\sigma_{\min}^{2}$, warm-up end $N_{w}$, NLL ramp length $N_{\text{ramp}}$
+        \Require Dataset $\gD$, EMA decay $\mu$, anchor weight $\lambda$, anchor interval $[\delta_{\min},\delta_{\max}]$, schedule $\sigma_{t}$, probes $K$
         \State Initialize $\bar{\vtheta}\gets\vtheta$
         \For{$k=1,2,\ldots$}
             \State Sample $(\vx_{0},\vx_{1})\sim\gD\times\gN(\bm{0},\mI_{d})$,\; $t\sim\gU[0,1]$,\; $r\sim\gU[0,t]$,\; $\delta\sim\gU[\delta_{\min},\delta_{\max}]$
-            \State $\vx_{t}\gets(1-t)\vx_{0}+t\,\vx_{1}$
-            \State $(\vu_{\vtheta},\,s_{\vtheta})\gets\text{Network}(\vx_{t},r,t)$;\quad $\sigma_{\vtheta}^{2}\gets\texttt{softplus}(s_{\vtheta})+\sigma_{\min}^{2}\in\mathbb{R}^{d}_{>0}$ \Comment{per-pixel variance}
-            \State $\vv_{\text{tang}}\gets\texttt{sg}[\vu_{\bar{\vtheta}}(\vx_{t},t,t)]$ \Comment{EMA anchor}
-            \State $V_{\vtheta}\gets\vu_{\vtheta}+(t{-}r)\,\texttt{sg}[\texttt{JVP}(\vu_{\vtheta},(\vx_{t},r,t),(\vv_{\text{tang}},0,1))]$
-            \State $\ell_{\text{MF}}^{\text{MSE}}\gets\|V_{\vtheta}-\vv_{\text{cond}}\|_{2}^{2}$
-            \State $\ell_{\text{MF}}^{\text{NLL}}\gets\tfrac{1}{2}\sum_{i=1}^{d}\!\bigl[(V_{\vtheta,i}-\vv_{\text{cond},i})^{2}/\sigma_{\vtheta,i}^{2}+\log\sigma_{\vtheta,i}^{2}\bigr]$
-            \State $\alpha_{k}\gets\mathrm{clip}\bigl((k-(N_{w}-N_{\text{ramp}}))/N_{\text{ramp}},\,0,\,1\bigr)$ \Comment{MSE\,$\to$\,NLL ramp}
-            \State $\ell_{\text{MF}}\gets(1-\alpha_{k})\,\ell_{\text{MF}}^{\text{MSE}}+\alpha_{k}\,\ell_{\text{MF}}^{\text{NLL}}$
-            \State $(\vu_{\vtheta}^{\delta},\,\sigma_{\vtheta}^{2,\delta})\gets\text{Network}(\vx_{t},t{-}\delta,t)$ \Comment{FM anchor forward}
-            \State $\ell_{\text{FM}}\gets\tfrac{1}{2}\sum_{i=1}^{d}\!\bigl[(\vu_{\vtheta,i}^{\delta}-\vv_{\text{cond},i})^{2}/\sigma_{\vtheta,i}^{2,\delta}+\log\sigma_{\vtheta,i}^{2,\delta}\bigr]$ \Comment{NLL-consistent FM anchor}
+            \State $\vx_{t}\gets(1-t)\vx_{0}+t\,\vx_{1}$,\quad $\vv_{\text{cond}}\gets\vx_{1}-\vx_{0}$
+            \State $\vv_{\text{tang}}\gets\texttt{sg}[\vu_{\bar{\vtheta}}(\vx_{t},t,t)]$ \Comment{EMA tangent (D1)}
+            \State $V_{\vtheta}\gets\vu_{\vtheta}(\vx_{t},r,t)+(t{-}r)\,\texttt{sg}[\texttt{JVP}(\vu_{\vtheta},(\vx_{t},r,t),(\vv_{\text{tang}},0,1))]$
+            \State Sample $K$ probes $\{\vz_{i}\}_{i=1}^{K}\!\sim\!\gN(\bm{0},\mI_{d})$
+            \State $\widehat{\Tr(\mJ\mJ^{\!\top})}\gets\frac{1}{K}\sum_{i=1}^{K}\bigl\|(t{-}r)\,\partial_{\vz}\vu_{\vtheta}(\vx_{t},r,t)\,\vz_{i}-\vz_{i}\bigr\|_{2}^{2}$
+            \State $w\gets 1\,/\,\bigl(1+\sigma_{t}^{2}\,\texttt{sg}[\widehat{\Tr(\mJ\mJ^{\!\top})}]/d\bigr)$ \Comment{trace weight (D3)}
+            \State $\ell_{\text{MF}}\gets w\cdot\|V_{\vtheta}-\vv_{\text{cond}}\|_{2}^{2}$
+            \State $\ell_{\text{FM}}\gets\|\vu_{\vtheta}(\vx_{t},t{-}\delta,t)-\vv_{\text{cond}}\|_{2}^{2}$ \Comment{FM anchor (D2)}
             \State $\vtheta\gets\vtheta-\eta\,\nabla_{\vtheta}(\ell_{\text{MF}}+\lambda\,\ell_{\text{FM}})$
             \State $\bar{\vtheta}\gets\mu\bar{\vtheta}+(1-\mu)\vtheta$ \Comment{EMA update}
         \EndFor
