@@ -427,17 +427,25 @@ def sliced_wasserstein(
     y: jax.Array,
     key: jax.Array,
     n_projections: int = 500,
+    p: float = 1.0,
 ) -> jax.Array:
-    r"""Sliced Wasserstein-1 distance between point clouds of two distributions.
+    r"""Sliced Wasserstein-``p`` distance between two empirical distributions.
+
+    Estimates :math:`SW_p(P, Q) = \left(\mathbb{E}_\theta
+    [W_p(\theta_\# P, \theta_\# Q)^p]\right)^{1/p}` via Monte Carlo over
+    uniformly random unit directions :math:`\theta`. For empirical measures
+    of equal size, the inner 1-D Wasserstein distance reduces to comparing
+    sorted samples.
 
     Args:
         x: Samples from P, shape ``(n, d)``.
         y: Samples from Q, shape ``(n, d)``.
         key: PRNG key for random projection directions.
         n_projections: Number of random 1-D projections.
+        p: Order of the Wasserstein distance. Defaults to 1.
 
     Returns:
-        Scalar SWD estimate.
+        Scalar :math:`SW_p` estimate.
     """
     d = x.shape[-1]
     dirs = jrnd.normal(key, (n_projections, d))
@@ -448,7 +456,7 @@ def sliced_wasserstein(
     )
     x_proj = jnp.sort(x @ dirs.T, axis=0)
     y_proj = jnp.sort(y @ dirs.T, axis=0)
-    return jnp.mean(jnp.abs(x_proj - y_proj))
+    return jnp.mean(jnp.abs(x_proj - y_proj) ** p) ** (1.0 / p)
 
 
 ################################################################################
@@ -872,11 +880,11 @@ def main(argv: typing.List[str]) -> int:
             rngs=k_gen,
         )
         assert gen_out.output is not None
-        return sliced_wasserstein(
-            gen_out.output,
-            ref,
-            k_swd,
-        )
+        # Same projection key for both p so SW_1 / SW_2 are paired estimators
+        # over an identical set of slicing directions (variance-reduced).
+        swd1 = sliced_wasserstein(gen_out.output, ref, k_swd, p=1.0)
+        swd2 = sliced_wasserstein(gen_out.output, ref, k_swd, p=2.0)
+        return swd1, swd2
 
     eval_step = jax.jit(_eval_step)
 
@@ -896,18 +904,20 @@ def main(argv: typing.List[str]) -> int:
 
         if step % FLAGS.log_every_n_steps == 0 or step == FLAGS.steps - 1:
             key, eval_key = jrnd.split(key)
-            swd = eval_step(state, eval_key)
+            swd1, swd2 = eval_step(state, eval_key)
             m = {k: float(v) for k, v in step_out.scalars.items()}
             m["step"] = step
-            m["swd"] = float(swd)
+            m["swd1"] = float(swd1)
+            m["swd2"] = float(swd2)
             history.append(m)
             elapsed = time.time() - t0
             _logging.rank_zero_info(
-                "[%6d/%d] loss=%.4f  swd=%.4f  " "(%.1fs)",
+                "[%6d/%d] loss=%.4f  swd1=%.4f  swd2=%.4f  (%.1fs)",
                 step,
                 FLAGS.steps,
                 m["loss"],
-                m["swd"],
+                m["swd1"],
+                m["swd2"],
                 elapsed,
             )
 
