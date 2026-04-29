@@ -9,6 +9,7 @@ from matplotlib import pyplot as plt
 import numpy as np
 
 from src.projects.generative.vamf.figures import _style
+from src.utilities import logging as _logging
 
 # ==============================================================================
 # Flags
@@ -27,7 +28,7 @@ flags.DEFINE_string(
     required=True,
     help=(
         "Root directory containing experiment subdirectories: "
-        "200k/, 200k_t2/, dgmm_scaling/, dgmm_sigma_none/, "
+        "200k/, 200k_sigma_sweep/, dgmm_scaling/, dgmm_sigma_none/, "
         "dgmm_sigma_t2/, dgmm_sigma_learned/."
     ),
 )
@@ -62,7 +63,7 @@ DATASET_LABELS = {
 METHOD_LABELS = {
     "meanflow": "MeanFlow",
     "vamf_l2": r"VaMF ($\ell_2$)",
-    "vamf_tw": r"VaMF (TW, $\sigma_t{=}t^2$)",
+    "vamf_tw": r"VaMF (TW, $\sigma_t{=}1$)",
 }
 DGMM_DIMS = [2, 4, 8, 16, 32, 64]
 
@@ -127,29 +128,32 @@ def _swd_key(record: dict, p: int = 1) -> str:
 
 
 # ==============================================================================
-# Figure 1: Samples grid (datasets x methods)
-#   MeanFlow & VaMF-L2 from 200k/; VaMF-TW from 200k_t2/
+# NOTE: Figure 1: Samples grid
+# (rows = {Reference, MeanFlow, best VaMF}, cols = datasets)
+# MeanFlow from 200k/; VaMF-TW (winner: sigma_t=1) from 200k/. VaMF-L2 omitted.
 def plot_samples_grid(
     base_dir: str,
     work_dir: str,
     seed: int,
 ) -> None:
-    """4-row by 4-col grid: Reference + MeanFlow + VaMF-L2 + VaMF-TW(t^2)."""
-    n_rows = len(DATASETS)
-    n_cols = 1 + len(METHODS)
+    """3-row by len(DATASETS)-col grid: Reference / MeanFlow / VaMF-TW(t^2)."""
+    sample_methods = ["meanflow", "vamf_tw"]
+    row_labels = ["Reference"] + [METHOD_LABELS[m] for m in sample_methods]
+    n_rows = 1 + len(sample_methods)
+    n_cols = len(DATASETS)
 
     fig, axes = plt.subplots(
         n_rows,
         n_cols,
-        figsize=(n_cols * 2.4, n_rows * 2.4),
+        figsize=(n_cols * 2.2, n_rows * 2.2),
         squeeze=False,
     )
 
-    for row, dataset in enumerate(DATASETS):
-        # Load reference from any available npz
+    for col, dataset in enumerate(DATASETS):
+        # Load reference from any available npz.
         ref = None
-        for sub in ["200k", "200k_t2"]:
-            for method in METHODS:
+        for sub in ["200k"]:
+            for method in sample_methods:
                 ref_path = os.path.join(
                     base_dir, sub, f"{dataset}_{method}_{seed}.npz"
                 )
@@ -160,7 +164,7 @@ def plot_samples_grid(
                 break
 
         if ref is None:
-            for col in range(n_cols):
+            for row in range(n_rows):
                 axes[row, col].text(
                     0.5,
                     0.5,
@@ -177,7 +181,7 @@ def plot_samples_grid(
                     labelleft=False,
                     labelbottom=False,
                 )
-            axes[row, 0].set_ylabel(
+            axes[0, col].set_title(
                 DATASET_LABELS[dataset],
                 fontsize=11,
                 fontweight="bold",
@@ -187,8 +191,8 @@ def plot_samples_grid(
         xlim = _axis_lim(ref[:, 0])
         ylim = _axis_lim(ref[:, 1])
 
-        # Reference column
-        ax = axes[row, 0]
+        # Row 0 — Reference.
+        ax = axes[0, col]
         ax.scatter(
             ref[:, 0],
             ref[:, 1],
@@ -206,19 +210,16 @@ def plot_samples_grid(
             labelleft=False,
             labelbottom=False,
         )
-        if row == 0:
-            ax.set_title("Reference", fontweight="bold")
-        ax.set_ylabel(
+        ax.set_title(
             DATASET_LABELS[dataset],
             fontsize=11,
             fontweight="bold",
         )
 
-        # Method columns
-        for col, method in enumerate(METHODS):
-            ax = axes[row, 1 + col]
-            # VaMF-TW uses 200k_t2/ (σ_t=t²); others use 200k/
-            subdir = "200k_t2" if method == "vamf_tw" else "200k"
+        # Rows 1..n — methods.
+        for mi, method in enumerate(sample_methods):
+            ax = axes[1 + mi, col]
+            subdir = "200k"  # winning sigma=1 schedule lives in 200k/
             npz_path = os.path.join(
                 base_dir,
                 subdir,
@@ -254,19 +255,21 @@ def plot_samples_grid(
                 labelleft=False,
                 labelbottom=False,
             )
-            if row == 0:
-                ax.set_title(METHOD_LABELS[method], fontweight="bold")
+
+    # Row labels on the leftmost column.
+    for ri, label in enumerate(row_labels):
+        axes[ri, 0].set_ylabel(label, fontsize=11, fontweight="bold")
 
     plt.tight_layout()
     path = os.path.join(work_dir, "toy_samples.pdf")
     fig.savefig(path)
     plt.close()
-    print(f"Saved {path}")
+    _logging.rank_zero_info("Figure saved to %s", path)
 
 
 # ==============================================================================
-# Figure 2: Training SWD curves (all 4 datasets, 3 methods)
-#   MeanFlow & VaMF-L2 from 200k/; VaMF-TW from 200k_t2/
+# NOTE: Figure 2: Training SWD curves (all 4 datasets, 3 methods)
+#   MeanFlow, VaMF-L2, VaMF-TW (sigma_t=1) all from 200k/
 def plot_training_curves(
     base_dir: str,
     work_dir: str,
@@ -281,7 +284,7 @@ def plot_training_curves(
     for idx, dataset in enumerate(DATASETS):
         ax: mpl_axes.Axes = axes[idx]  # type: ignore
         for method in METHODS:
-            subdir = "200k_t2" if method == "vamf_tw" else "200k"
+            subdir = "200k"
             hist = _load_history(
                 os.path.join(
                     base_dir,
@@ -325,25 +328,23 @@ def plot_training_curves(
     path = os.path.join(work_dir, "toy_training_curves.pdf")
     fig.savefig(path)
     plt.close()
-    print(f"Saved {path}")
+    _logging.rank_zero_info("Figure saved to %s", path)
 
 
 # ==============================================================================
-# Figure 3: Swiss Roll stability — σ_t=1 vs σ_t=t^2
+# Figure 3: Swiss Roll convergence stability (σ_t=1 winner vs baselines)
 def plot_swiss_roll_stability(
     base_dir: str,
     work_dir: str,
     seed: int,
 ) -> None:
-    """Side-by-side: Swiss Roll SWD curves for TW(σ=1) vs TW(σ=t^2),
-    plus MeanFlow and VaMF-L2 baselines."""
+    """SWD-vs-step on swiss_roll: MeanFlow, VaMF-L2, and VaMF-TW winner."""
     fig, ax = plt.subplots(1, 1, figsize=(5.5, 3.5))
 
     curves = [
         ("200k", "meanflow", "MeanFlow", "#1f77b4", "-"),
         ("200k", "vamf_l2", r"VaMF ($\ell_2$)", "#ff7f0e", "-"),
-        ("200k", "vamf_tw", r"VaMF TW ($\sigma_t{=}1$)", "#d62728", "--"),
-        ("200k_t2", "vamf_tw", r"VaMF TW ($\sigma_t{=}t^2$)", "#2ca02c", "-"),
+        ("200k", "vamf_tw", r"VaMF TW ($\sigma_t{=}1$)", "#2ca02c", "-"),
     ]
     for subdir, method, label, color, ls in curves:
         hist = _load_history(
@@ -359,13 +360,7 @@ def plot_swiss_roll_stability(
         swds = np.array([h[_swd_key(h, p=1)] for h in hist])
         smoothed = _smooth(swds, window=7)
 
-        ax.plot(
-            steps,
-            swds,
-            color=color,
-            linewidth=0.4,
-            alpha=0.2,
-        )
+        ax.plot(steps, swds, color=color, linewidth=0.4, alpha=0.2)
         ax.plot(
             steps,
             smoothed,
@@ -385,7 +380,98 @@ def plot_swiss_roll_stability(
     path = os.path.join(work_dir, "toy_swiss_roll_stability.pdf")
     fig.savefig(path)
     plt.close()
-    print(f"Saved {path}")
+    _logging.rank_zero_info("Figure saved to %s", path)
+
+
+# ==============================================================================
+# Figure 3b: Toy schedule sweep (σ_t comparison across schedules and datasets)
+SIGMA_TOY_SCHEDULES = ["none", "t", "t_squared", "ushape", "blue_gauss"]
+SIGMA_TOY_LABELS = {
+    "none": r"$\sigma_t{=}1$",
+    "t": r"$\sigma_t{=}t$",
+    "t_squared": r"$\sigma_t{=}t^2$",
+    "ushape": r"$\sigma_t{=}\sqrt{t(1{-}t)}$",
+    "blue_gauss": r"BLUE-Gauss",
+}
+
+
+def plot_toy_sigma_sweep(
+    base_dir: str,
+    work_dir: str,
+) -> None:
+    """Bar chart of mean SW1 across seeds for each (schedule, dataset) cell, using the
+    200k_sigma_sweep results."""
+    sweep_root = os.path.join(base_dir, "200k_sigma_sweep")
+    seeds = [42, 0, 1]
+
+    # Aggregate (schedule, dataset) -> (mean, std) over seeds.
+    means = np.full((len(SIGMA_TOY_SCHEDULES), len(DATASETS)), np.nan)
+    stds = np.full_like(means, np.nan)
+    for i, sched in enumerate(SIGMA_TOY_SCHEDULES):
+        for j, ds in enumerate(DATASETS):
+            vals = []
+            for seed in seeds:
+                p = os.path.join(
+                    sweep_root, sched, f"{ds}_vamf_tw_{seed}.json"
+                )
+                if not os.path.exists(p):
+                    continue
+                with open(p) as f:
+                    d = json.load(f)
+                fin = d.get("final", {})
+                v = fin.get("swd1", fin.get("swd"))
+                if v is not None:
+                    vals.append(v)
+            if vals:
+                means[i, j] = np.mean(vals)
+                stds[i, j] = np.std(vals) / np.sqrt(len(vals))
+
+    fig, ax = plt.subplots(1, 1, figsize=(7.5, 3.0))
+    n_sched = len(SIGMA_TOY_SCHEDULES)
+    n_ds = len(DATASETS)
+    bar_w = 0.8 / n_sched
+    x = np.arange(n_ds)
+
+    cmap = plt.get_cmap("viridis")  # type: ignore
+    colors = [
+        cmap(0.15 + 0.7 * i / max(n_sched - 1, 1)) for i in range(n_sched)
+    ]
+
+    for i, sched in enumerate(SIGMA_TOY_SCHEDULES):
+        offsets = (i - (n_sched - 1) / 2) * bar_w
+        ax.bar(
+            x + offsets,
+            means[i],
+            bar_w,
+            yerr=stds[i],
+            label=SIGMA_TOY_LABELS[sched],
+            color=colors[i],
+            edgecolor="black",
+            linewidth=0.4,
+            capsize=2.0,
+            error_kw={"linewidth": 0.6},
+        )
+    ax.set_xticks(x)
+    ax.set_xticklabels([DATASET_LABELS[d] for d in DATASETS])
+    ax.set_ylabel(r"Mean SW$_1$ (3 seeds)")
+    ax.set_title(
+        r"VaMF-TW: schedule sweep on the 2-D toy benchmark",
+        fontweight="bold",
+        loc="left",
+    )
+    ax.legend(
+        fontsize=7,
+        loc="upper right",
+        ncol=3,
+        frameon=False,
+    )
+    ax.margins(x=0.02)
+
+    plt.tight_layout()
+    path = os.path.join(work_dir, "toy_sigma_sweep.pdf")
+    fig.savefig(path)
+    plt.close()
+    _logging.rank_zero_info("Figure saved to %s", path)
 
 
 # ==============================================================================
@@ -523,23 +609,29 @@ def plot_dgmm_scaling(
     path = os.path.join(work_dir, "toy_dgmm_scaling.pdf")
     fig.savefig(path)
     plt.close()
-    print(f"Saved {path}")
+    _logging.rank_zero_info("Figure saved to %s", path)
 
 
 # ==============================================================================
 # Main
-def main(argv: typing.List[str]) -> None:
+def main(argv: typing.List[str]) -> int:
     del argv
     FLAGS = flags.FLAGS
     os.makedirs(FLAGS.work_dir, exist_ok=True)
 
     _apply_style_palette(FLAGS.style)
-    print(f"Plotting toy experiment results (style={FLAGS.style})...")
+    _logging.rank_zero_info(
+        "Plotting toy experiment results (style = %s)...",
+        FLAGS.style,
+    )
     plot_samples_grid(FLAGS.base_dir, FLAGS.work_dir, FLAGS.seed)
     plot_training_curves(FLAGS.base_dir, FLAGS.work_dir, FLAGS.seed)
     plot_swiss_roll_stability(FLAGS.base_dir, FLAGS.work_dir, FLAGS.seed)
+    plot_toy_sigma_sweep(FLAGS.base_dir, FLAGS.work_dir)
     plot_dgmm_scaling(FLAGS.base_dir, FLAGS.work_dir, FLAGS.seed)
-    print("Done.")
+    _logging.rank_zero_info("All done!")
+
+    return 0
 
 
 if __name__ == "__main__":
