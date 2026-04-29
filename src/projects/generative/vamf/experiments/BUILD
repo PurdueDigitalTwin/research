@@ -20,3 +20,33 @@ ml_py_binary(
         "//src/utilities:logging",
     ],
 )
+
+ml_py_binary(
+    name = "run_diagnostic_toy",
+    srcs = ["run_diagnostic_toy.py"],
+    deps = [
+        "absl-py",
+        "flax",
+        "jax",
+        "numpy",
+        "optax",
+        "//src/core:train_state",
+        "//src/projects/generative/vamf/model:diagnostic",
+    ],
+)
+
+ml_py_binary(
+    name = "run_diagnostic_unet",
+    srcs = ["run_diagnostic_unet.py"],
+    deps = [
+        "Pillow",
+        "datasets",
+        "etils",
+        "jax",
+        "jaxtyping",
+        "numpy",
+        "orbax-checkpoint",
+        "//src/projects/generative:meanflow",
+        "//src/projects/generative/vamf/model:diagnostic",
+    ],
+)
