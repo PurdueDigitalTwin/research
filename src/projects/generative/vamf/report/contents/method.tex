@@ -105,7 +105,7 @@ We approach these questions from a theoretical perspective in~\Cref{subsec: mf-b
 \subsection{Bias and Variances in Learning Mean Flows}
 \label{subsec: mf-bias-vars}
 
-In this section, we establish a theoretical analysis of the consequences of replacing the inaccessible marginal velocity $\vv(\rvx,t)$ by the conditional field $\vv_{\text{cond}}=\vx_{1}-\vx_{0}$ in both the JVP tangent and the regression target. We can apply the Reynolds decomposition of the field and let $\vv(\rvx,t\mid{\rvx_{0}})=\vv(\rvx,t)+\vv^{\prime}$, where $\vv^{\prime}$ is a zero-mean fluctuation from the marginal velocity induced by optimal transport between latent $\rvx_{1}$ and data $\rvx_{0}$. The regression loss~\eqref{eq: mf-loss} expands to
+In this section, we establish a theoretical analysis of the consequences of replacing the inaccessible marginal velocity $\vv(\rvx,t)$ by the conditional field $\vv_{\text{cond}}=\vx_{1}-\vx_{0}$ in both the JVP tangent and the regression target. We can apply the Reynolds decomposition of the field and let $\vv(\rvx,t\mid{\rvx_{0}})=\vv(\rvx,t)+\vv^{\prime}$, where $\vv^{\prime}$ is a zero-mean fluctuation from the marginal velocity induced by optimal transport between latent $\rvx_{1}$ and data $\rvx_{0}$. \Cref{fig: cm-gap} visualizes the magnitude $\|\vv^{\prime}\|$ of this fluctuation on a 3-mode mixture: the gap is non-zero, grows along the integration window, and concentrates spatially in the mode-mixing regions where multiple conditional paths overlap---the same regions where the curvature gap will peak in~\cref{thm: material-derivative-expansion}. The regression loss~\eqref{eq: mf-loss} expands to
 \begin{equation}
     \begin{aligned}
         \gL_{\text{MF}}(\vtheta)
@@ -119,7 +119,15 @@ Herein, we again abuse the notations and let $\mJ\triangleq(t-r)\partial_{\vz}\v
 \begin{equation}
     \mathbb{E}_{\vx_{0}\mid{\vx_{t}}}[\ell_{\text{MF}}(\vtheta)]=\mathbb{E}_{\vx_{0}\mid{\vx_{t}}}\left[\left\|\vr(\vx_{t},t)+\texttt{sg}[\mJ\vv^{\prime}]\right\|_{2}^{2}\right]=\left\|\vr_{\vtheta}(\vx_{t},t)\right\|_{2}^{2}+\texttt{sg}[\Tr(\mJ\Sigma_{\vv^\prime}\mJ^\top)],
 \end{equation}
-where $\Sigma_{\vv^{\prime}}=\Cov_{\vx_{0}\mid{\vx_{t}}}[\vv^{\prime}]$ is the conditional velocity covariance and $\ell_{\text{MF}}(\vtheta)$ is the per-step loss. We can prove that the magnitude of the average-velocity Jacobian amplifies the per-step variance of the gradient.
+where $\Sigma_{\vv^{\prime}}=\Cov_{\vx_{0}\mid{\vx_{t}}}[\vv^{\prime}]$ is the conditional velocity covariance and $\ell_{\text{MF}}(\vtheta)$ is the per-step loss. The trace $\Tr(\Sigma_{\vv^{\prime}})$ is the irreducible per-sample variance of the conditional fluctuation; the matrix $\mJ$ converts it into a per-parameter loss contribution that grows quadratically in the spatial Jacobian. We can prove that the magnitude of the average-velocity Jacobian amplifies the per-step variance of the gradient.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\textwidth]{assets/figures/illustration.pdf}
+    \caption{Conditional-marginal velocity gap on a 3-mode mixture. \textbf{Top:} the expected per-sample fluctuation $\E_{\vx_{0}\mid\vx_{t}}\|\vv(\vx_{t},t) - \vv(\vx_{t},t\mid\vx_{0})\|$, evaluated along the conditional paths, grows monotonically with $t$ as conditional trajectories disperse, with the steepest rise where $\vx_{t}$ traverses the mode-mixing region. \textbf{Bottom:} the spatial heatmap of the same quantity at three timesteps confirms that the gap is heterogeneous and concentrates in the mode-mixing regions where multiple conditional paths overlap. This is the empirical realization of $\Sigma_{\vv'}$ in~\eqref{eq: expanded-mf-loss}, which the Jacobi factor $\mJ$ amplifies into the gradient variance of~\cref{thm: jacobi-variance}; the same regions are where the curvature gap of~\cref{thm: material-derivative-expansion} is largest, motivating the trace-weight reweighting of~\eqref{eq: trace-weight}.}
+    \label{fig: cm-gap}
+\end{figure}
+
 \begin{theorem}[Jacobian Variance Amplification.]
     The Jacobi factor amplifies the variances of the original MeanFlow loss
     \begin{equation*}
