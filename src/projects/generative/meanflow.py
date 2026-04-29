@@ -1273,7 +1273,10 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
                 else:  # "none"
                     sigma_t = jnp.ones_like(t)
                 # Per-sample data dimensionality (H * W * C in latent space).
-                d = float(jnp.prod(jnp.asarray(z.shape[1:])))
+                # Use Python ints — z.shape[1:] is a static tuple under pmap.
+                d = 1.0
+                for s in z.shape[1:]:
+                    d *= float(s)
                 tr_bbt = _trace.hutchinson_trace(
                     key=tw_rng,
                     u_fn=u_fn,

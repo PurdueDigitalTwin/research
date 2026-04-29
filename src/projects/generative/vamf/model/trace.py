@@ -37,7 +37,9 @@ def exact_trace(
     Returns:
         Per-sample trace estimate of shape ``(B,)``.
     """
-    flat_dim = int(jnp.prod(jnp.asarray(z.shape[1:])))
+    flat_dim = 1
+    for s in z.shape[1:]:
+        flat_dim *= int(s)
     out = jnp.zeros(z.shape[:1], dtype=jnp.float32)
     gap = _gap_broadcast(t - r, z.ndim)
     sum_axes = _data_axes(z.ndim)
