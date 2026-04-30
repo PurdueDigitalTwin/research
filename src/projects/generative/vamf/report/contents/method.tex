@@ -61,7 +61,7 @@ with $r,t\!\sim\!\gU(0,1)$, $r\!\leq\!t$, $\vx_{0}\!\sim\!\pdata$, $\vx_{1}\!\si
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Variance-aware MeanFlow
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-\section{Variance-aware Mean Flows}
+\section{Methodology}
 \label{sec: method}
 
 The MeanFlow loss in~\eqref{eq: mf-loss} is empirically known to be \textit{non-decreasing} and to suffer from \textit{high-variance gradients}~\cite{zhang2025alphaflowunderstandingimprovingmeanflow,geng2025improvedmeanflowschallenges}. In this section, we aim to answer the two complementary questions:
@@ -106,14 +106,6 @@ We begin with investigating the consequences of replacing the inaccessible margi
     \label{eq: expanded-mf-loss}
 \end{equation}
 
-\begin{figure}[t]
-    \centering
-    \includegraphics[width=\textwidth]{assets/figures/illustration.pdf}
-    \caption{Conditional-marginal velocity gap on a 3-mode mixture. The spatial heatmap of $\E_{\vx_{0}\mid\vx_{t}}\|\vv(\vx_{t},t) - \vv(\vx_{t},t\mid\vx_{0})\|$ at three timesteps confirms the gap is heterogeneous and concentrates in mode-mixing regions where multiple conditional paths overlap.}
-    \label{fig: cm-gap}
-    \vspace{-1em}
-\end{figure}
-
 Herein, we abuse the notations and let $\mJ\triangleq(t-r)\partial_{\vz}\vu_{\theta}-\mI_{d}\in\mathbb{R}^{d\times d}$ denote a Jacobi factor of $\vu_{\vtheta}$ given sample $\vx_{t}=\vx_{1}-\vx_{0}$. This decomposition reveals that the original loss for learning Mean Flows is the sum of a deterministic mean-field residual $\vr^{\texttt{sg}}_{\vtheta}(\vx_{t},t)$ and a sample-based Jacobi-velocity-product $\mathrm{sg}[\mJ]\vv^{\prime}$, where the former is the actual loss we aim to minimize given the identity in~\eqref{eq: td-meanflow-identity}. If we further expand the inner expectation, we have $\E_{\vx_{0}\mid{\vx_{t}}}[\vv^{\prime}]=0$ based on~\eqref{eq: margv-condv-relation} and the cross term vanishes, resulting in
 
 \begin{equation}
@@ -121,7 +113,7 @@ Herein, we abuse the notations and let $\mJ\triangleq(t-r)\partial_{\vz}\vu_{\th
     \label{eq: per-sample-expand}
 \end{equation}
 
-where $\Sigma_{\vv^{\prime}}=\Cov_{\vx_{0}\mid{\vx_{t}}}[\vv^{\prime}]$ is the conditional-velocity covariance and $\ell_{\text{MF}}(\vtheta)$ is the per-sample loss. Replacing marginal velocity fields with conditional ones thus births an \textit{irreducible per-sample variance} $\Tr(\Sigma_{\vv^{\prime}})$, which $\mJ$ amplifies into a per-step gradient variance growing quadratically in the spatial Jacobian.
+where $\ell_{\text{MF}}(\vtheta)$ is the per-sample loss and $\Sigma_{\vv^{\prime}}=\Cov_{\vx_{0}\mid{\vx_{t}}}[\vv^{\prime}]$ is the conditional-velocity covariance. Replacing marginal velocity fields with conditional ones thus leads to an \textit{irreducible per-sample variance} $\Tr(\Sigma_{\vv^{\prime}})$, which $\mJ$ amplifies into a per-step gradient variance growing quadratically with respect to the spatial Jacobian of the average velocity field. This establishes the following theorem:
 
 \begin{theorem}[Jacobian Variance Amplification]
     The Jacobi factor amplifies the gradient variance of the original MeanFlow loss:
@@ -133,7 +125,15 @@ where $\Sigma_{\vv^{\prime}}=\Cov_{\vx_{0}\mid{\vx_{t}}}[\vv^{\prime}]$ is the c
 
 With large intervals $(t-r)$ or a large Jacobi norm, the per-sample gradient is dominated by the noise term $\mJ\vv^\prime$, downweighting the mean-field signal $\vr^{\mathrm{sg}}_{\vtheta}$. The proof is in~\Cref{appx: theorem-proof}.
 
-To help our readers better understand the existence of such a gap, we visualize the magnitude of this fluctuation $\|\vv^{\prime}\|$ on an example 3-Gaussian mixture in~\cref{fig: cm-gap}. The gap is \textit{non-zero}, \textit{increases} when approaching the latent, and concentrates spatially in a \textit{mode-mixing region near the latent} where multiple conditional paths overlap. Moreover, the stop-gradient operator creates a \textit{semi-gradient gap}.
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\textwidth]{assets/figures/illustration.pdf}
+    \caption{Conditional-marginal velocity gap with $p_{\text{data}}$ a two-dimensional Gaussian mixture with three components. The spatial heatmap of $\E_{\vx_{0}\mid\vx_{t}}\|\vv(\vx_{t},t) - \vv(\vx_{t},t\mid\vx_{0})\|$ shows that the gap is heterogeneous and concentrates in mode-mixing regions with overlapped conditional paths.}
+    \label{fig: cm-gap}
+    \vspace{-1em}
+\end{figure}
+
+To help our readers better understand the existence of such a gap, we visualize the magnitude of this fluctuation $\|\vv^{\prime}\|$ on an example 3-Gaussian mixture in~\cref{fig: cm-gap}. The gap is \textit{non-zero}, \textit{increases} when approaching the latent, and concentrates spatially in a \textit{mode-mixing region near the latent} where conditional paths overlap. Moreover, the stop-gradient operator creates a \textit{semi-gradient gap}.
 
 \begin{theorem}[Semi-Gradient Gap]
     The gradients of the MeanFlow loss with and without the stop-gradient operator differ by
@@ -148,18 +148,18 @@ To help our readers better understand the existence of such a gap, we visualize 
 
 At convergence the mean-field difference vanishes (since $\vr_{\vtheta}\!\to\!\bm{0}$) and the variance-driven term dominates: without stop-gradient it would force $\partial_{\vx}\vu_{\vtheta}\!\to\!\tfrac{1}{t-r}\mI_{d}$ to suppress $\mJ$, but with stop-gradient the optimizer is blind to $\Tr(\mJ\Sigma_{\vv^{\prime}}\mJ^{\top})$, which can grow faster than $\|\vr_{\vtheta}\|_{2}^{2}$ shrinks, producing the non-decreasing loss reported empirically. The proof is in~\Cref{appx: theorem-proof}.
 
-To understand the root cause for both failure modes in \cref{thm: jacobi-variance} and \cref{thm: semi-gradient-gap}, we define the \textit{curvature gap} as the difference between the average and instantaneous velocity fields, by rearranging the identity in~\eqref{eq: td-meanflow-identity}: $\Delta(\vx_{t},r,t):=\vu(\vx_{t},r,t)-\vv(\vx_{t},t)=-(t-r)\frac{\mathrm{d}}{\mathrm{d}t}\vu$. The mean-field residual in~\eqref{eq: expanded-mf-loss} can therefore be rewritten as $\vr^{\texttt{sg}}_{\vtheta}=\Delta_{\vtheta}+(t-r)\frac{\mathrm{d}}{\mathrm{d}t}\vu_{\vtheta}$, where we simplify our notation and denote $\Delta_{\vtheta}:=\vu_{\vtheta}-\vv$. At convergence the total derivative should exactly cancel the curvature gap, so the training signal $\vr^{\texttt{sg}}_{\vtheta}$ is a small difference of two quantities whose magnitudes scale with $\left\|\Delta\right\|$. However, when $\left\|\Delta\right\|$ is large, this cancellation becomes delicate. Specifically, the gradient signal from $\vr_{\vtheta}$ is weak relative to the noise $\mJ\vv^{\prime}$, while the stop-gradient operator  prevents the optimizer from controlling the resulting variance growth. This raises a natural question: how large is $\Delta$ in practice, and what governs its magnitude?
+To understand the root cause for both failure modes in \cref{thm: jacobi-variance} and \cref{thm: semi-gradient-gap}, we define the \textit{curvature gap} as the difference between the average and instantaneous velocity fields, by rearranging the identity in~\eqref{eq: td-meanflow-identity}: $\Delta(\vx_{t},r,t):=\vu(\vx_{t},r,t)-\vv(\vx_{t},t)=-(t-r)\frac{\mathrm{d}}{\mathrm{d}t}\vu$. The mean-field residual in~\eqref{eq: expanded-mf-loss} can therefore be rewritten as $\vr^{\texttt{sg}}_{\vtheta}=\Delta_{\vtheta}+(t-r)\frac{\mathrm{d}}{\mathrm{d}t}\vu_{\vtheta}$, where we simplify our notation and denote $\Delta_{\vtheta}:=\vu_{\vtheta}-\vv$. At convergence the total derivative should exactly cancel the curvature gap, so the training signal $\vr^{\texttt{sg}}_{\vtheta}$ is a small difference of two quantities whose magnitudes scale with $\left\|\Delta\right\|$. However, when $\left\|\Delta\right\|$ is large, this cancellation becomes delicate. Specifically, the gradient signal from $\vr_{\vtheta}$ is weak relative to the noise $\mJ\vv^{\prime}$, while the stop-gradient operator  prevents the optimizer from controlling the resulting variance growth. In the following section, we propose a simple training framework to address these issues.
 
 \subsection{Variance-Aware MeanFlow}
 \label{subsec: vamf}
 
-\subsubsection{Target Network}
+\subsubsection{Velocity Anchor}
 \label{subsubsec: v-anchor}
 
-In~\eqref{eq: expanded-mf-loss}, the $\mJ\vv^{\prime}$ amplification arises because $\vv^{\prime}$ enters the JVP tangent, where it multiplies the spatial Jacobian $(t-r)\partial_{\vz}\vu_{\vtheta}$. We notice that, if the tangent were replaced by any \textit{deterministic estimate $\hat{\vv}$}, the fluctuation $\vv^{\prime}$ would only appear in the regression target, entering the residual linearly rather than through $\mJ$. In this case, the per-sample loss reduces to $\left\|\tilde{\vr}_{\vtheta}\right\|_{2}^{2}+\Tr(\Sigma_{\vv^{\prime}})$, where $\tilde{\vr}_{\vtheta}$ is a deterministic residual. As a result, the variance drops to the irreducible level $\Tr(\Sigma_{\vv^{\prime}})$ without any Jacobian amplification. We higlight this as a theoretical foundation missing from the proposed method in a recent study~\cite{geng2025improvedmeanflowschallenges}. The remaining question is whether we can achieve this without learning a separate velocity model.
+In~\eqref{eq: expanded-mf-loss}, the $\mJ\vv^{\prime}$ amplification arises due to $\vv^{\prime}$ entering the JVP tangent and multiplying the spatial Jacobian $(t-r)\partial_{\vz}\vu_{\vtheta}$. We notice that, if the tangent were replaced by any \textit{deterministic estimate $\hat{\vv}$}, the fluctuation $\vv^{\prime}$ would only appear in the regression target, entering the residual linearly rather than through $\mJ$. In this case, the per-sample loss reduces to $\left\|\tilde{\vr}_{\vtheta}\right\|_{2}^{2}+\Tr(\Sigma_{\vv^{\prime}})$, where $\tilde{\vr}_{\vtheta}$ is a deterministic residual. As a result, the variance drops to the irreducible level $\Tr(\Sigma_{\vv^{\prime}})$ without any Jacobian amplification. We higlight this as a theoretical foundation missing from the proposed method in a recent study~\cite{geng2025improvedmeanflowschallenges}. The remaining question is whether we can achieve this without learning a separate velocity model.
 
 % Therefore, to eliminate the Jacobian variance amplification identified in~\cref{thm: jacobi-variance},
-We propose to replace the stochastic JVP tangent $\vv_{\text{cond}}$ with a deterministic estimate from a target network. Specifically, we use a Polyak averaging~\cite{polyak1992acceleration} (\textit{a.k.a. exponential moving average (EMA)}~\cite{tarvainen2017mean}) of the model parameters as the target network, and the new loss writes
+We propose to replace the stochastic JVP tangent $\vv_{\text{cond}}$ with a deterministic estimate from a target network. Specifically, we use a Polyak averaging~\cite{polyak1992acceleration} (\textit{a.k.a. the exponential moving average (EMA)}~\cite{tarvainen2017mean}) of the model parameters as the target network, and the new loss writes
 \begin{equation}
     \mathcal{L}_{\text{MF}}^{\text{EMA}}(\vtheta)=
     \E_{r,t,\vx_{0},\vx_{1}}\left[\left\|\vu_{\vtheta}+
@@ -221,11 +221,14 @@ Together, \cref{prop: vamf-grad} eliminates the $\mJ\vv'$ noise (cf.~\cref{thm: 
     \label[theorem]{thm: material-derivative-expansion}
 \end{theorem}
 
-The $C^{2}$ assumption is benign because existing backbones~\cite{ronneberger2015unet,nichol2021improved} use twice-differentiable activations (e.g., GELU~\cite{hendrycks2016gaussian}); proof in~\Cref{appx: theorem-proof}. \Cref{thm: material-derivative-expansion} clarifies prior heuristics: rectified flows~\cite{liu2022flowstraightfastlearning} drive $\frac{\mathrm{D}\vv}{\mathrm{D}t}\!\to\!\bm{0}$ to eliminate $\Delta$, and progressive scheduling~\cite{geng2025improvedmeanflowschallenges} shrinks the prefactor by training with small $r\!\to\!t$. The growth factor $\tfrac{t-r}{2}\|\frac{\mathrm{D}\vv}{\mathrm{D}t}\|$ is the principled criterion both heuristics target, and motivates a single per-sample weight that downweights high-curvature, long-interval samples directly.
+We argue that the $\vv(\vx,t)\!\in\!C^{2}$ assumption is reasonable since existing backbones~\cite{ronneberger2015unet,nichol2021improved} use twice-differentiable activations (e.g., GELU~\cite{hendrycks2016gaussian}); proof in~\Cref{appx: theorem-proof}. \Cref{thm: material-derivative-expansion} clarifies prior heuristics: rectified flows~\cite{liu2022flowstraightfastlearning} drive $\frac{\mathrm{D}\vv}{\mathrm{D}t}\!\to\!\bm{0}$ to eliminate $\Delta$, and progressive scheduling~\cite{geng2025improvedmeanflowschallenges} shrinks the prefactor by training with small $r\!\to\!t$. Comparing the curvature signal $(t{-}r)\|\frac{\mathrm{D}\vv}{\mathrm{D}t}\|$ to the irreducible per-sample noise floor $\sqrt{\Tr(\Sigma_{\vv'})}$ from~\cref{thm: jacobi-variance} defines the \textit{acceleration-to-noise ratio}
+\begin{equation}
+    \mathrm{ANR}(\vx_{t},r,t)\;\triangleq\;\frac{(t{-}r)\,\|\tfrac{\mathrm{D}\vv}{\mathrm{D}t}(\vx_{t},t)\|}{\sqrt{\Tr(\Sigma_{\vv'})}},
+    \label{eq: anr}
+\end{equation}
+which is a per-sample difficulty measure. $\mathrm{ANR}\!\ll\!1$ marks signal-dominated, easy samples; $\mathrm{ANR}\!\gg\!1$ marks noise-dominated samples whose contribution should be downweighted.
 
-We derive the adaptive weight using the Gauss-Markov Theorem. In OT-CFM, we argue it is fair to treat the conditional fluctuation $\vv'$ as Gaussian noise, and derive the Best Linear Unbiased Estimator (BLUE) of the mean-field residual $\tilde{\vr}^{\text{EMA}}$ with the inverse-covariance matrix weight $(\mJ\Sigma_{\vv'}\mJ^{\!\top})^{-1}$. However, it further introduce two practical pathologies. First, the per-sample $d\!\times\!d$ matrix inversion has a cubic-cost $\gO(d^{3})$ and is intractable for high-dimensional data or latents. Meanwhile, the matrix is ill-conditioned whenever $(t{-}r)\partial_{\vz}\vu_{\vtheta}\to\mI_{d}$ and $\mJ\!\approx\!\bm{0}$, which pushes the inverse to $+\infty$.
-
-To address these pathologies, we propose to use isotropic-noise approximation $\Sigma_{\vv'}\!\approx\!\sigma_{t}^{2}\mI_{d}$. Because $\Tr(\mJ\Sigma_{\vv'}\mJ^{\!\top})\!=\!\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top})$, we define the per-sample \textit{trace weight}
+However, directly evaluating the ANR for adaptiev weight is expensive especially for high-dimensional data. We instead derive the adaptive weight using the Gauss-Markov Theorem. In OT-CFM, it is fair to treat the conditional fluctuation $\vv'$ as Gaussian noise, and derive the Best Linear Unbiased Estimator (BLUE) of the mean-field residual $\tilde{\vr}^{\text{EMA}}$ with the inverse-covariance matrix weight $(\mJ\Sigma_{\vv'}\mJ^{\!\top})^{-1}$. Nevertheless, this further introduces two practical pathologies. First, the per-sample $d\!\times\!d$ matrix inversion has a cubic-cost $\gO(d^{3})$ and is intractable for high-dimensional data or latents. Meanwhile, the matrix is ill-conditioned whenever $(t{-}r)\partial_{\vz}\vu_{\vtheta}\to\mI_{d}$ and $\mJ\!\approx\!\bm{0}$, which pushes the inverse to $+\infty$. To address these pathologies, we propose to use isotropic-noise approximation $\Sigma_{\vv'}\!\approx\!\sigma_{t}^{2}\mI_{d}$. We then define the per-sample \textit{trace weight}
 
 \begin{equation}
     w(\vx_{t},r,t)\;:=\;\frac{1}{1+\sigma_{t}^{2}\,\texttt{sg}\!\left[\Tr(\mJ\mJ^{\!\top})\right]/d}\;=\;\frac{d}{d+\sigma_{t}^{2}\,\texttt{sg}\!\left[\Tr(\mJ\mJ^{\!\top})\right]},
@@ -267,5 +270,5 @@ which is U-shaped in $t$ and peaks near $t\!=\!0.5$ where conditional paths most
     \label[proposition]{prop: trace-weight}
 \end{proposition}
 
-The full training procedure is in~\Cref{alg: va-mf} and the proof of~\cref{prop: trace-weight} in~\Cref{appx: theorem-proof}; the connection between $w$ and the acceleration-to-noise ratio $\text{ANR}\!=\!(t{-}r)\|\frac{\mathrm{D}\vv}{\mathrm{D}t}\|/\sqrt{\Tr(\Sigma_{\vv'})}$ is in~\Cref{appx: additional-results}.
+The full training procedure is in~\Cref{alg: va-mf} and the proof of~\cref{prop: trace-weight} in~\Cref{appx: theorem-proof}; under the moment-matched schedule $\sigma_{t}^{2}\!=\!\Tr(\Sigma_{\vv'})/d$, \eqref{eq: trace-weight} reduces to $w\!=\!1/(1+\mathrm{ANR}^{2}/4)$, giving \eqref{eq: anr} a direct sigmoid-of-ANR$^{2}$ interpretation (\Cref{appx: additional-results}).
 % At generation time only $\vu_{\vtheta}(\vx_{1},0,1)$ is needed; the trace-weight machinery exists purely to stabilize training.
