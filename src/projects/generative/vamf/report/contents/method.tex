@@ -3,7 +3,7 @@
 %
 % In this section, I will briefly discuss about conditional flow-matching and Mean Flows for one-step generation
 %
-\section{Preliminary}
+\section{Preliminaries}
 \label{sec: preliminary}
 
 \paragraph{Flow-Matching.} Let $\gX\subset\mathbb{R}^{d}$ be the space of random variables $\rvx\in\mathbb{R}^{d}$ and $\vx$ a data sample as the realized state. The objective of flow-matching generative models is to learn a time-dependent diffeomorphic map $\psi(\vx,t):\mathbb{R}^{d}\times[0,1]\to\mathbb{R}^{d}$ from a simple distribution $\rvx_{1}\sim{p}(\rvx,1)$ to the target data distribution $\rvx_{0}\sim{p}(\rvx,0)={\pdata}$. Specifically, this is achieved by learning a \textit{time-dependent velocity field} $\vv(\vx,t):\mathbb{R}^{d}\times[0,1]\to\mathbb{R}^{d}$:
@@ -17,12 +17,14 @@ The map $\psi(\vx,t)$ induces a \textit{time-dependent probability density path}
 %     \left[\psi\right]_{\#}(p(\vx,1))=p(\psi^{-1}(\vx,t))\left|\det\left[\frac{\partial}{\partial\vx}\psi^{-1}(\vx,t)\right]\right|.
 %     \label{eq: pushforward}
 % \end{equation}
-A sufficient and necessary condition for a vector field to generate a probability path is the \textit{continuity equation}, which is a partial differential equation (PDE) that writes
-\begin{equation}
-    \frac{\partial}{\partial t}p(\vx,t)+
-    \text{div}\left(p(\vx,t)\vv(\vx,t)\right)=0,
-\end{equation}
-where $\text{div}(f)$ denotes the divergence of function $f$. However, the exact \textit{marginal velocity field} $\vv(\vx,t)$ is generally \textit{inaccessible}, especially in a high-dimensional sample space. The optimal-transport conditional flow-matching (OT-CFM)~\cite{lipman2023flowmatchinggenerativemodeling,tong2024improvinggeneralizingflowbasedgenerative} alternatively learns a conditional velocity field $\vv(\vx,t\mid{\vx_{0};\vtheta})\triangleq{\vv\left((1-t)\vx_{0}+t\vx_{1};\vtheta\right)}$
+However, the exact \textit{marginal velocity field} $\vv(\vx,t)$ is generally \textit{inaccessible}, especially in a high-dimensional sample space. The optimal-transport conditional flow-matching (OT-CFM)~\cite{lipman2023flowmatchinggenerativemodeling,tong2024improvinggeneralizingflowbasedgenerative} alternatively learns a conditional velocity field $\vv(\vx,t\mid{\vx_{0};\vtheta})\triangleq{\vv\left((1-t)\vx_{0}+t\vx_{1};\vtheta\right)}$. The surrogate loss substitution is justified by the following lemma:
+\begin{lemma}
+    Given vector fields $\vv(\vx,t\mid{\vx_{0}})$ that generate probability paths $p(\vx,t\mid{\vx_{0}})$, for any data distribution $\rvx_{0}\sim p(\rvx_{0})$, the marginal velocity field is equal to the expected conditional velocity field
+    \begin{equation}
+        \vv(\vx,t)=\E_{\vx_{0}\sim{p(\vx_0,t\mid{\vx})}}\!\left[\vv(\vx,t\mid{\vx_{0}})\right]
+        \label{eq: margv-condv-relation}
+    \end{equation}
+\end{lemma}
 % by minimizing a loss function:
 % \begin{equation}
 %     \mathcal{L}_{\text{FM}}(\vtheta)=
@@ -31,43 +33,30 @@ where $\text{div}(f)$ denotes the divergence of function $f$. However, the exact
 %     \label{eq: cfm-obj}
 % \end{equation}
 % Herein, $t\sim\gU(0,1)$ is a scalar sample from the uniform distribution defined on the range of $[0,1]$ and $\vx_{1}\sim\gN(0,\mI_{d})$ is a white noise sample from the standard normal distribution defined in $\mathbb{R}^{d}$. Meanwhile,
-The marginal velocity field equals the expected conditional velocity field $\vv(\vx,t)\!=\!\E_{\vx_{0}\sim p(\vx_{0},t\mid\vx)}[\vv(\vx,t\mid\vx_{0})]$ \eqref{eq: margv-condv-relation}, which justifies the surrogate-loss substitution in CFM (full statement and proof in~\Cref{appx: first}).
-\begin{equation}
-    \vv(\vx,t)=\E_{\vx_{0}\sim{p(\vx_0,t\mid{\vx})}}\!\left[\vv(\vx,t\mid{\vx_{0}})\right]
-    \label{eq: margv-condv-relation}
-\end{equation}
+See full proof in~\cref{appx: first}.
+
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % MeanFlow
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-\paragraph{One-step Mean Flows.} The issue with diffusion~\cite{ho2020denoising,song2021scorebased} and flow-matching models~\cite{lipman2023flowmatchinggenerativemodeling} is the integration. Evaluating the velocity field multiple times is not only expensive but can also lead to numerical instability. A Mean Flow model~\cite{geng2025meanflowsonestepgenerative} instead learns a two-parameter average velocity field $\vu(\rvx,r,t)$ to enable efficient sampling. It leverages the identity between the average and marginal velocity field given by
+\paragraph{One-step Mean Flows.} Iterative integration of $\vv(\vx,t)$ is expensive and can be numerically unstable. To bypass it, Mean Flows~\cite{geng2025meanflowsonestepgenerative} learn a two-parameter average velocity field $\vu(\rvx,r,t)$ via the identity
 \begin{equation}
-    (t-r)\vu(\vx,r,t)=\int_{\tau=r}^{t}\vv(\vx,\tau)\mathrm{d}\tau,
+    (t-r)\,\vu(\vx,r,t)=\int_{r}^{t}\vv(\vx,\tau)\,\mathrm{d}\tau.
     \label{eq: meanflow-identity}
 \end{equation}
-where $r$ and $t$ are scalars, the start and end time steps along the probability density path. Taking the total derivative with respect to the terminal time step $t$ yields
+Differentiating with respect to the terminal time $t$ yields
 \begin{equation}
-    \vu(\vx,r,t)+(t-r)\frac{\mathrm{d}}{\mathrm{d}t}\vu(\vx,r,t)=\vv(\vx,t),
+    \vu(\vx,r,t)+(t-r)\,\tfrac{\mathrm{d}}{\mathrm{d}t}\vu(\vx,r,t)=\vv(\vx,t),\qquad
+    \tfrac{\mathrm{d}}{\mathrm{d}t}\vu=\partial_{\vx}\vu\!\cdot\!\vv(\vx,t)+\partial_{t}\vu,
     \label{eq: td-meanflow-identity}
 \end{equation}
-where the total derivative of the average velocity field with respect to $t$ can be expressed as a Jacobi-vector Product (JVP)
-\begin{equation}
-    \frac{\mathrm{d}}{\mathrm{d}t}\vu(\vx,r,t)
-    =\partial_{\vx}\vu\cdot \vv(\vx,t)
-    +\partial_{r}\vu\cdot\frac{\mathrm{d}r}{\mathrm{d}t}
-    +\partial_{t}\vu\cdot\frac{\mathrm{d}t}{\mathrm{d}t}
-    =\partial_{\vx}\vu\cdot \vv(\vx,t)+\partial_{t}\vu
-    \label{eq: dudt}
-\end{equation}
-
-We abuse the notation and express the right-hand side by $\texttt{JVP}(\vu,(\vx,r,t),(\vv(\vx,t),0,1))$. In the original MeanFlow~\cite{geng2025meanflowsonestepgenerative}, the authors replace both the marginal velocity field in the right-hand side of~\eqref{eq: td-meanflow-identity} and inside the JVP with the conditional velocity field, and derive the MeanFlow loss function given by
+where the total derivative is a Jacobian-vector product (JVP), which we denote $\texttt{JVP}(\vu,(\vx,r,t),(\vv(\vx,t),0,1))$. \cite{geng2025meanflowsonestepgenerative} replace both occurrences of the marginal field with the conditional field $\vv_{\text{cond}}=\vx_{1}-\vx_{0}$, giving the MeanFlow loss
 \begin{equation}
     \mathcal{L}_{\text{MF}}(\vtheta)=
-    \E_{r,t,\vx_{0},\vx_{1}}\left[\left\|\vu_{\vtheta}+
-    (t-r)\texttt{sg}\left[\texttt{JVP}(\vu_{\vtheta},(\vz,r,t),(\vv_{\text{cond}},0,1))\right]-\vv_{\text{cond}}\right\|_{2}^{2}\right],
+    \E_{r,t,\vx_{0},\vx_{1}}\!\left[\left\|\vu_{\vtheta}+(t-r)\,\texttt{sg}\!\left[\texttt{JVP}(\vu_{\vtheta},(\vz,r,t),(\vv_{\text{cond}},0,1))\right]-\vv_{\text{cond}}\right\|_{2}^{2}\right],
     \label{eq: mf-loss}
 \end{equation}
-where $r\sim\gU(0,1)$, $t\sim\gU(0,1)$, $r\leq{t}$, $\vx_{0}\sim\pdata$, $\vx_{1}\sim\gN(0,\mI_{d})$, $\vz=(1-t)\vx_{0}+t\vx_{1}$, $\vv_{\text{cond}}=\vx_{1}-\vx_{0}$, and $\texttt{sg}[\cdot]$ is the stop-gradient operator. The authors highlight that stopping gradients in JVP helps eliminate the need for ``double backpropagation'' and high-order derivatives.
+with $r,t\!\sim\!\gU(0,1)$, $r\!\leq\!t$, $\vx_{0}\!\sim\!\pdata$, $\vx_{1}\!\sim\!\gN(0,\mI_{d})$, $\vz\!=\!(1-t)\vx_{0}+t\vx_{1}$, and the stop-gradient $\texttt{sg}[\cdot]$ avoiding double backpropagation through the JVP.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Variance-aware MeanFlow

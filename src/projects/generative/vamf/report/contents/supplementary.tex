@@ -53,7 +53,12 @@
     \end{lemma}
 
     \begin{proof}
-        The marginal velocity field generates the marginal density $p(\vx,t)$ via the continuity equation. By the law of total probability and the definition of the conditional velocity field:
+        A sufficient and necessary condition for a vector field to generate a probability path is the \textit{continuity equation}, which is a partial differential equation (PDE) that writes
+        \begin{equation}
+            \frac{\partial}{\partial t}p(\vx,t)+
+            \text{div}\left(p(\vx,t)\vv(\vx,t)\right)=0,
+        \end{equation}
+        where $\text{div}(f)$ denotes the divergence of function $f$. The marginal velocity field generates the marginal density $p(\vx,t)$ via the continuity equation. By the law of total probability and the definition of the conditional velocity field:
         \begin{equation}
             p(\vx,t)\,\vv(\vx,t)=\int p(\vx,t\mid\vx_{0})\,\vv(\vx,t\mid\vx_{0})\,p(\vx_{0})\,\mathrm{d}\vx_{0},
         \end{equation}
