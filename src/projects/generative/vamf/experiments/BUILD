@@ -50,3 +50,19 @@ ml_py_binary(
         "//src/projects/generative/vamf/model:diagnostic",
     ],
 )
+
+ml_py_binary(
+    name = "probe_dit_checkpoint",
+    srcs = ["probe_dit_checkpoint.py"],
+    deps = [
+        "absl-py",
+        "etils",
+        "fiddle",
+        "jax",
+        "numpy",
+        "orbax-checkpoint",
+        "//src/projects/generative:config",
+        "//src/projects/generative/vamf/model:diagnostic",
+        "//src/utilities:logging",
+    ],
+)
