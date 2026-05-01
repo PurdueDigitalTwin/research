@@ -309,7 +309,7 @@ def meanflow_dit_imagenet_256_latent() -> _config.ExperimentConfig:
       - norm_eps=0.01, adamw with wd=0, constant LR=1e-4
       - EMA 0.9999, logit-normal t/r, overlap_rate=0.75
 
-    Steps = 240 epochs × floor(1_281_167 / 1024) ≈ 300K.
+    Steps = 240 epochs times `floor(1_281_167 / 1024)` is approximately 300K.
     """
     return _config.ExperimentConfig(
         project_name="meanflow",
@@ -417,6 +417,35 @@ def vamf_tw_dit_imagenet_256_latent() -> _config.ExperimentConfig:
     config.model.use_trace_weight = True
     config.model.tw_n_probes = 1
     config.model.tw_sigma_schedule = "t_squared"
+    return config
+
+
+def vamf_l2_dit_imagenet_256_latent() -> _config.ExperimentConfig:
+    r"""VaMF-L2 DiT-B/4 on ImageNet 256x256 latents.
+
+    Realizes the deterministic-tangent corner (β = 1) of the
+    control-variate trade-off (Theorem 3 of the paper): replaces
+    the JVP tangent ``v_g`` (CFG-mixed conditional velocity) with
+    its EMA-derived counterpart, eliminating the Jacobian-amplified
+    gradient variance ``g^T J Σ J^T g``. Adds an FM anchor at small
+    ``(t - r)`` to control the residual EMA-tracking bias from
+    Theorem 2. No trace weight (the EMA tangent removes the
+    dominant variance term that the trace weight reweights).
+
+    Identical to ``meanflow_dit_imagenet_256_latent`` except:
+      - ``ema_tangent=True``
+      - ``fm_anchor_weight=0.1`` (boundary supervision)
+      - ``adaptive_weight_power=0.0`` (avoid double weighting)
+      - ``use_trace_weight=False``
+    """
+    config = meanflow_dit_imagenet_256_latent()
+    config.exp_name = "vamf_l2_dit_b4_imagenet_256_latent"
+    config.model.adaptive_weight_power = 0.0
+    config.model.use_trace_weight = False
+    config.model.ema_tangent = True
+    config.model.fm_anchor_weight = 0.1
+    config.model.fm_anchor_delta_min = 0.0
+    config.model.fm_anchor_delta_max = 1e-3
     return config
 
 

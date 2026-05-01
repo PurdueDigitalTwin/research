@@ -566,7 +566,9 @@ class MeanFlowUNetModel(_model.Model):
             t[..., None, None, None] * e,
         )
 
-        def _loss_fn(params: PyTree) -> typing.Tuple[jax.Array, jax.Array]:
+        def _loss_fn(
+            params: PyTree,
+        ) -> typing.Tuple[jax.Array, typing.Tuple[jax.Array, ...]]:
             # applies Jacobian vector product
             def u_fn(
                 z_t: jax.Array,
@@ -605,7 +607,7 @@ class MeanFlowUNetModel(_model.Model):
             # applies adaptive weight power
             if self.adaptive_weight_power > 0.0:
                 ada_wt = jnp.power(
-                    loss + self.norm_eps, self.adaptive_weight_power
+                    loss + self.norm_eps, self.adaptive_weight_power  # type: ignore
                 )
                 loss = loss / jax.lax.stop_gradient(ada_wt)
             loss = jnp.mean(loss)
@@ -813,7 +815,9 @@ class MeanFlowDiTModule(nn.Module):
             dtype=self.dtype,
             param_dtype=self.param_dtype,
             name="h_embed",
-        )(timestamps[1] if len(timestamps) > 1 else timestamps[0])
+        )(
+            timestamps[1] if len(timestamps) > 1 else timestamps[0]  # type: ignore
+        )
 
         cond = t_embed + h_embed
 
@@ -958,9 +962,22 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
         use_trace_weight: bool = False,
         tw_n_probes: int = 1,
         tw_sigma_schedule: typing.Literal[
-            "none", "t_squared", "constant"
-        ] = "t_squared",
+            "none", "t", "t_squared", "ushape", "blue_gauss", "constant"
+        ] = "none",
         tw_sigma_constant: float = 1.0,
+        # VaMF-L2: deterministic EMA tangent inside the JVP (replaces
+        # v_g = CFG-mixed conditional velocity with v_tang_ema =
+        # CFG-mixed EMA prediction). Variance reduction at the gradient
+        # level per Theorem 1; combine with fm_anchor for asymptotic
+        # bias control per Theorem 2.
+        ema_tangent: bool = False,
+        # Flow-matching anchor: auxiliary regression of u_theta(z, r,
+        # t) against v_cond at small (t - r) interval. Drives the EMA
+        # boundary tangent toward the true marginal velocity, removing
+        # the residual EMA-tracking bias from Theorem 2.
+        fm_anchor_weight: float = 0.0,
+        fm_anchor_delta_min: float = 0.0,
+        fm_anchor_delta_max: float = 1e-3,
         vae_path: typing.Optional[str] = None,
         vae_scaling_factor: float = 0.18215,
         dtype: typing.Any = None,
@@ -988,6 +1005,10 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
         self.tw_n_probes = tw_n_probes
         self.tw_sigma_schedule = tw_sigma_schedule
         self.tw_sigma_constant = tw_sigma_constant
+        self.ema_tangent = ema_tangent
+        self.fm_anchor_weight = fm_anchor_weight
+        self.fm_anchor_delta_min = fm_anchor_delta_min
+        self.fm_anchor_delta_max = fm_anchor_delta_max
 
         # DiT backbone (no EDM augmentation for ImageNet)
         self._augment = None
@@ -1114,7 +1135,7 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
             std = jnp.exp(0.5 * logvar)
             noise = jax.random.normal(vae_rng, mean.shape, dtype=mean.dtype)
             x = (mean + std * noise) * self._vae_scaling_factor
-        elif self._vae is not None:
+        elif self._vae is not None and self._vae_params is not None:
             image = batch["image"].astype(jnp.float32)
             batch_dims = image.shape[:-3]
             image = image * 2.0 - 1.0
@@ -1123,6 +1144,8 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
                 image,
                 method=self._vae.encode,
             )
+            assert isinstance(mean, jax.Array)
+            assert isinstance(logvar, jax.Array)
             std = jnp.exp(0.5 * logvar)
             noise = jax.random.normal(vae_rng, mean.shape, dtype=mean.dtype)
             x = (mean + std * noise) * self._vae_scaling_factor
@@ -1178,34 +1201,53 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
         # Ground truth velocity (used in CFG formula + dropout)
         v = e - x
 
+        # VaMF-L2: use the EMA parameters for the JVP tangent (and
+        # the CFG-baked v_uncond/v_cond components that compose it).
+        # This realizes the deterministic-tangent corner (β = 1) of
+        # the control-variate trade-off, eliminating the Jacobian-
+        # amplified gradient variance term g^T J Σ J^T g.
+        # When ``ema_tangent=False``, falls back to vanilla MeanFlow
+        # (β = 0): tangent uses the current params under stop-grad.
+        tangent_params_for_cfg = state.ema_params if self.ema_tangent else None
+
         def _loss_fn(
             params: PyTree,
-        ) -> typing.Tuple[jax.Array, jax.Array]:
+        ) -> typing.Tuple[jax.Array, typing.Tuple[jax.Array, ...]]:
             # --- CFG baking: compute guided velocity target ---
             # Following the official MeanFlow, the CFG formula
             # mixes ground-truth velocity v = e - x with network
-            # predictions v_uncond and v_cond at h=0.
+            # predictions v_uncond and v_cond at h=0. For VaMF-L2,
+            # use EMA params so the JVP tangent is deterministic
+            # w.r.t. the current optimization step.
             ts_h0 = self._make_timestamps(t_in=t, r_in=t)
+            cfg_params = (
+                tangent_params_for_cfg
+                if tangent_params_for_cfg is not None
+                else jax.lax.stop_gradient(params)
+            )
 
             # Unconditional velocity (null class)
             null_labels = jnp.full_like(labels, self.num_classes)
             v_uncond = self._network.apply(
-                variables={"params": jax.lax.stop_gradient(params)},
+                variables={"params": cfg_params},
                 inputs=z,
                 timestamps=ts_h0,
                 labels=null_labels,
                 edm_cond=None,
                 deterministic=True,
             )
+            assert isinstance(v_uncond, jax.Array)
+
             # Conditional velocity (with class labels)
             v_cond = self._network.apply(
-                variables={"params": jax.lax.stop_gradient(params)},
+                variables={"params": cfg_params},
                 inputs=z,
                 timestamps=ts_h0,
                 labels=labels,
                 edm_cond=None,
                 deterministic=True,
             )
+            assert isinstance(v_cond, jax.Array)
 
             # Official CFG formula (meanflow/meanflow.py):
             #   v_g = omega*v + (1-omega-kappa)*v_uncond
@@ -1236,7 +1278,7 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
                 t_in: jax.Array,
             ) -> jax.Array:
                 ts = self._make_timestamps(t_in=t_in, r_in=r_in)
-                return self._network.apply(
+                out = self._network.apply(
                     variables={"params": params},
                     inputs=z_t,
                     timestamps=ts,
@@ -1246,6 +1288,9 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
                     rngs={"dropout": dp_rng},
                     **kwargs,
                 )
+                assert isinstance(out, jax.Array)
+
+                return out
 
             drdt = jnp.zeros_like(r)
             dtdt = jnp.ones_like(t)
@@ -1266,14 +1311,25 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
 
             # --- VaMF trace weight (mutually exclusive with adaptive wt) ---
             if self.use_trace_weight:
-                if self.tw_sigma_schedule == "t_squared":
+                # sigma_t is the conditional-velocity *standard-deviation*
+                # scale; the BLUE-scalar trace weight uses sigma_t^2 in the
+                # denominator. See Prop "trace-weight" in the report.
+                if self.tw_sigma_schedule == "t":
+                    sigma_t = t
+                elif self.tw_sigma_schedule == "t_squared":
                     sigma_t = jnp.square(t)
+                elif self.tw_sigma_schedule == "ushape":
+                    sigma_t = jnp.sqrt(jnp.clip(t * (1.0 - t), a_min=1e-8))
+                elif self.tw_sigma_schedule == "blue_gauss":
+                    sigma_t = 1.0 / jnp.sqrt(
+                        jnp.square(1.0 - t) + jnp.square(t)
+                    )
                 elif self.tw_sigma_schedule == "constant":
                     sigma_t = jnp.full_like(t, self.tw_sigma_constant)
                 else:  # "none"
                     sigma_t = jnp.ones_like(t)
                 # Per-sample data dimensionality (H * W * C in latent space).
-                # Use Python ints — z.shape[1:] is a static tuple under pmap.
+                # Use Python ints -- z.shape[1:] is a static tuple under pmap.
                 d = 1.0
                 for s in z.shape[1:]:
                     d *= float(s)
@@ -1285,7 +1341,7 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
                     t=t,
                     n_probes=self.tw_n_probes,
                 )
-                tw = 1.0 / (1.0 + sigma_t * tr_bbt / d)
+                tw = 1.0 / (1.0 + jnp.square(sigma_t) * tr_bbt / d)
                 per_sample_loss = per_sample_loss * jax.lax.stop_gradient(tw)
             else:
                 tw = jnp.ones_like(t)
@@ -1299,6 +1355,42 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
                         ada_wt
                     )
             loss = jnp.mean(per_sample_loss)
+
+            # --- Flow-matching anchor (VaMF only) ---
+            # Auxiliary regression u_theta(z, t-delta, t) -> v at small
+            # delta. Drives the EMA boundary tangent toward the true
+            # marginal velocity, controlling the residual EMA-tracking
+            # bias from Theorem 2 (Bias-Variance Tradeoff).
+            if self.fm_anchor_weight > 0.0:
+                delta_rng = jax.random.fold_in(local_rng, 0xFA)
+                delta = jax.random.uniform(
+                    key=delta_rng,
+                    shape=batch_dims,
+                    dtype=t.dtype,
+                    minval=self.fm_anchor_delta_min,
+                    maxval=self.fm_anchor_delta_max,
+                )
+                t_anchor = t
+                r_anchor = jnp.maximum(t_anchor - delta, 0.0)
+                ts_anchor = self._make_timestamps(t_in=t_anchor, r_in=r_anchor)
+                u_anchor = self._network.apply(
+                    variables={"params": params},
+                    inputs=z,
+                    timestamps=ts_anchor,
+                    labels=y_inp,
+                    edm_cond=None,
+                    deterministic=False,
+                    rngs={"dropout": dp_rng},
+                    **kwargs,
+                )
+                fm_per_sample = jnp.sum(
+                    jnp.square(u_anchor - jax.lax.stop_gradient(v)),
+                    axis=(-1, -2, -3),
+                )
+                fm_loss = jnp.mean(fm_per_sample)
+                loss = loss + self.fm_anchor_weight * fm_loss
+            else:
+                fm_loss = jnp.zeros_like(loss)
 
             # --- diagnostic metrics (not in gradient graph) ---
             is_boundary = jnp.equal(t, r)
@@ -1344,6 +1436,7 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
                 dudt_magnitude,
                 tw,
                 sigma_t,
+                fm_loss,
             )
             return loss, diagnostics
 
@@ -1357,6 +1450,7 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
             dudt_magnitude,
             tw,
             sigma_t,
+            fm_loss,
         ) = diagnostics
         global_grad_norm = optax.global_norm(grads)
         grads = jax.lax.pmean(grads, axis_name="batch")
@@ -1372,6 +1466,7 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
                 "global_grad_norm": global_grad_norm,
                 "tw_mean": tw.mean(),
                 "sigma_mean": sigma_t.mean(),
+                "fm_anchor_loss": fm_loss.mean(),
             },
             histograms={
                 "t": t,
@@ -1416,7 +1511,7 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
         # Generate noise in latent space
         batch_dims = shape[:-3]
         latent_shape = batch_dims + (
-            self.image_size,
+            self.image_size,  # type: ignore
             self.image_size,
             self.in_channels,
         )
@@ -1448,7 +1543,7 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
         )
 
         # Decode to pixel space if VAE is available
-        if self._vae is not None:
+        if self._vae is not None and self._vae_params is not None:
             z_0 = z_0 / self._vae_scaling_factor
             out = self._vae.apply(
                 {"params": self._vae_params},
@@ -1457,6 +1552,7 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
             )
         else:
             out = z_0
+        assert isinstance(out, jax.Array)
 
         return _model.StepOutputs(output=out)
 
@@ -1557,7 +1653,7 @@ class ImprovedMeanFlowUNetModel(MeanFlowUNetModel):
             t[..., None, None, None] * e,
         )
 
-        def _loss_fn(params: PyTree) -> typing.Tuple[jax.Array, jax.Array]:
+        def _loss_fn(params: PyTree) -> typing.Tuple[jax.Array, typing.Tuple]:
             # applies Jacobian vector product
             def u_fn(
                 z_t: jax.Array,
@@ -2290,6 +2386,16 @@ class VAMeanFlowUNetModel(MeanFlowUNetModel):
                     # mean-head gradient at MSE scale while leaving
                     # the variance head's fixed point intact. See
                     # audit Revision 3 (P1c).
+                    warmup_end = jnp.float32(self.nll_warmup_steps)
+                    warmup_start = warmup_end - jnp.float32(
+                        self.nll_ramp_steps
+                    )
+                    alpha = jnp.clip(
+                        (jnp.float32(state.step) - warmup_start)
+                        / jnp.maximum(warmup_end - warmup_start, 1.0),
+                        0.0,
+                        1.0,
+                    )
                     fm_nll_per_pixel_raw = 0.5 * (
                         fm_residual_per_pixel / sigma_sq_anchor
                         + jnp.log(sigma_sq_anchor)
