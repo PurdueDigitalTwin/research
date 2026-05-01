@@ -1,30 +1,8 @@
 \section{Conclusion}
 \label{sec: conclusion}
 
-We introduced the \textbf{curvature-variance principle}, a unifying theoretical lens that attributes the three independently reported MeanFlow training pathologies---gradient conflict~\cite{zhang2025alphaflowunderstandingimprovingmeanflow}, Jacobian amplification~\cite{geng2025improvedmeanflowschallenges}, and the curvature bottleneck~\cite{zhang2026overcomingcurvaturebottleneckmeanflow}---to a single quantity: the material derivative of the marginal velocity field. The principle yields three design directives, which we instantiate as \textbf{Variance-Aware MeanFlow (VaMF)}---an EMA velocity anchor (\Cref{subsubsec: v-anchor}) that eliminates the Jacobian-amplified gradient noise, a flow-matching anchor (\Cref{subsubsec: va-obj}) that supervises the boundary condition without an additional head, and a closed-form Hutchinson-estimated trace weight (\Cref{subsubsec: trace-weight}) that approximates the per-sample BLUE under isotropic conditional-velocity noise. VaMF preserves the original MeanFlow MSE objective and backbone, adds a single Hutchinson JVP per step, and consistently improves over vanilla MeanFlow on every dataset of our 2-D toy benchmark under both SW$_1$ and SW$_2$ (mean SW$_1$ improvement $-28\%$ across the four datasets) and dominates from $d{=}4$ to $d{=}64$ on the dense-Gaussian-mixture scaling sweep; \Cref{appx: dit-results} additionally shows the same mechanism transfers to DiT-B/4 / ImageNet-$256$ latent training at a $\sim\!22\%$ wall-clock overhead.
+We addressed the question of \textit{why} stochastic tangents destabilize Mean Flow learning and provided a unifying theoretical answer: the conditional velocity field plays two distinct statistical roles in the MeanFlow loss---unbiased Monte Carlo target and Monte Carlo control variate inside a semi-gradient JVP---and the original loss assigns the wrong coefficient to the latter. We derived the optimal control-variate coefficient $\beta^{\star}$ in closed form and showed that vanilla MeanFlow's choice ($\beta\!=\!0$) is generally suboptimal because per-step gradient variance scales unboundedly with $\boldsymbol{g}^{\!\top}\!\mJ\Sigma_{\vv'}\mJ^{\!\top}\boldsymbol{g}$. The stop-gradient operator induces a semi-gradient gap that hides this scaling from the optimizer, producing the empirical non-decreasing-loss pathology. Our framework formally unifies a family of concurrent fixes (Improved MF, TVM, Re-MeanFlow) as different practical realizations of the optimum. The accompanying training framework, \textit{Variance-Aware MeanFlow} (VaMF), instantiates the optimum at near-zero overhead via an EMA proxy and a flow-matching anchor. Direct measurement of per-step gradient variance confirms the predicted $3\!\times\!\!\sim\!5\!\times$ reduction, with sample-quality improvements of up to $-54\%$ SW$_{1}$ on the high-curvature \texttt{swiss\_roll} dataset and consistent transfer to DiT latent-space training on ImageNet (\Cref{appx: dit-results}).
 
-\paragraph{Limitations.} The trace-weight derivation assumes isotropic conditional-velocity noise $\Sigma_{\vv'}\!\approx\!\sigma_{t}^{2}\mI_{d}$; distributions with strongly correlated $\Sigma_{\vv'}$ may benefit from a low-rank Jacobian factorization that we leave to future work. Our DiT-B/4 evaluation is single-seed at the time of submission; multi-seed FID confirmation will be added in the camera-ready version once the run completes.
+\paragraph{Limitations.} The optimal coefficient~\Cref{thm: control-variate-optimum} is derived under a scalar-isotropic approximation of $\mJ$ and $\Sigma_{\vv'}$; in the full matrix-valued setting the optimum is direction-dependent and a single global $\beta$ leaves residual variance on the table. Our empirical results use a fixed $\beta\!=\!1$ as the practically attainable corner, which is the asymptotic optimum when the proxy bias $\|\vb\|$ is small. Adaptive per-sample $\beta$ estimated from on-the-fly Hutchinson estimates of $\kappa$ and $\|\vb\|$ is a natural extension we leave to future work. Our DiT-B/4 evaluation is single-seed; multi-seed FID confirmation will be added in the camera-ready once the run completes.
 
-\paragraph{Future work.} Two natural extensions stand out. \textit{(i) Anisotropic trace weights} learned from a low-rank approximation of $\Sigma_{\vv'}$ would tighten the BLUE bound at the cost of a small auxiliary head---bridging the closed-form trace weight of this paper with the per-pixel variance head sketched in concurrent work. \textit{(ii) Schedule design.} Our \textsc{blue-gauss} schedule for $\sigma_{t}$ is principled only under Laplace's approximation of $\pdata$; more general data distributions may benefit from a learned or moment-matched alternative that directly tracks $\Tr(\Sigma_{\vv'})/d$.
-
-
-% \section*{Impact Statement}
-
-% Authors are \textbf{required} to include a statement of the potential broader
-% impact of their work, including its ethical aspects and future societal
-% consequences. This statement should be in an unnumbered section at the end of
-% the paper (co-located with Acknowledgements -- the two may appear in either
-% order, but both must be before References), and does not count toward the paper
-% page limit. In many cases, where the ethical impacts and expected societal
-% implications are those that are well established when advancing the field of
-% Machine Learning, substantial discussion is not required, and a simple
-% statement such as the following will suffice:
-
-% ``This paper presents work whose goal is to advance the field of Machine
-% Learning. There are many potential societal consequences of our work, none
-% which we feel must be specifically highlighted here.''
-
-% The above statement can be used verbatim in such cases, but we encourage
-% authors to think about whether there is content which does warrant further
-% discussion, as this statement will be apparent if the paper is later flagged
-% for ethics review.
+\paragraph{Future work.} Two directions stand out. \textit{(i) Beyond MeanFlow.} The control-variate diagnosis applies to any self-supervised one-step generative model that bootstraps a parametrized map through a JVP-style total derivative, including consistency models~\cite{song2023consistencymodels} and shortcut models~\cite{frans2025stepdiffusionshortcutmodels}. We expect the same variance reduction to be available there. \textit{(ii) Adaptive $\beta$.} A per-sample coefficient driven by online estimates of $\kappa$ and $\|\vb\|$ would close the gap between our scalar optimum and the matrix-valued one, with potential gains on heterogeneous data.

@@ -115,7 +115,7 @@
     \end{theorem}
 
     \begin{proof}
-        The MeanFlow loss conditioned on $\vx_{t}$ decomposes as (cf.~\eqref{eq: expanded-mf-loss}):
+        The MeanFlow loss conditioned on $\vx_{t}$ decomposes as (cf.~\eqref{eq: per-sample-expand}):
         \begin{equation}
             \E_{\vx_{0}\mid\vx_{t}}\!\left[\ell_{\text{MF}}\right]=\left\|\vr_{\vtheta}^{\texttt{sg}}\right\|^{2}+\Tr\!\left(\mJ\,\Sigma_{\vv'}\,\mJ^{\!\top}\right).
             \label{eq: cond-loss-decomp}
@@ -140,11 +140,12 @@
     \subsection{Proof of~\Cref{thm: material-derivative-expansion} (Flow Acceleration Expansion)}
 
     \begin{theorem}[Flow Acceleration Expansion of the Curvature Gap]
-        Let $\vv(\vx,t)\!\in\!C^{2}$. The curvature gap admits a Taylor expansion at $(\vx_{t},t)$ along the flow:
+        Let $\vv(\vx,t)\!\in\!C^{2}$. The curvature gap $\Delta(\vx_{t},r,t)\!:=\!\vu(\vx_{t},r,t)-\vv(\vx_{t},t)$ admits a Taylor expansion at $(\vx_{t},t)$ along the flow:
         \begin{equation*}
             \Delta(\vx_{t},r,t)\;=\;-\frac{(t{-}r)}{2}\frac{\mathrm{D}\vv}{\mathrm{D}t}(\vx_{t},t)+\gR_{2}(\vx_{t},r,t),
         \end{equation*}
         where $\frac{\mathrm{D}\vv}{\mathrm{D}t}\!\triangleq\!\partial_{t}\vv+(\nabla_{\vx}\vv)\,\vv$ is the material derivative (\textit{a.k.a.\ flow acceleration}) and $\gR_{2}\!=\!\gO((t{-}r)^{2})$.
+        \label[theorem]{thm: material-derivative-expansion}
     \end{theorem}
 
     \begin{proof}
@@ -195,7 +196,7 @@
         \begin{equation*}
             \tilde{\vr}^{\text{EMA}}\;=\;\vr_{\vtheta}\;+\;(t{-}r)\,\partial_{\vz}\vu_{\vtheta}\!\left(\vu_{\bar{\vtheta}}(\vx_{t},t,t)-\vv(\vx_{t},t)\right),
         \end{equation*}
-        where $\vr_{\vtheta}$ is the true MeanFlow residual from~\eqref{eq: expanded-mf-loss}. At convergence $\vr_{\vtheta}\!\to\!\bm{0}$ and the FM anchor drives $\vu_{\bar{\vtheta}}(\vx_{t},t,t)\!\to\!\vv(\vx_{t},t)$, giving $\tilde{\vr}^{\text{EMA}}\!\to\!\bm{0}$.
+        where $\vr_{\vtheta}$ is the true MeanFlow residual from~\eqref{eq: per-sample-expand}. At convergence $\vr_{\vtheta}\!\to\!\bm{0}$ and the FM anchor drives $\vu_{\bar{\vtheta}}(\vx_{t},t,t)\!\to\!\vv(\vx_{t},t)$, giving $\tilde{\vr}^{\text{EMA}}\!\to\!\bm{0}$.
     \end{proposition}
 
     \begin{proof}
@@ -218,9 +219,14 @@
     \subsection{Derivation of the Trace Weight}
     \label{appx: blue-scalar}
 
-    Before proving~\Cref{prop: trace-weight}, we derive the trace-weight formula~\eqref{eq: trace-weight} as a regularized BLUE-scalar approximation under the isotropic-noise model.
+    The control-variate optimum of~\Cref{thm: control-variate-optimum} suggests an alternative \textit{loss-side} reweighting: rather than tuning the tangent coefficient $\beta$, equalize per-sample loss magnitudes by downweighting high-variance samples directly. We formalize this as a \textit{trace weight}
+    \begin{equation}
+        w(\vx_{t},r,t)\;:=\;\frac{1}{1+\sigma_{t}^{2}\,\texttt{sg}\!\left[\Tr(\mJ\mJ^{\!\top})\right]/d}\;=\;\frac{d}{d+\sigma_{t}^{2}\,\texttt{sg}\!\left[\Tr(\mJ\mJ^{\!\top})\right]},
+        \label{eq: trace-weight}
+    \end{equation}
+    derived below as a regularized BLUE-scalar approximation under the isotropic-noise model. Empirically, the trace weight provides marginal additional gain once the EMA tangent removes the dominant Jacobian amplification, so we keep this construction as an appendix-only Lagrangian implementation of the curvature-budget constraint.
 
-    \paragraph{Setup.} Under the EMA tangent (\Cref{subsubsec: v-anchor}), \cref{prop: vamf-grad} and the Reynolds decomposition imply that the per-sample loss conditioned on $\vx_{t}$ admits the noise-decomposition
+    \paragraph{Setup.} Under the EMA tangent (\Cref{subsec: vamf}), \cref{prop: vamf-grad} and the Reynolds decomposition imply that the per-sample loss conditioned on $\vx_{t}$ admits the noise-decomposition
     \begin{equation}
         \E_{\vx_{0}\mid\vx_{t}}\!\left[\bigl\|V_{\vtheta}^{\text{EMA}}-\vv_{\text{cond}}\bigr\|_{2}^{2}\right]
         \;=\;\underbrace{\bigl\|\tilde{\vr}^{\text{EMA}}\bigr\|_{2}^{2}}_{\text{deterministic signal}}
@@ -267,7 +273,8 @@
         Under the trace-weight loss~\eqref{eq: vamf-obj} and the isotropic approximation $\Sigma_{\vv'}\!\approx\!\sigma_{t}^{2}\mI_{d}$:
         \textbf{(a)} the mean-parameter gradient is the trace-weighted form of~\cref{prop: vamf-grad} with $w$ as a stop-gradient scalar, so the BLUE-style normalization does not enter the parameter update;
         \textbf{(b)} the expected per-sample contribution to the loss decomposes into a deterministic signal $w\,\|\tilde{\vr}^{\text{EMA}}\|_{2}^{2}$ and a constant noise floor $w\,\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top})\!=\!d\,\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top})/(d+\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top}))\!\le\!d$, eliminating the unbounded curvature growth from~\cref{thm: jacobi-variance};
-        \textbf{(c)} $w$ is monotonically decreasing in $\Tr(\mJ\mJ^{\!\top})$ and, by~\cref{thm: material-derivative-expansion}, in $(t{-}r)^{2}\|\frac{\mathrm{D}\vv}{\mathrm{D}t}\|^{2}$, so high-curvature long-interval samples are automatically downweighted---subsuming inverse-variance weighting, progressive scheduling, and acceleration-aware interval sampling in a single per-sample scalar.
+        \textbf{(c)} $w$ is monotonically decreasing in $\Tr(\mJ\mJ^{\!\top})$ and, by~\Cref{thm: material-derivative-expansion}, in $(t{-}r)^{2}\|\frac{\mathrm{D}\vv}{\mathrm{D}t}\|^{2}$, so high-curvature long-interval samples are automatically downweighted.
+        \label[proposition]{prop: trace-weight}
     \end{proposition}
 
     \begin{proof}
@@ -287,7 +294,7 @@
         \end{equation}
         with equality only in the limit $\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top})\!\to\!\infty$. The trace weight thus caps the noise term at the data dimensionality, eliminating the unbounded curvature growth from~\cref{thm: jacobi-variance}.
 
-        \textbf{(c) Curvature-aware downweighting.} The map $w(\xi)\!=\!1/(1+\sigma_{t}^{2}\xi/d)$ is strictly decreasing in $\xi\!=\!\Tr(\mJ\mJ^{\!\top})\!\ge\!0$. By~\cref{thm: material-derivative-expansion} and the Reynolds decomposition, $\E[\Tr(\mJ\mJ^{\!\top})]$ scales with $(t{-}r)^{2}\|\frac{\mathrm{D}\vv}{\mathrm{D}t}\|^{2}$ to leading order, so $w$ shrinks on the same factor and high-curvature long-interval samples are automatically downweighted---realizing the curvature-aware schedule prescribed in~\Cref{subsubsec: trace-weight} in a single per-sample scalar without requiring an explicit progressive schedule or interval-importance sampling.
+        \textbf{(c) Curvature-aware downweighting.} The map $w(\xi)\!=\!1/(1+\sigma_{t}^{2}\xi/d)$ is strictly decreasing in $\xi\!=\!\Tr(\mJ\mJ^{\!\top})\!\ge\!0$. By~\Cref{thm: control-variate-optimum} and the Reynolds decomposition, $\E[\Tr(\mJ\mJ^{\!\top})]$ scales with $(t{-}r)^{2}\|\frac{\mathrm{D}\vv}{\mathrm{D}t}\|^{2}$ to leading order, so $w$ shrinks on the same factor and high-curvature long-interval samples are automatically downweighted---realizing the curvature-aware schedule prescribed in~\Cref{appx: blue-scalar} in a single per-sample scalar without requiring an explicit progressive schedule or interval-importance sampling.
     \end{proof}
 
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -310,7 +317,7 @@
     \end{proposition}
 
     \begin{proof}
-        \textbf{Step 1: noise floor and curvature gap.} Under the EMA tangent (\Cref{subsubsec: v-anchor}) and at convergence, \cref{prop: bias-var} gives $\tilde{\vr}^{\text{EMA}}\!\approx\!\bm{0}$, so the per-sample loss reduces to its noise floor $\Tr(\mJ\Sigma_{\vv'}\mJ^{\!\top})$ (cf.~\eqref{eq: blue-decomp}). Substituting the Reynolds-residual expansion $\vr_{\vtheta}^{\texttt{sg}}\!=\!\Delta+(t-r)\frac{\mathrm{d}}{\mathrm{d}t}\vu_{\vtheta}$ from~\Cref{subsec: mf-bias-vars} and using the MeanFlow identity $(t-r)\frac{\mathrm{d}}{\mathrm{d}t}\vu\!=\!-\Delta$ gives the per-sample noise floor $\bigl\|\mJ\vv'\bigr\|_{2}^{2}$ at first order; taking expectations and applying the trace identity yields
+        \textbf{Step 1: noise floor and curvature gap.} Under the EMA tangent (\Cref{subsec: vamf}) and at convergence, \cref{prop: bias-var} gives $\tilde{\vr}^{\text{EMA}}\!\approx\!\bm{0}$, so the per-sample loss reduces to its noise floor $\Tr(\mJ\Sigma_{\vv'}\mJ^{\!\top})$ (cf.~\eqref{eq: blue-decomp}). Substituting the Reynolds-residual expansion $\vr_{\vtheta}^{\texttt{sg}}\!=\!\Delta+(t-r)\frac{\mathrm{d}}{\mathrm{d}t}\vu_{\vtheta}$ from~\Cref{subsec: two-roles} and using the MeanFlow identity $(t-r)\frac{\mathrm{d}}{\mathrm{d}t}\vu\!=\!-\Delta$ gives the per-sample noise floor $\bigl\|\mJ\vv'\bigr\|_{2}^{2}$ at first order; taking expectations and applying the trace identity yields
         \begin{equation}
             \E_{\vx_{0}\mid\vx_{t}}\!\bigl[\|\mJ\vv'\|_{2}^{2}\bigr]
             \;=\;\Tr\!\left(\mJ\,\Sigma_{\vv'}\,\mJ^{\!\top}\right)
@@ -368,14 +375,14 @@
         \item[\textsc{blue-gauss}.] $\sigma_{t}^{2}\!=\!1/(\sigma_{d}^{2}(1-t)^{2}+t^{2})$ from~\eqref{eq: gauss-sigma-supp} with $\sigma_{d}\!=\!1$. The closed-form BLUE under Laplace's approximation of $\pdata$.
     \end{description}
 
-    The toy benchmark sweep across all five schedules appears in~\Cref{sec: experiment}, \Cref{fig: toy-sigma-sweep}; the empirical winner ($\sigma_t\!=\!1$) is used as the default in the main text and in~\Cref{appx: dit-results}.
+    The toy benchmark sweep across all five schedules appears in~\Cref{sec: experiment}, the toy schedule sweep (\Cref{appx: sigma-schedule}); the empirical winner ($\sigma_t\!=\!1$) is used as the default in the main text and in~\Cref{appx: dit-results}.
 
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     \section{DiT Latent-Space Training on ImageNet}
     \label[appendix]{appx: dit-results}
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-    We test whether the curvature-variance principle scales beyond toys by training DiT~\cite{peebles2023scalablediffusion} variants on ImageNet in the latent space of a frozen Stable Diffusion VAE, following the recipe of~\cite{geng2025meanflowsonestepgenerative}. Both baselines and VaMF runs share identical hyperparameters and code paths; only the loss differs (vanilla MeanFlow MSE versus the trace-weighted MSE in~\eqref{eq: vamf-obj} with $\sigma_t\!=\!1$, the toy-sweep winner of~\Cref{fig: toy-sigma-sweep}, and a single Hutchinson probe).
+    We test whether the curvature-variance principle scales beyond toys by training DiT~\cite{peebles2023scalablediffusion} variants on ImageNet in the latent space of a frozen Stable Diffusion VAE, following the recipe of~\cite{geng2025meanflowsonestepgenerative}. Both baselines and VaMF runs share identical hyperparameters and code paths; only the loss differs (vanilla MeanFlow MSE versus the trace-weighted MSE in~\eqref{eq: vamf-obj} with $\sigma_t\!=\!1$, the toy-sweep winner of~the toy schedule sweep (\Cref{appx: sigma-schedule}), and a single Hutchinson probe).
 
     \subsection{DiT-B/4, ImageNet-$256\!\times\!256$}
     \label{appx: dit-b4-256}
