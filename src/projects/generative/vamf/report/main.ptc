@@ -1,0 +1,57 @@
+\contentsline {section}{\numberline {1}Introduction}{1}{}%
+\contentsline {section}{\numberline {2}Preliminaries}{2}{}%
+\contentsline {paragraph}{Flow-Matching.}{2}{}%
+\contentsline {paragraph}{One-step Mean Flows.}{2}{}%
+\contentsline {section}{\numberline {3}Variance Reduction in Learning Mean Flows}{3}{}%
+\contentsline {subsection}{\numberline {3.1}Two roles of the conditional velocity field}{3}{}%
+\contentsline {paragraph}{Target role: unbiased.}{3}{}%
+\contentsline {paragraph}{Tangent role: amplified.}{3}{}%
+\contentsline {paragraph}{The semi-gradient gap.}{3}{}%
+\contentsline {subsection}{\numberline {3.2}The tangent as a control variate}{4}{}%
+\contentsline {paragraph}{Bias and variance.}{4}{}%
+\contentsline {paragraph}{Vanilla MeanFlow is generally suboptimal.}{5}{}%
+\contentsline {paragraph}{Concurrent fixes through this lens.}{5}{}%
+\contentsline {subsection}{\numberline {3.3}Variance-Aware MeanFlow}{5}{}%
+\contentsline {paragraph}{EMA proxy.}{5}{}%
+\contentsline {paragraph}{Flow-matching anchor.}{5}{}%
+\contentsline {paragraph}{Optimality.}{5}{}%
+\contentsline {paragraph}{Why the target stays unbiased.}{6}{}%
+\contentsline {section}{\numberline {4}Related Work}{7}{}%
+\contentsline {paragraph}{MeanFlow and its training pathology.}{7}{}%
+\contentsline {paragraph}{Variance reduction in flow training.}{7}{}%
+\contentsline {paragraph}{Control variates and target networks.}{7}{}%
+\contentsline {section}{\numberline {5}Experiments}{7}{}%
+\contentsline {subsection}{\numberline {5.1}Direct Measurement of Gradient Variance}{8}{}%
+\contentsline {subsection}{\numberline {5.2}Toy Benchmark}{8}{}%
+\contentsline {subsection}{\numberline {5.3}High-Dimensional Scaling}{8}{}%
+\contentsline {subsection}{\numberline {5.4}Convergence Stability}{9}{}%
+\contentsline {subsection}{\numberline {5.5}Discussion}{9}{}%
+\contentsline {section}{\numberline {6}Conclusion}{10}{}%
+\contentsline {paragraph}{Limitations.}{10}{}%
+\contentsline {paragraph}{Future work.}{10}{}%
+\contentsline {section}{\relax \fontsize {14.4}{16}\selectfont Supplementary Material}{13}{}%
+\ttl@starttoc {appendices@1}
+\contentsline {section}{\numberline {A}Notations}{14}{}%
+\contentsline {section}{\numberline {B}Proof of Lemma}{14}{}%
+\contentsline {section}{\numberline {C}Proofs of Theorems and Propositions}{14}{}%
+\contentsline {subsection}{\numberline {C.1}Proof of~\Cref {thm: jacobi-variance} (Jacobian Variance Amplification)}{14}{}%
+\contentsline {subsection}{\numberline {C.2}Proof of~\Cref {thm: semi-gradient-gap} (Semi-Gradient Gap)}{15}{}%
+\contentsline {subsection}{\numberline {C.3}Proof of~\Cref {thm: material-derivative-expansion} (Flow Acceleration Expansion)}{15}{}%
+\contentsline {subsection}{\numberline {C.4}Proof of~\Cref {prop: vamf-grad} (Gradient of VaMF Loss)}{16}{}%
+\contentsline {subsection}{\numberline {C.5}Proof of~\Cref {prop: bias-var} (Bias-Variance Tradeoff)}{16}{}%
+\contentsline {subsection}{\numberline {C.6}Proof of~\Cref {prop: target-tangent-asymmetry} (Target--Tangent Bias Asymmetry)}{17}{}%
+\contentsline {subsection}{\numberline {C.7}Proof of~\Cref {thm: control-variate-optimum} (Optimal Control-Variate Coefficient)}{17}{}%
+\contentsline {subsection}{\numberline {C.8}Derivation of the Trace Weight}{18}{}%
+\contentsline {paragraph}{Setup.}{18}{}%
+\contentsline {paragraph}{Heteroscedastic-noise BLUE.}{19}{}%
+\contentsline {paragraph}{Isotropic approximation and Tikhonov stabilization.}{19}{}%
+\contentsline {subsection}{\numberline {C.9}Proof of~\Cref {prop: trace-weight} (Trace-Weight Properties)}{19}{}%
+\contentsline {section}{\numberline {D}Additional Results}{20}{}%
+\contentsline {subsection}{\numberline {D.1}Acceleration-to-Noise Ratio from the Trace Weight}{20}{}%
+\contentsline {paragraph}{Schedule sensitivity.}{21}{}%
+\contentsline {subsection}{\numberline {D.2}Schedule $\sigma _{t}$ in the Trace Weight}{21}{}%
+\contentsline {paragraph}{Conditional-velocity variance under Laplace's approximation.}{21}{}%
+\contentsline {paragraph}{Practical schedules.}{21}{}%
+\contentsline {section}{\numberline {E}DiT Latent-Space Training on ImageNet}{22}{}%
+\contentsline {subsection}{\numberline {E.1}DiT-B/4, ImageNet-$256\!\times \!256$}{22}{}%
+\contentsfinish 

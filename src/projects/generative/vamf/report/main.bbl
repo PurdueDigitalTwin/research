@@ -1,0 +1,185 @@
+\begin{thebibliography}{10}
+
+\bibitem{ho2020denoising}
+Jonathan Ho, Ajay Jain, and Pieter Abbeel.
+\newblock Denoising diffusion probabilistic models.
+\newblock In H.~Larochelle, M.~Ranzato, R.~Hadsell, M.F. Balcan, and H.~Lin, editors, {\em Advances in Neural Information Processing Systems}, volume~33, pages 6840--6851. Curran Associates, Inc., 2020.
+
+\bibitem{song2021scorebased}
+Yang Song, Jascha Sohl-Dickstein, Diederik~P. Kingma, Abhishek Kumar, Stefano Ermon, and Ben Poole.
+\newblock Score-based generative modeling through stochastic differential equations.
+\newblock In {\em International Conference on Learning Representations}, 2021.
+
+\bibitem{karras2022elucidating}
+Tero Karras, Miika Aittala, Timo Aila, and Samuli Laine.
+\newblock Elucidating the design space of diffusion-based generative models.
+\newblock In {\em Advances in Neural Information Processing Systems}, volume~35, 2022.
+
+\bibitem{dhariwal2021diffusion}
+Prafulla Dhariwal and Alexander Nichol.
+\newblock Diffusion models beat {GAN}s on image synthesis.
+\newblock In {\em Advances in Neural Information Processing Systems}, volume~34, 2021.
+
+\bibitem{esser2024scaling}
+Patrick Esser, Sumith Kulal, Andreas Blattmann, Rahim Entezari, Jonas M{\"u}ller, Harry Saini, Yam Levi, Dominik Lorenz, Naveen Rafi, Tim Shafir, et~al.
+\newblock Scaling rectified flow transformers for high-resolution image synthesis.
+\newblock In {\em Proceedings of the 41st International Conference on Machine Learning}, volume 235 of {\em Proceedings of Machine Learning Research}, 2024.
+
+\bibitem{chen2018neural}
+Ricky T.~Q. Chen, Yulia Rubanova, Jesse Bettencourt, and David~K. Duvenaud.
+\newblock Neural ordinary differential equations.
+\newblock In {\em Advances in Neural Information Processing Systems}, volume~31, 2018.
+
+\bibitem{rezende2015variational}
+Danilo Rezende and Shakir Mohamed.
+\newblock Variational inference with normalizing flows.
+\newblock In {\em Proceedings of the 32nd International Conference on Machine Learning}, volume~37 of {\em Proceedings of Machine Learning Research}, pages 1530--1538, 2015.
+
+\bibitem{dinh2017density}
+Laurent Dinh, Jascha Sohl-Dickstein, and Samy Bengio.
+\newblock Density estimation using {R}eal-{NVP}.
+\newblock In {\em International Conference on Learning Representations}, 2017.
+
+\bibitem{grathwohl2019ffjord}
+Will Grathwohl, Ricky T.~Q. Chen, Jesse Bettencourt, Ilya Sutskever, and David Duvenaud.
+\newblock {FFJORD}: Free-form continuous dynamics for scalable reversible generative models.
+\newblock In {\em International Conference on Learning Representations}, 2019.
+
+\bibitem{lipman2023flowmatchinggenerativemodeling}
+Yaron Lipman, Ricky T.~Q. Chen, Heli Ben-Hamu, Maximilian Nickel, and Matt Le.
+\newblock Flow matching for generative modeling, 2023.
+
+\bibitem{tong2024improvinggeneralizingflowbasedgenerative}
+Alexander Tong, Kilian Fatras, Nikolay Malkin, Guillaume Huguet, Yanlei Zhang, Jarrid Rector-Brooks, Guy Wolf, and Yoshua Bengio.
+\newblock Improving and generalizing flow-based generative models with minibatch optimal transport, 2024.
+
+\bibitem{albergo2023buildingnormalizingflowsstochastic}
+Michael~S. Albergo and Eric Vanden-Eijnden.
+\newblock Building normalizing flows with stochastic interpolants, 2023.
+
+\bibitem{albergo2025stochasticinterpolants}
+Michael Albergo, Nicholas~M. Boffi, and Eric Vanden-Eijnden.
+\newblock Stochastic interpolants: A unifying framework for flows and diffusions.
+\newblock {\em Journal of Machine Learning Research}, 26(209):1--80, 2025.
+
+\bibitem{salimans2022progressivedistillationfastsampling}
+Tim Salimans and Jonathan Ho.
+\newblock Progressive distillation for fast sampling of diffusion models, 2022.
+
+\bibitem{yin2024distributionmatchingdistillation}
+Tianwei Yin, Micha\"el Gharbi, Richard Zhang, Eli Shechtman, Fr\'edo Durand, William~T. Freeman, and Taesung Park.
+\newblock One-step diffusion with distribution matching distillation.
+\newblock In {\em Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)}, pages 6613--6623, June 2024.
+
+\bibitem{yin2024improveddistributionmatchingdistillation}
+Tianwei Yin, Micha\"{e}l Gharbi, Taesung Park, Richard Zhang, Eli Shechtman, Fr\'{e}do Durand, and William~T. Freeman.
+\newblock Improved distribution matching distillation for fast image synthesis.
+\newblock In A.~Globerson, L.~Mackey, D.~Belgrave, A.~Fan, U.~Paquet, J.~Tomczak, and C.~Zhang, editors, {\em Advances in Neural Information Processing Systems}, volume~37, pages 47455--47487. Curran Associates, Inc., 2024.
+
+\bibitem{song2023consistencymodels}
+Yang Song, Prafulla Dhariwal, Mark Chen, and Ilya Sutskever.
+\newblock Consistency models.
+\newblock In {\em Proceedings of the 40th International Conference on Machine Learning}, ICML'23. JMLR.org, 2023.
+
+\bibitem{lu2025simplifyingstabilizingscalingcontinuoustime}
+Cheng Lu and Yang Song.
+\newblock Simplifying, stabilizing and scaling continuous-time consistency models, 2025.
+
+\bibitem{boffi2025flowmapmatchingstochastic}
+Nicholas~M. Boffi, Michael~S. Albergo, and Eric Vanden-Eijnden.
+\newblock Flow map matching with stochastic interpolants: A mathematical framework for consistency models, 2025.
+
+\bibitem{geng2025meanflowsonestepgenerative}
+Zhengyang Geng, Mingyang Deng, Xingjian Bai, J.~Zico Kolter, and Kaiming He.
+\newblock Mean flows for one-step generative modeling, 2025.
+
+\bibitem{zhang2025alphaflowunderstandingimprovingmeanflow}
+Huijie Zhang, Aliaksandr Siarohin, Willi Menapace, Michael Vasilkovsky, Sergey Tulyakov, Qing Qu, and Ivan Skorokhodov.
+\newblock Alphaflow: Understanding and improving meanflow models, 2025.
+
+\bibitem{geng2025improvedmeanflowschallenges}
+Zhengyang Geng, Yiyang Lu, Zongze Wu, Eli Shechtman, J.~Zico Kolter, and Kaiming He.
+\newblock Improved mean flows: On the challenges of fastforward generative models, 2025.
+
+\bibitem{zhang2026overcomingcurvaturebottleneckmeanflow}
+Xinxi Zhang, Shiwei Tan, Quang Nguyen, Quan Dao, Ligong Han, Xiaoxiao He, Tunyu Zhang, Chengzhi Mao, Dimitris Metaxas, and Vladimir Pavlovic.
+\newblock Overcoming the curvature bottleneck in meanflow, 2026.
+
+\bibitem{zhou2026terminalvelocitymatching}
+Linqi Zhou, Mathias Parger, Ayaan Haque, and Jiaming Song.
+\newblock Terminal velocity matching, 2026.
+
+\bibitem{li2025functionalmeanflowhilbert}
+Zhiqi Li, Yuchen Sun, Greg Turk, and Bo~Zhu.
+\newblock Functional mean flow in hilbert space, 2025.
+
+\bibitem{polyak1992acceleration}
+Boris~T. Polyak and Anatoli~B. Juditsky.
+\newblock Acceleration of stochastic approximation by averaging.
+\newblock volume~30, pages 838--855, 1992.
+
+\bibitem{tarvainen2017mean}
+Antti Tarvainen and Harri Valpola.
+\newblock Mean teachers are better role models: Weight-averaged consistency targets improve semi-supervised learning results.
+\newblock In {\em Advances in Neural Information Processing Systems}, volume~30, 2017.
+
+\bibitem{yang2026stablevelocityvarianceperspective}
+Donglin Yang, Yongxing Zhang, Xin Yu, Liang Hou, Xin Tao, Pengfei Wan, Xiaojuan Qi, and Renjie Liao.
+\newblock Stable velocity: A variance perspective on flow matching, 2026.
+
+\bibitem{maduabuchi2026temporalpairconsistencyvariancereduced}
+Chika Maduabuchi and Jindong Wang.
+\newblock Temporal pair consistency for variance-reduced flow matching, 2026.
+
+\bibitem{ahamed2026preconditionedscoreflowmatching}
+Shadab Ahamed, Eshed Gal, Simon Ghyselincks, Md~Shahriar~Rahim Siddiqui, Moshe Eliasof, and Eldad Haber.
+\newblock Preconditioned score and flow matching, 2026.
+
+\bibitem{bertrand2025closedformflowmatchinggeneralization}
+Quentin Bertrand, Anne Gagneux, Mathurin Massias, and Rémi Emonet.
+\newblock On the closed-form of flow matching: Generalization does not arise from target stochasticity, 2025.
+
+\bibitem{liu2022flowstraightfastlearning}
+Xingchao Liu, Chengyue Gong, and Qiang Liu.
+\newblock Flow straight and fast: Learning to generate and transfer data with rectified flow, 2022.
+
+\bibitem{lee2024improvingrectifiedflows}
+Sangyun Lee, Zinan Lin, and Giulia Fanti.
+\newblock Improving the training of rectified flows.
+\newblock In A.~Globerson, L.~Mackey, D.~Belgrave, A.~Fan, U.~Paquet, J.~Tomczak, and C.~Zhang, editors, {\em Advances in Neural Information Processing Systems}, volume~37, pages 63082--63109. Curran Associates, Inc., 2024.
+
+\bibitem{glynn2002some}
+Peter~W. Glynn and Roberto Szechtman.
+\newblock Some new perspectives on the method of control variates.
+\newblock {\em Monte Carlo and Quasi-Monte Carlo Methods 2000}, pages 27--49, 2002.
+
+\bibitem{mnih2015human}
+Volodymyr Mnih, Koray Kavukcuoglu, David Silver, et~al.
+\newblock Human-level control through deep reinforcement learning.
+\newblock {\em Nature}, 518:529--533, 2015.
+
+\bibitem{grill2020bootstrap}
+Jean-Bastien Grill, Florian Strub, Florent Altché, et~al.
+\newblock Bootstrap your own latent: A new approach to self-supervised learning.
+\newblock In {\em NeurIPS}, 2020.
+
+\bibitem{frans2025stepdiffusionshortcutmodels}
+Kevin Frans, Danijar Hafner, Sergey Levine, and Pieter Abbeel.
+\newblock One step diffusion via shortcut models, 2025.
+
+\bibitem{tierney1986accurate}
+Luke Tierney and Joseph~B. Kadane.
+\newblock Accurate approximations for posterior moments and marginal densities.
+\newblock {\em Journal of the American Statistical Association}, 81(393):82--86, 1986.
+
+\bibitem{mackay1992practical}
+David J.~C. MacKay.
+\newblock A practical {Bayesian} framework for backpropagation networks.
+\newblock {\em Neural Computation}, 4(3):448--472, 1992.
+
+\bibitem{peebles2023scalablediffusion}
+William Peebles and Saining Xie.
+\newblock Scalable diffusion models with transformers.
+\newblock In {\em Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)}, pages 4195--4205, 2023.
+
+\end{thebibliography}

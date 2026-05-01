@@ -1,0 +1,294 @@
+\relax 
+\providecommand\zref@newlabel[2]{}
+\citation{ho2020denoising,song2021scorebased,karras2022elucidating,dhariwal2021diffusion,esser2024scaling}
+\citation{chen2018neural,rezende2015variational,dinh2017density,grathwohl2019ffjord,lipman2023flowmatchinggenerativemodeling,tong2024improvinggeneralizingflowbasedgenerative,albergo2023buildingnormalizingflowsstochastic}
+\citation{lipman2023flowmatchinggenerativemodeling,tong2024improvinggeneralizingflowbasedgenerative}
+\citation{albergo2023buildingnormalizingflowsstochastic,albergo2025stochasticinterpolants}
+\citation{salimans2022progressivedistillationfastsampling}
+\citation{yin2024distributionmatchingdistillation,yin2024improveddistributionmatchingdistillation}
+\citation{song2023consistencymodels,lu2025simplifyingstabilizingscalingcontinuoustime}
+\citation{boffi2025flowmapmatchingstochastic}
+\citation{geng2025meanflowsonestepgenerative}
+\citation{zhang2025alphaflowunderstandingimprovingmeanflow,geng2025improvedmeanflowschallenges}
+\citation{zhang2025alphaflowunderstandingimprovingmeanflow}
+\citation{geng2025improvedmeanflowschallenges}
+\citation{zhang2026overcomingcurvaturebottleneckmeanflow}
+\citation{zhou2026terminalvelocitymatching}
+\citation{li2025functionalmeanflowhilbert}
+\newlabel{sec: abstract}{{}{1}{}{}{}}
+\newlabel{sec: abstract@cref}{{}{[1][1][]1}}
+\@writefile{toc}{\contentsline {section}{\numberline {1}Introduction}{1}{}\protected@file@percent }
+\newlabel{sec: introduction}{{1}{1}{}{}{}}
+\newlabel{sec: introduction@cref}{{[section][1][]1}{[1][1][]1}}
+\citation{lipman2023flowmatchinggenerativemodeling,tong2024improvinggeneralizingflowbasedgenerative}
+\citation{geng2025meanflowsonestepgenerative}
+\citation{geng2025meanflowsonestepgenerative}
+\newlabel{cb: thm}{{C1}{2}{}{}{}}
+\newlabel{cb: thm@cref}{{[section][1][]1}{[1][2][]2}}
+\newlabel{cb: cv}{{C2}{2}{}{}{}}
+\newlabel{cb: cv@cref}{{[section][1][]1}{[1][2][]2}}
+\newlabel{cb: vamf}{{C3}{2}{}{}{}}
+\newlabel{cb: vamf@cref}{{[section][1][]1}{[1][2][]2}}
+\@writefile{toc}{\contentsline {section}{\numberline {2}Preliminaries}{2}{}\protected@file@percent }
+\newlabel{sec: preliminary}{{2}{2}{}{}{}}
+\newlabel{sec: preliminary@cref}{{[section][2][]2}{[1][2][]2}}
+\@writefile{toc}{\contentsline {paragraph}{Flow-Matching.}{2}{}\protected@file@percent }
+\newlabel{eq: margv-condv-relation}{{1}{2}{}{}{}}
+\newlabel{eq: margv-condv-relation@cref}{{[equation][1][]1}{[1][2][]2}}
+\@writefile{toc}{\contentsline {paragraph}{One-step Mean Flows.}{2}{}\protected@file@percent }
+\newlabel{eq: meanflow-identity}{{2}{2}{}{}{}}
+\newlabel{eq: meanflow-identity@cref}{{[equation][2][]2}{[1][2][]2}}
+\newlabel{eq: td-meanflow-identity}{{3}{2}{}{}{}}
+\newlabel{eq: td-meanflow-identity@cref}{{[equation][3][]3}{[1][2][]2}}
+\citation{zhang2025alphaflowunderstandingimprovingmeanflow,geng2025improvedmeanflowschallenges}
+\newlabel{eq: mf-loss}{{4}{3}{}{}{}}
+\newlabel{eq: mf-loss@cref}{{[equation][4][]4}{[1][2][]3}}
+\@writefile{toc}{\contentsline {section}{\numberline {3}Variance Reduction in Learning Mean Flows}{3}{}\protected@file@percent }
+\newlabel{sec: method}{{3}{3}{}{}{}}
+\newlabel{sec: method@cref}{{[section][3][]3}{[1][3][]3}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.1}Two roles of the conditional velocity field}{3}{}\protected@file@percent }
+\newlabel{subsec: two-roles}{{3.1}{3}{}{}{}}
+\newlabel{subsec: two-roles@cref}{{[subsection][1][3]3.1}{[1][3][]3}}
+\newlabel{eq: per-sample-expand}{{5}{3}{}{}{}}
+\newlabel{eq: per-sample-expand@cref}{{[equation][5][]5}{[1][3][]3}}
+\@writefile{toc}{\contentsline {paragraph}{Target role: unbiased.}{3}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Tangent role: amplified.}{3}{}\protected@file@percent }
+\newlabel{thm: jacobi-variance}{{2}{3}{}{}{}}
+\newlabel{thm: jacobi-variance@cref}{{[theorem][2][]2}{[1][3][]3}}
+\@writefile{toc}{\contentsline {paragraph}{The semi-gradient gap.}{3}{}\protected@file@percent }
+\newlabel{thm: semi-gradient-gap}{{3}{3}{}{}{}}
+\newlabel{thm: semi-gradient-gap@cref}{{[theorem][3][]3}{[1][3][]3}}
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces Conditional-marginal velocity gap with $p_{\rm  {data}}$ a 2-D Gaussian mixture with three components. The spatial heatmap of $\mathbb  {E}_{{\bm  {x}}_{0}\mid {\bm  {x}}_{t}}\|{\bm  {v}}({\bm  {x}}_{t},t) - {\bm  {v}}({\bm  {x}}_{t},t\mid {\bm  {x}}_{0})\|$ shows that the gap is heterogeneous and concentrates in mode-mixing regions where conditional paths overlap.}}{4}{}\protected@file@percent }
+\providecommand*\caption@xref[2]{\@setref\relax\@undefined{#1}}
+\newlabel{fig: cm-gap}{{1}{4}{}{}{}}
+\newlabel{fig: cm-gap@cref}{{[figure][1][]1}{[1][4][]4}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.2}The tangent as a control variate}{4}{}\protected@file@percent }
+\newlabel{subsec: control-variate}{{3.2}{4}{}{}{}}
+\newlabel{subsec: control-variate@cref}{{[subsection][2][3]3.2}{[1][4][]4}}
+\newlabel{eq: tangent-mix}{{6}{4}{}{}{}}
+\newlabel{eq: tangent-mix@cref}{{[equation][6][]6}{[1][4][]4}}
+\@writefile{toc}{\contentsline {paragraph}{Bias and variance.}{4}{}\protected@file@percent }
+\newlabel{eq: g-beta}{{7}{4}{}{}{}}
+\newlabel{eq: g-beta@cref}{{[equation][7][]7}{[1][4][]4}}
+\newlabel{thm: control-variate-optimum}{{4}{4}{}{}{}}
+\newlabel{thm: control-variate-optimum@cref}{{[theorem][4][]4}{[1][4][]4}}
+\citation{geng2025improvedmeanflowschallenges}
+\citation{zhou2026terminalvelocitymatching}
+\citation{zhang2026overcomingcurvaturebottleneckmeanflow}
+\citation{zhang2025alphaflowunderstandingimprovingmeanflow}
+\citation{polyak1992acceleration,tarvainen2017mean}
+\@writefile{toc}{\contentsline {paragraph}{Vanilla MeanFlow is generally suboptimal.}{5}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Concurrent fixes through this lens.}{5}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.3}Variance-Aware MeanFlow}{5}{}\protected@file@percent }
+\newlabel{subsec: vamf}{{3.3}{5}{}{}{}}
+\newlabel{subsec: vamf@cref}{{[subsection][3][3]3.3}{[1][5][]5}}
+\@writefile{toc}{\contentsline {paragraph}{EMA proxy.}{5}{}\protected@file@percent }
+\newlabel{eq: ema-mf-loss}{{8}{5}{}{}{}}
+\newlabel{eq: ema-mf-loss@cref}{{[equation][8][]8}{[1][5][]5}}
+\@writefile{toc}{\contentsline {paragraph}{Flow-matching anchor.}{5}{}\protected@file@percent }
+\newlabel{eq: fm-anchor}{{9}{5}{}{}{}}
+\newlabel{eq: fm-anchor@cref}{{[equation][9][]9}{[1][5][]5}}
+\newlabel{eq: vamf-obj}{{10}{5}{}{}{}}
+\newlabel{eq: vamf-obj@cref}{{[equation][10][]10}{[1][5][]5}}
+\@writefile{toc}{\contentsline {paragraph}{Optimality.}{5}{}\protected@file@percent }
+\newlabel{prop: vamf-grad}{{5}{5}{}{}{}}
+\newlabel{prop: vamf-grad@cref}{{[proposition][5][]5}{[1][5][]5}}
+\citation{geng2025improvedmeanflowschallenges,zhang2026overcomingcurvaturebottleneckmeanflow}
+\@writefile{loa}{\contentsline {algorithm}{\numberline {1}{\ignorespaces Variance-Aware MeanFlow Training}}{6}{}\protected@file@percent }
+\newlabel{alg: va-mf}{{1}{6}{}{}{}}
+\newlabel{alg: va-mf@cref}{{[algorithm][1][]1}{[1][5][]6}}
+\newlabel{prop: bias-var}{{6}{6}{}{}{}}
+\newlabel{prop: bias-var@cref}{{[proposition][6][]6}{[1][6][]6}}
+\@writefile{toc}{\contentsline {paragraph}{Why the target stays unbiased.}{6}{}\protected@file@percent }
+\newlabel{prop: target-tangent-asymmetry}{{7}{6}{}{}{}}
+\newlabel{prop: target-tangent-asymmetry@cref}{{[proposition][7][]7}{[1][6][]6}}
+\citation{geng2025meanflowsonestepgenerative}
+\citation{zhang2025alphaflowunderstandingimprovingmeanflow}
+\citation{geng2025improvedmeanflowschallenges}
+\citation{zhang2026overcomingcurvaturebottleneckmeanflow}
+\citation{zhou2026terminalvelocitymatching}
+\citation{li2025functionalmeanflowhilbert}
+\citation{zhang2025alphaflowunderstandingimprovingmeanflow}
+\citation{geng2025improvedmeanflowschallenges}
+\citation{zhou2026terminalvelocitymatching}
+\citation{zhang2026overcomingcurvaturebottleneckmeanflow}
+\citation{yang2026stablevelocityvarianceperspective}
+\citation{maduabuchi2026temporalpairconsistencyvariancereduced}
+\citation{ahamed2026preconditionedscoreflowmatching}
+\citation{bertrand2025closedformflowmatchinggeneralization}
+\citation{liu2022flowstraightfastlearning,lee2024improvingrectifiedflows}
+\citation{glynn2002some}
+\citation{mnih2015human}
+\citation{grill2020bootstrap}
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Concurrent fixes for MeanFlow's training pathology, located in our control-variate framework. Each method either drives $\beta \!\to \!1$ with a deterministic proxy, or reduces the amplification factor $\|{\bm  {J}}\|^{2}$ directly.}}{7}{}\protected@file@percent }
+\newlabel{tab: concurrent-positioning}{{1}{7}{}{}{}}
+\newlabel{tab: concurrent-positioning@cref}{{[table][1][]1}{[1][7][]7}}
+\@writefile{toc}{\contentsline {section}{\numberline {4}Related Work}{7}{}\protected@file@percent }
+\newlabel{sec: review}{{4}{7}{}{}{}}
+\newlabel{sec: review@cref}{{[section][4][]4}{[1][7][]7}}
+\@writefile{toc}{\contentsline {paragraph}{MeanFlow and its training pathology.}{7}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Variance reduction in flow training.}{7}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Control variates and target networks.}{7}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {5}Experiments}{7}{}\protected@file@percent }
+\newlabel{sec: experiment}{{5}{7}{}{}{}}
+\newlabel{sec: experiment@cref}{{[section][5][]5}{[1][7][]7}}
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces Direct gradient-variance measurement during training (\Cref  {thm: jacobi-variance} validation). \textbf  {(a)} Mean $\Tr  (\mathrm  {Cov}[\bm  {g}])$ over the second half of training, per dataset, as a function of the tangent coefficient $\beta $. The variance drops monotonically with $\beta $, with $3.2\!\times \!\!\sim \!4.7\!\times $ reduction at $\beta \!=\!1$ on three of four datasets. \textbf  {(b)} Variance trajectory across training on \texttt  {swiss\_roll} (solid) and \texttt  {pinwheel} (dashed), confirming the reduction is operative throughout training, not just at convergence.}}{8}{}\protected@file@percent }
+\newlabel{fig: nr-vs-beta}{{2}{8}{}{}{}}
+\newlabel{fig: nr-vs-beta@cref}{{[figure][2][]2}{[1][8][]8}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.1}Direct Measurement of Gradient Variance}{8}{}\protected@file@percent }
+\newlabel{subsec: exp-grad-var}{{5.1}{8}{}{}{}}
+\newlabel{subsec: exp-grad-var@cref}{{[subsection][1][5]5.1}{[1][8][]8}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.2}Toy Benchmark}{8}{}\protected@file@percent }
+\newlabel{subsec: exp-toy}{{5.2}{8}{}{}{}}
+\newlabel{subsec: exp-toy@cref}{{[subsection][2][5]5.2}{[1][8][]8}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.3}High-Dimensional Scaling}{8}{}\protected@file@percent }
+\newlabel{subsec: exp-dgmm}{{5.3}{8}{}{}{}}
+\newlabel{subsec: exp-dgmm@cref}{{[subsection][3][5]5.3}{[1][8][]8}}
+\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces Reference distribution and final-step samples on the 2-D toy datasets at seed $42$. VaMF (bottom row) recovers structural details---spirals, sharp corners, mode separation---that vanilla MeanFlow blurs out, especially on \texttt  {checkerboard} and \texttt  {swiss\_roll}.}}{9}{}\protected@file@percent }
+\newlabel{fig: toy-samples}{{3}{9}{}{}{}}
+\newlabel{fig: toy-samples@cref}{{[figure][3][]3}{[1][8][]9}}
+\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces Sliced Wasserstein distance (lower is better) on the 2-D toy benchmark, averaged over three seeds $\{42,0,1\}$ at $200$k steps. SW$_p$ is evaluated on $4096$ samples with $500$ random projections; both metrics use the \emph  {same} projection key per evaluation for variance-reduced paired estimates.}}{9}{}\protected@file@percent }
+\newlabel{tab: toy}{{2}{9}{}{}{}}
+\newlabel{tab: toy@cref}{{[table][2][]2}{[1][8][]9}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.4}Convergence Stability}{9}{}\protected@file@percent }
+\newlabel{subsec: exp-stability}{{5.4}{9}{}{}{}}
+\newlabel{subsec: exp-stability@cref}{{[subsection][4][5]5.4}{[1][8][]9}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.5}Discussion}{9}{}\protected@file@percent }
+\newlabel{subsec: exp-discussion}{{5.5}{9}{}{}{}}
+\newlabel{subsec: exp-discussion@cref}{{[subsection][5][5]5.5}{[1][9][]9}}
+\citation{song2023consistencymodels}
+\citation{frans2025stepdiffusionshortcutmodels}
+\bibstyle{unsrt}
+\bibdata{references}
+\@writefile{lot}{\contentsline {table}{\numberline {3}{\ignorespaces DGMM scaling: SW$_1$ at convergence as the dimension $d$ grows (mean$\pm $standard error over three seeds, $200$k steps). Methods are within one standard error at every $d$.}}{10}{}\protected@file@percent }
+\newlabel{tab: dgmm-scale}{{3}{10}{}{}{}}
+\newlabel{tab: dgmm-scale@cref}{{[table][3][]3}{[1][8][]10}}
+\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces Convergence stability across the 2-D toy benchmark: SW$_1$ vs training step (smoothed). Vanilla MeanFlow plateaus with persistent oscillations from the gradient variance of~\Cref  {thm: jacobi-variance}; VaMF converges smoothly to a lower floor.}}{10}{}\protected@file@percent }
+\newlabel{fig: convergence-stability}{{4}{10}{}{}{}}
+\newlabel{fig: convergence-stability@cref}{{[figure][4][]4}{[1][9][]10}}
+\@writefile{toc}{\contentsline {section}{\numberline {6}Conclusion}{10}{}\protected@file@percent }
+\newlabel{sec: conclusion}{{6}{10}{}{}{}}
+\newlabel{sec: conclusion@cref}{{[section][6][]6}{[1][10][]10}}
+\@writefile{toc}{\contentsline {paragraph}{Limitations.}{10}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Future work.}{10}{}\protected@file@percent }
+\bibcite{ho2020denoising}{{1}{}{{}}{{}}}
+\bibcite{song2021scorebased}{{2}{}{{}}{{}}}
+\bibcite{karras2022elucidating}{{3}{}{{}}{{}}}
+\bibcite{dhariwal2021diffusion}{{4}{}{{}}{{}}}
+\bibcite{esser2024scaling}{{5}{}{{}}{{}}}
+\bibcite{chen2018neural}{{6}{}{{}}{{}}}
+\bibcite{rezende2015variational}{{7}{}{{}}{{}}}
+\bibcite{dinh2017density}{{8}{}{{}}{{}}}
+\bibcite{grathwohl2019ffjord}{{9}{}{{}}{{}}}
+\bibcite{lipman2023flowmatchinggenerativemodeling}{{10}{}{{}}{{}}}
+\bibcite{tong2024improvinggeneralizingflowbasedgenerative}{{11}{}{{}}{{}}}
+\bibcite{albergo2023buildingnormalizingflowsstochastic}{{12}{}{{}}{{}}}
+\bibcite{albergo2025stochasticinterpolants}{{13}{}{{}}{{}}}
+\bibcite{salimans2022progressivedistillationfastsampling}{{14}{}{{}}{{}}}
+\bibcite{yin2024distributionmatchingdistillation}{{15}{}{{}}{{}}}
+\bibcite{yin2024improveddistributionmatchingdistillation}{{16}{}{{}}{{}}}
+\bibcite{song2023consistencymodels}{{17}{}{{}}{{}}}
+\bibcite{lu2025simplifyingstabilizingscalingcontinuoustime}{{18}{}{{}}{{}}}
+\bibcite{boffi2025flowmapmatchingstochastic}{{19}{}{{}}{{}}}
+\bibcite{geng2025meanflowsonestepgenerative}{{20}{}{{}}{{}}}
+\bibcite{zhang2025alphaflowunderstandingimprovingmeanflow}{{21}{}{{}}{{}}}
+\bibcite{geng2025improvedmeanflowschallenges}{{22}{}{{}}{{}}}
+\bibcite{zhang2026overcomingcurvaturebottleneckmeanflow}{{23}{}{{}}{{}}}
+\bibcite{zhou2026terminalvelocitymatching}{{24}{}{{}}{{}}}
+\bibcite{li2025functionalmeanflowhilbert}{{25}{}{{}}{{}}}
+\bibcite{polyak1992acceleration}{{26}{}{{}}{{}}}
+\bibcite{tarvainen2017mean}{{27}{}{{}}{{}}}
+\bibcite{yang2026stablevelocityvarianceperspective}{{28}{}{{}}{{}}}
+\bibcite{maduabuchi2026temporalpairconsistencyvariancereduced}{{29}{}{{}}{{}}}
+\bibcite{ahamed2026preconditionedscoreflowmatching}{{30}{}{{}}{{}}}
+\bibcite{bertrand2025closedformflowmatchinggeneralization}{{31}{}{{}}{{}}}
+\bibcite{liu2022flowstraightfastlearning}{{32}{}{{}}{{}}}
+\bibcite{lee2024improvingrectifiedflows}{{33}{}{{}}{{}}}
+\bibcite{glynn2002some}{{34}{}{{}}{{}}}
+\bibcite{mnih2015human}{{35}{}{{}}{{}}}
+\bibcite{grill2020bootstrap}{{36}{}{{}}{{}}}
+\bibcite{frans2025stepdiffusionshortcutmodels}{{37}{}{{}}{{}}}
+\bibcite{tierney1986accurate}{{38}{}{{}}{{}}}
+\bibcite{mackay1992practical}{{39}{}{{}}{{}}}
+\bibcite{peebles2023scalablediffusion}{{40}{}{{}}{{}}}
+\@writefile{toc}{\contentsline {section}{\relax \fontsize  {14.4}{16}\selectfont  Supplementary Material}{13}{}\protected@file@percent }
+\ttl@writefile{ptc}{\ttl@starttoc{appendices@1}}
+\@writefile{toc}{\contentsline {section}{\numberline {A}Notations}{14}{}\protected@file@percent }
+\newlabel{appx: notation}{{A}{14}{}{}{}}
+\newlabel{appx: notation@cref}{{[appendix][1][2147483647]A}{[1][14][]14}}
+\@writefile{lot}{\contentsline {table}{\numberline {4}{\ignorespaces Table of Notations.}}{14}{}\protected@file@percent }
+\newlabel{tab: notation}{{4}{14}{}{}{}}
+\newlabel{tab: notation@cref}{{[table][4][2147483647]4}{[1][14][]14}}
+\@writefile{toc}{\contentsline {section}{\numberline {B}Proof of Lemma}{14}{}\protected@file@percent }
+\newlabel{appx: first}{{B}{14}{}{}{}}
+\newlabel{appx: first@cref}{{[appendix][2][2147483647]B}{[1][14][]14}}
+\@writefile{toc}{\contentsline {section}{\numberline {C}Proofs of Theorems and Propositions}{14}{}\protected@file@percent }
+\newlabel{appx: theorem-proof}{{C}{14}{}{}{}}
+\newlabel{appx: theorem-proof@cref}{{[appendix][3][2147483647]C}{[1][14][]14}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {C.1}Proof of~\Cref  {thm: jacobi-variance} (Jacobian Variance Amplification)}{14}{}\protected@file@percent }
+\newlabel{eq: per-step-grad}{{14}{15}{}{}{}}
+\newlabel{eq: per-step-grad@cref}{{[equation][14][2147483647]14}{[1][15][]15}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {C.2}Proof of~\Cref  {thm: semi-gradient-gap} (Semi-Gradient Gap)}{15}{}\protected@file@percent }
+\newlabel{eq: cond-loss-decomp}{{17}{15}{}{}{}}
+\newlabel{eq: cond-loss-decomp@cref}{{[equation][17][2147483647]17}{[1][15][]15}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {C.3}Proof of~\Cref  {thm: material-derivative-expansion} (Flow Acceleration Expansion)}{15}{}\protected@file@percent }
+\newlabel{thm: material-derivative-expansion}{{4}{15}{}{}{}}
+\newlabel{thm: material-derivative-expansion@cref}{{[theorem][4][2147483647]4}{[1][15][]15}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {C.4}Proof of~\Cref  {prop: vamf-grad} (Gradient of VaMF Loss)}{16}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {C.5}Proof of~\Cref  {prop: bias-var} (Bias-Variance Tradeoff)}{16}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {C.6}Proof of~\Cref  {prop: target-tangent-asymmetry} (Target--Tangent Bias Asymmetry)}{17}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {C.7}Proof of~\Cref  {thm: control-variate-optimum} (Optimal Control-Variate Coefficient)}{17}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {C.8}Derivation of the Trace Weight}{18}{}\protected@file@percent }
+\newlabel{appx: blue-scalar}{{C.8}{18}{}{}{}}
+\newlabel{appx: blue-scalar@cref}{{[subappendix][8][2147483647,3]C.8}{[1][18][]18}}
+\newlabel{eq: trace-weight}{{29}{18}{}{}{}}
+\newlabel{eq: trace-weight@cref}{{[equation][29][2147483647]29}{[1][18][]18}}
+\@writefile{toc}{\contentsline {paragraph}{Setup.}{18}{}\protected@file@percent }
+\newlabel{eq: blue-decomp}{{30}{18}{}{}{}}
+\newlabel{eq: blue-decomp@cref}{{[equation][30][2147483647]30}{[1][18][]18}}
+\@writefile{toc}{\contentsline {paragraph}{Heteroscedastic-noise BLUE.}{19}{}\protected@file@percent }
+\newlabel{eq: blue-classic}{{31}{19}{}{}{}}
+\newlabel{eq: blue-classic@cref}{{[equation][31][2147483647]31}{[1][18][]19}}
+\@writefile{toc}{\contentsline {paragraph}{Isotropic approximation and Tikhonov stabilization.}{19}{}\protected@file@percent }
+\newlabel{eq: iso-trace}{{32}{19}{}{}{}}
+\newlabel{eq: iso-trace@cref}{{[equation][32][2147483647]32}{[1][19][]19}}
+\newlabel{eq: blue-tikhonov}{{33}{19}{}{}{}}
+\newlabel{eq: blue-tikhonov@cref}{{[equation][33][2147483647]33}{[1][19][]19}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {C.9}Proof of~\Cref  {prop: trace-weight} (Trace-Weight Properties)}{19}{}\protected@file@percent }
+\newlabel{prop: trace-weight}{{9}{19}{}{}{}}
+\newlabel{prop: trace-weight@cref}{{[proposition][9][2147483647]9}{[1][19][]19}}
+\@writefile{toc}{\contentsline {section}{\numberline {D}Additional Results}{20}{}\protected@file@percent }
+\newlabel{appx: additional-results}{{D}{20}{}{}{}}
+\newlabel{appx: additional-results@cref}{{[appendix][4][2147483647]D}{[1][20][]20}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {D.1}Acceleration-to-Noise Ratio from the Trace Weight}{20}{}\protected@file@percent }
+\newlabel{eq: anr-trace-weight}{{37}{20}{}{}{}}
+\newlabel{eq: anr-trace-weight@cref}{{[equation][37][2147483647]37}{[1][20][]20}}
+\newlabel{prop: anr}{{10}{20}{}{}{}}
+\newlabel{prop: anr@cref}{{[proposition][10][2147483647]10}{[1][20][]20}}
+\newlabel{eq: noise-equals-delta}{{38}{20}{}{}{}}
+\newlabel{eq: noise-equals-delta@cref}{{[equation][38][2147483647]38}{[1][20][]20}}
+\newlabel{eq: rho-delta-bridge}{{39}{20}{}{}{}}
+\newlabel{eq: rho-delta-bridge@cref}{{[equation][39][2147483647]39}{[1][20][]20}}
+\citation{tierney1986accurate,mackay1992practical}
+\citation{peebles2023scalablediffusion}
+\citation{geng2025meanflowsonestepgenerative}
+\@writefile{toc}{\contentsline {paragraph}{Schedule sensitivity.}{21}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {D.2}Schedule $\sigma _{t}$ in the Trace Weight}{21}{}\protected@file@percent }
+\newlabel{appx: sigma-schedule}{{D.2}{21}{}{}{}}
+\newlabel{appx: sigma-schedule@cref}{{[subappendix][2][2147483647,4]D.2}{[1][21][]21}}
+\@writefile{toc}{\contentsline {paragraph}{Conditional-velocity variance under Laplace's approximation.}{21}{}\protected@file@percent }
+\newlabel{eq: gauss-sigma-supp}{{41}{21}{}{}{}}
+\newlabel{eq: gauss-sigma-supp@cref}{{[equation][41][2147483647]41}{[1][21][]21}}
+\@writefile{toc}{\contentsline {paragraph}{Practical schedules.}{21}{}\protected@file@percent }
+\providecommand\NAT@force@numbers{}\NAT@force@numbers
+\@writefile{toc}{\contentsline {section}{\numberline {E}DiT Latent-Space Training on ImageNet}{22}{}\protected@file@percent }
+\newlabel{appx: dit-results}{{E}{22}{}{}{}}
+\newlabel{appx: dit-results@cref}{{[appendix][5][2147483647]E}{[1][21][]22}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {E.1}DiT-B/4, ImageNet-$256\!\times \!256$}{22}{}\protected@file@percent }
+\newlabel{appx: dit-b4-256}{{E.1}{22}{}{}{}}
+\newlabel{appx: dit-b4-256@cref}{{[subappendix][1][2147483647,5]E.1}{[1][22][]22}}
+\@writefile{lot}{\contentsline {table}{\numberline {5}{\ignorespaces Matched-step training-loss comparison on the DiT-B/4 ImageNet-$256$ latent run. Each cell averages the per-step training MSE over the $30$ logged points immediately preceding the listed step. Negative deltas indicate VaMF (with EMA proxy + FM anchor + trace-weight reweighting per~\Cref  {appx: blue-scalar}) achieves a lower training loss than the baseline beyond step $\sim \!20$k, providing scale-up evidence consistent with the toy-benchmark variance reduction of~\Cref  {fig: nr-vs-beta}.}}{22}{}\protected@file@percent }
+\newlabel{tab: dit-loss}{{5}{22}{}{}{}}
+\newlabel{tab: dit-loss@cref}{{[table][5][2147483647]5}{[1][22][]22}}
+\ttl@finishall
+\gdef \@abspage@last{22}
