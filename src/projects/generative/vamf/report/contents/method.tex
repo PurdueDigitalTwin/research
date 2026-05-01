@@ -98,22 +98,22 @@ At convergence, the mean-field difference vanishes ($\vr_{\vtheta}\!\to\!\bm{0}$
 \end{figure}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-\subsection{The tangent as a control variate}
+\subsection{Bias-variance tradeoff and the tangent as a control variate}
 \label{subsec: control-variate}
 
-The amplification in~\Cref{thm: jacobi-variance} arises because the JVP tangent $\vv_{\text{cond}}\!=\!\vv\!+\!\vv'$ injects the zero-mean fluctuation $\vv'$ with coefficient $1$. This is the canonical structure of a Monte Carlo \textit{control variate}: $\vv_{\text{cond}}$ is a stochastic estimator of the inaccessible $\vv$ with known mean, and the coefficient on the noise term $\vv'$ is a free parameter that determines the bias-variance trade-off. We make this explicit by introducing a tangent-mixing coefficient $\beta\!\in\![0,1]$:
+The amplification in~\Cref{thm: jacobi-variance} arises because the JVP tangent $\vv_{\text{cond}}\!=\!\vv\!+\!\vv'$ injects the zero-mean fluctuation $\vv'$. This corresponds to the canonical structure of a Monte Carlo \textit{control variate}, where $\vv_{\text{cond}}$ is a stochastic estimator of the inaccessible $\vv$ with known mean, and the coefficient on the noise term $\vv'$ can be a free parameter that determines the bias-variance trade-off. We make this explicit by introducing a tangent-mixing coefficient $\beta\!\in\![0,1]$:
 \begin{equation}
     \tilde{\vv}_{\text{tang}}(\beta)\;\triangleq\;(1-\beta)\,\vv_{\text{cond}} + \beta\,\hat{\vv}\;=\;\vv + (1-\beta)\,\vv' + \beta\,\vb,
     \label{eq: tangent-mix}
 \end{equation}
-where $\hat{\vv}$ is any deterministic proxy for the marginal velocity (e.g., an EMA-derived estimate) with bias $\vb\!\triangleq\!\hat{\vv}-\vv$ that is deterministic given $\vx_{t}$. $\beta\!=\!0$ recovers vanilla MeanFlow; $\beta\!=\!1$ replaces the tangent entirely with the deterministic proxy.
+where $\hat{\vv}$ can be any deterministic proxy for the marginal velocity (\textit{e.g., an EMA-derived estimate}) with bias $\vb\!\triangleq\!\hat{\vv}-\vv$ that is deterministic given $\vx_{t}$. Herein, $\beta\!=\!0$ recovers vanilla MeanFlow and $\beta\!=\!1$ replaces the tangent entirely with the deterministic proxy.
 
-\paragraph{Bias and variance.} Substituting $\tilde{\vv}_{\text{tang}}(\beta)$ for $\vv_{\text{cond}}$ in the JVP tangent and propagating through the loss, the per-sample gradient becomes
+\paragraph{Bias and variance.} Substituting $\tilde{\vv}_{\text{tang}}(\beta)$ for $\vv_{\text{cond}}$ in the JVP tangent and propagating through the loss, the per-sample gradient writes
 \begin{equation}
-    \boldsymbol{g}^{(\beta)} \;=\; 2\,\boldsymbol{g}^{\!\top}\!\Bigl[\bar{\vr} \;+\; \bigl((1{-}\beta)\,\mJ - \beta\,\mI\bigr)\,\vv' \;+\; \beta\,(\mJ{+}\mI)\,\vb\Bigr],
+    \boldsymbol{g}^{(\beta)} \;=\; 2\,\boldsymbol{g}^{\!\top}\!\Bigl[\vr_{\vtheta} \;+\; \bigl((1{-}\beta)\,\mJ - \beta\,\mI\bigr)\,\vv' \;+\; \beta\,(\mJ{+}\mI)\,\vb\Bigr],
     \label{eq: g-beta}
 \end{equation}
-where $\bar{\vr}$ is the deterministic mean-field residual, the noise term scales the conditional fluctuation $\vv'$ by the matrix $((1{-}\beta)\,\mJ - \beta\,\mI)$, and the bias term scales the proxy error $\vb$ by $\beta\,(\mJ{+}\mI)$.
+where $\vr_{\vtheta}$ is the deterministic mean-field residual, the noise term scales the conditional fluctuation $\vv'$ by the matrix $((1{-}\beta)\,\mJ - \beta\,\mI)$, and the bias term scales the proxy error $\vb$ by $\beta\,(\mJ{+}\mI)$.
 
 \begin{theorem}[Optimal control-variate coefficient]
     Under the scalar-isotropic approximation $\Sigma_{\vv'}\!\approx\!\sigma^{2}\mI_{d}$ and $\mJ\!\approx\!\kappa\mI_{d}$, the conditional MSE of $\boldsymbol{g}^{(\beta)}$ is $M(\beta) = \beta^{2}(\kappa{+}1)^{2}\|\vb\|^{2} + \sigma^{2}d\bigl((1{-}\beta)\kappa - \beta\bigr)^{2}$ and admits a unique minimizer
