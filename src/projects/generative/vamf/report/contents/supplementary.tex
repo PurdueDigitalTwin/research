@@ -216,6 +216,40 @@
         At convergence, the true residual $\vr_{\vtheta}\to\bm{0}$ (the MeanFlow identity is satisfied) and the FM anchor loss~\eqref{eq: fm-anchor} supervises the boundary condition, driving $\vu_{\bar{\vtheta}}(\vx_{t},t,t)\to\vv(\vx_{t},t)$ and hence $\tilde{\vr}^{\text{EMA}}\to\bm{0}$.
     \end{proof}
 
+    \subsection{Proof of~\Cref{prop: target-tangent-asymmetry} (Target--Tangent Bias Asymmetry)}
+
+    \begin{proposition}[Target--Tangent Bias Asymmetry]
+        Let $\hat{\vv}\!=\!\vu_{\bar{\vtheta}}(\vx_{t},t,t)$ be a deterministic proxy with bias $\vb\!\triangleq\!\hat{\vv}-\vv(\vx_{t},t)$. For the tangent-replacement loss (VaMF), the loss minimum $\vu^{\star}$ satisfies $\vu^{\star}(\vx_{t},r,t)-\vv(\vx_{t},t)\!=\!-(t{-}r)\,\partial_{\vz}\vu^{\star}\,\vb+\gO(\|\vb\|^{2})$. For the target-replacement loss, the loss minimum at $r\!=\!t$ satisfies $\vu^{\star}(\vx_{t},t,t)-\vv(\vx_{t},t)\!=\!\vb$.
+    \end{proposition}
+
+    \begin{proof}
+        \textbf{Tangent replacement.} Substituting $\hat{\vv}$ for $\vv_{\text{cond}}$ only in the JVP tangent (target unchanged) gives the per-sample compound prediction
+        \begin{equation*}
+            V_{\vtheta}^{\text{EMA}}=\vu_{\vtheta}+(t-r)\!\left(\partial_{\vz}\vu_{\vtheta}\cdot\hat{\vv}+\partial_{t}\vu_{\vtheta}\right),
+        \end{equation*}
+        and the loss is $\E\|V_{\vtheta}^{\text{EMA}}-\vv_{\text{cond}}\|^{2}$. By stationarity, $\E[V_{\vtheta}^{\text{EMA}}\!-\!\vv_{\text{cond}}\mid\vx_{t}]\!=\!\bm{0}$ at the minimum. Taking conditional expectation and using $\E[\vv_{\text{cond}}\mid\vx_{t}]\!=\!\vv(\vx_{t},t)$,
+        \begin{equation*}
+            \vu^{\star}+(t-r)\!\left(\partial_{\vz}\vu^{\star}\cdot\hat{\vv}+\partial_{t}\vu^{\star}\right)=\vv(\vx_{t},t).
+        \end{equation*}
+        At the same point, the \emph{true} MeanFlow identity (with the marginal velocity as tangent) reads
+        \begin{equation*}
+            \vu^{\diamond}+(t-r)\!\left(\partial_{\vz}\vu^{\diamond}\cdot\vv+\partial_{t}\vu^{\diamond}\right)=\vv(\vx_{t},t),
+        \end{equation*}
+        with $\vu^{\diamond}(\vx_{t},t,t)=\vv(\vx_{t},t)$. Subtracting and writing $\vu^{\star}=\vu^{\diamond}+\Delta$,
+        \begin{equation*}
+            \Delta+(t-r)\,\partial_{\vz}\vu^{\star}\,(\hat{\vv}-\vv)+(t-r)\,\partial_{t}\Delta+(t-r)\,(\partial_{\vz}\Delta)\,\vv=\bm{0}.
+        \end{equation*}
+        Evaluating at $r\!=\!t$ gives $\Delta(\vx_{t},t,t)\!=\!\bm{0}$ (boundary condition recovered exactly). For $r\!<\!t$, the leading term in $\vb\!=\!\hat{\vv}-\vv$ gives
+        \begin{equation*}
+            \Delta(\vx_{t},r,t)=-(t-r)\,\partial_{\vz}\vu^{\star}\,\vb+\gO(\|\vb\|^{2}),
+        \end{equation*}
+        i.e., the stationary error is $\gO((t-r)\,\|\partial_{\vz}\vu\|\,\|\vb\|)$ and vanishes at the boundary $r\!\to\!t$.
+        \\[2pt]
+        \textbf{Target replacement.} Substituting $\hat{\vv}$ for $\vv_{\text{cond}}$ in the regression target yields the loss $\E\|\vu_{\vtheta}+(t-r)\,\mathrm{D}\vu/\mathrm{D}t-\hat{\vv}\|^{2}$. By stationarity, the loss minimum satisfies $\E[\vu^{\star}+(t-r)\,\mathrm{D}\vu^{\star}/\mathrm{D}t-\hat{\vv}\mid\vx_{t}]\!=\!\bm{0}$. Specializing to $r\!=\!t$, the gap term vanishes and the equation collapses to $\vu^{\star}(\vx_{t},t,t)\!=\!\hat{\vv}\!=\!\vv(\vx_{t},t)+\vb$, so the stationary error at the boundary is exactly $\vb$, independent of $(t,r)$.
+        \\[2pt]
+        \textbf{Asymmetry.} Tangent replacement carries a multiplicative $(t-r)$ factor on the bias and is therefore pinned to zero at the boundary $r\!=\!t$ that the FM anchor enforces; target replacement carries no such factor and the bias persists at every $t$, requiring a boundary regularizer at \emph{every} $(r,t)$ to remove.
+    \end{proof}
+
     \subsection{Proof of~\Cref{thm: control-variate-optimum} (Optimal Control-Variate Coefficient)}
 
     \begin{theorem}[Optimal control-variate coefficient]
