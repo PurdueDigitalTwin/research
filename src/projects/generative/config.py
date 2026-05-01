@@ -449,6 +449,32 @@ def vamf_l2_dit_imagenet_256_latent() -> _config.ExperimentConfig:
     return config
 
 
+def vamf_l2_aw1_dit_imagenet_256_latent() -> _config.ExperimentConfig:
+    r"""VaMF-L2 DiT-B/4 on ImageNet 256x256, with Karras adaptive weighting.
+
+    Identical to ``vamf_l2_dit_imagenet_256_latent`` except
+    ``adaptive_weight_power=1.0`` (matching the baseline). Isolates the
+    effect of the deterministic-tangent / EMA-tangent / FM-anchor stack
+    from the effect of disabling adaptive loss weighting. Pairs with
+    the standard VaMF-L2 config to form a 3-way ablation:
+
+      - ``meanflow_dit_imagenet_256_latent``: baseline (stochastic
+        tangent, adaptive_weight=1.0).
+      - ``vamf_l2_dit_imagenet_256_latent``: VaMF-L2 (deterministic
+        tangent, adaptive_weight=0.0).
+      - ``vamf_l2_aw1_dit_imagenet_256_latent``: VaMF-L2 + matched
+        adaptive weighting (deterministic tangent, adaptive_weight=1.0).
+
+    If the FID gap (baseline vs VaMF-L2) shrinks in this config, the
+    gap was driven by the missing adaptive weighting; if it persists,
+    the gap is genuinely from the deterministic tangent (β=1 corner).
+    """
+    config = vamf_l2_dit_imagenet_256_latent()
+    config.exp_name = "vamf_l2_aw1_dit_b4_imagenet_256_latent"
+    config.model.adaptive_weight_power = 1.0
+    return config
+
+
 def meanflow_dit_afhqv2_256_pixel() -> _config.ExperimentConfig:
     r"""MeanFlow DiT-B/4 on AFHQv2 256x256 pixel space (online VAE).
 
