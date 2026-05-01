@@ -449,6 +449,82 @@ def vamf_l2_dit_imagenet_256_latent() -> _config.ExperimentConfig:
     return config
 
 
+def meanflow_dit_afhqv2_256_pixel() -> _config.ExperimentConfig:
+    r"""MeanFlow DiT-B/4 on AFHQv2 256x256 pixel space (online VAE).
+
+    Smaller-scale converged-FID companion to the ImageNet-256 latent
+    runs. AFHQv2 has ~15k training images across 3 classes (cat, dog,
+    wild) — small enough that we can encode online via the SD VAE
+    inside ``MeanFlowDiTModel.training_step`` without precomputing
+    latents. Same DiT-B/4 backbone, same hyperparameters, just a
+    different dataset and ``num_classes=3`` (plus null token).
+
+    Total samples per epoch: ~15k / batch_size=64 ≈ 234 steps. We
+    target 200 epochs ≈ 47k steps, with FID checkpoint cadence
+    matching the ImageNet config scaled down 6x.
+    """
+    config = meanflow_dit_imagenet_256_latent()
+    config.exp_name = "dit_b4_afhqv2_256_pixel"
+    # Swap data: pixel-space AFHQv2 (online VAE in training_step).
+    config.data = _config.DataConfig(
+        module=fdl.Partial(
+            huggingface.AFHQv2DataModule,
+            image_size=256,
+            shuffle_buffer_size=10_000,
+        ),
+        batch_size=64,
+        num_workers=4,
+        deterministic=True,
+        drop_remainder=True,
+    )
+    # AFHQv2 has 3 classes (cat / dog / wild).
+    config.model.num_classes = 3
+    # Reduced training horizon for the smaller dataset.
+    config.trainer.num_train_steps = 50_000
+    config.trainer.checkpoint_every_n_steps = 2_500
+    config.trainer.eval_every_n_steps = 2_500
+    # FID over AFHQv2 train split (no canonical eval set here; we use
+    # a freshly precomputed reference cache).
+    config.metric = fdl.Config(
+        fid.FrechetInceptionDistance,
+        dataset=functools.partial(
+            datasets.load_dataset,
+            path="huggan/AFHQv2",
+            token=os.getenv("HF_TOKEN", None),
+            revision="f638548a7eccf134045249ed2ac708505bac6e2e",
+            split="train",
+            streaming=True,
+        ),
+        image_key="image",
+        batch_size=32,
+        ref_cache_path=os.getenv(
+            "FID_REF_CACHE_AFHQV2",
+            "gs://pdt_training/juanwu/cache/afhqv2-fid-ref-stats.npz",
+        ),
+    )
+    return config
+
+
+def vamf_l2_dit_afhqv2_256_pixel() -> _config.ExperimentConfig:
+    r"""VaMF-L2 DiT-B/4 on AFHQv2 256x256 pixel space.
+
+    Pairs with ``meanflow_dit_afhqv2_256_pixel`` for the AFHQ
+    converged-FID comparison (Option H in the overnight plan).
+    Same VaMF-L2 deltas as ``vamf_l2_dit_imagenet_256_latent``:
+    EMA tangent + FM anchor, no trace weight, no adaptive
+    weighting.
+    """
+    config = meanflow_dit_afhqv2_256_pixel()
+    config.exp_name = "vamf_l2_dit_b4_afhqv2_256_pixel"
+    config.model.adaptive_weight_power = 0.0
+    config.model.use_trace_weight = False
+    config.model.ema_tangent = True
+    config.model.fm_anchor_weight = 0.1
+    config.model.fm_anchor_delta_min = 0.0
+    config.model.fm_anchor_delta_max = 1e-3
+    return config
+
+
 def improved_meanflow_unet_cifar_10() -> _config.ExperimentConfig:
     r"""Improved MeanFlow (iMF) with U-Net on CIFAR-10."""
     return _config.ExperimentConfig(

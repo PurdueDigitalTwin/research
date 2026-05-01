@@ -773,6 +773,107 @@ class ImageNet1KDataModule(HuggingFaceImageDataModule):
         return {"image": np.uint8, "label": np.int32}
 
 
+class AFHQv2DataModule(HuggingFaceImageDataModule):
+    r"""Animal Faces-HQ v2 (cat / dog / wild), :math:`512 \\times 512`.
+
+    Wraps ``huggan/AFHQv2`` with a server-side resize transform to the
+    target resolution (default :math:`256 \\times 256` to match the SD
+    VAE encoder used by ``MeanFlowDiTModel``). The HF dataset only
+    publishes a single ``train`` split (~15k images); we synthesize a
+    test split with a deterministic 95/5 hold-out so the base class's
+    train/test split assumptions are satisfied.
+
+    Yields ``{image: uint8 [H, W, 3], label: int32}`` with classes
+    ``{0: cat, 1: dog, 2: wild}``.
+
+    Args:
+        batch_size (int): The batch size for data loading.
+        image_size (int, optional): Resize edge in pixels.
+            Default is ``256``.
+        deterministic (bool, optional): Whether the dataloaders are
+            deterministic. Defaults to ``True``.
+        drop_remainder (bool, optional): Whether to drop the last
+            incomplete batch. Defaults to ``True``.
+        num_workers (int, optional): Number of shards for distributed
+            loading. Defaults to ``4``.
+        shuffle_buffer_size (int, optional): Buffer size for shuffling.
+            Defaults to ``10_000``.
+        test_fraction (float, optional): Fraction of the single train
+            split to hold out as test. Defaults to ``0.05``.
+        transform (Optional[Callable], optional): Extra per-sample
+            transform. Defaults to ``None``.
+        use_cache (bool, optional): Whether to use cached dataset.
+            Defaults to ``False``.
+        rng (jax.Array, optional): Random key for shuffling.
+            Defaults to ``random.PRNGKey(42)``.
+    """
+
+    def __init__(
+        self,
+        batch_size: int,
+        image_size: int = 256,
+        deterministic: bool = True,
+        drop_remainder: bool = True,
+        num_workers: int = 4,
+        shuffle_buffer_size: int = 10_000,
+        test_fraction: float = 0.05,
+        transform: typing.Optional[typing.Callable] = None,
+        use_cache: bool = False,
+        rng: jax.Array = random.PRNGKey(42),
+    ) -> None:
+        full_train = datasets.load_dataset(
+            path="huggan/AFHQv2",
+            split="train",
+            token=os.getenv("HF_TOKEN", None),
+            revision="f638548a7eccf134045249ed2ac708505bac6e2e",
+        )
+
+        def _resize_to(example):
+            example["image"] = (
+                example["image"]
+                .convert("RGB")
+                .resize((image_size, image_size))
+            )
+            return example
+
+        full_train = full_train.map(_resize_to, desc="resize-AFHQv2")
+        split = full_train.train_test_split(
+            test_size=test_fraction, seed=int(rng[0])
+        )
+        self._hf_dataset = datasets.DatasetDict(
+            {"train": split["train"], "test": split["test"]}
+        )
+        super().__init__(
+            batch_size=batch_size,
+            deterministic=deterministic,
+            drop_remainder=drop_remainder,
+            num_workers=num_workers,
+            shuffle_buffer_size=shuffle_buffer_size,
+            transform=transform,
+            use_cache=use_cache,
+            rng=rng,
+        )
+
+    @property
+    def hf_dataset(self) -> datasets.DatasetDict:
+        r"""datasets.DatasetDict: The HuggingFace dataset object."""
+        return self._hf_dataset
+
+    @property
+    def feature_keys(self) -> typing.List[str]:
+        return ["image", "label"]
+
+    @property
+    def feature_types(self) -> typing.Dict[str, typing.Any]:
+        return {"image": np.uint8, "label": np.int32}
+
+    @property
+    @typing_extensions.override
+    def num_val_examples(self) -> int:
+        r"""int: Number of validation examples."""
+        return len(self.hf_dataset["test"])  # type: ignore
+
+
 class ImageNetLatentDataModule(datamodule.DataModule):
     r"""ImageNet pre-encoded VAE latents from numpy shards.
 
