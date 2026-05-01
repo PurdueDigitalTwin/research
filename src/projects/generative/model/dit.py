@@ -401,6 +401,7 @@ class _DiTBlock(nn.Module):
         self.attn = Attention(
             features=self.features,
             num_heads=self.num_heads,
+            qkv_bias=True,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
             precision=self.precision,
@@ -441,6 +442,8 @@ class _DiTBlock(nn.Module):
             self.adaln_modulation = nn.Dense(
                 features=6 * self.features,
                 use_bias=True,
+                kernel_init=nn.initializers.zeros,
+                bias_init=nn.initializers.zeros,
                 dtype=self.dtype,
                 param_dtype=self.param_dtype,
                 name="adaln_modulation",
