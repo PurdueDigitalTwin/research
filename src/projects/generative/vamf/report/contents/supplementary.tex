@@ -216,6 +216,45 @@
         At convergence, the true residual $\vr_{\vtheta}\to\bm{0}$ (the MeanFlow identity is satisfied) and the FM anchor loss~\eqref{eq: fm-anchor} supervises the boundary condition, driving $\vu_{\bar{\vtheta}}(\vx_{t},t,t)\to\vv(\vx_{t},t)$ and hence $\tilde{\vr}^{\text{EMA}}\to\bm{0}$.
     \end{proof}
 
+    \subsection{Proof of~\Cref{thm: control-variate-optimum} (Optimal Control-Variate Coefficient)}
+
+    \begin{theorem}[Optimal control-variate coefficient]
+        Under the scalar-isotropic approximation $\Sigma_{\vv'}\!\approx\!\sigma^{2}\mI_{d}$ and $\mJ\!\approx\!\kappa\mI_{d}$, the conditional MSE of $\boldsymbol{g}^{(\beta)}$ in~\eqref{eq: g-beta} is
+        \begin{equation*}
+            M(\beta) \;=\; \beta^{2}(\kappa{+}1)^{2}\|\vb\|^{2} \;+\; \sigma^{2}d\bigl((1{-}\beta)\kappa - \beta\bigr)^{2},
+        \end{equation*}
+        with unique minimizer $\beta^{\star}\!=\!\frac{\kappa}{\kappa+1}\!\cdot\!\frac{\sigma^{2}d}{\sigma^{2}d+\|\vb\|^{2}}$ and optimum value $M(\beta^{\star})\!=\!\sigma^{2}d\,\kappa^{2}\,\|\vb\|^{2}/(\sigma^{2}d+\|\vb\|^{2})$. For all $\kappa,\|\vb\|^{2}\!>\!0$, the optimum strictly dominates both $M(0)\!=\!\sigma^{2}\kappa^{2}d$ and $M(1)\!=\!(\kappa{+}1)^{2}\|\vb\|^{2}+\sigma^{2}d$.
+    \end{theorem}
+
+    \begin{proof}
+        \textbf{Step 1: bias-variance decomposition.} From~\eqref{eq: g-beta},
+        \begin{equation*}
+            \boldsymbol{g}^{(\beta)} \;=\; 2\,\boldsymbol{g}^{\!\top}\!\Bigl[\bar{\vr} \;+\; \bigl((1{-}\beta)\,\mJ - \beta\,\mI\bigr)\,\vv' \;+\; \beta\,(\mJ{+}\mI)\,\vb\Bigr].
+        \end{equation*}
+        Using $\E_{\vx_{0}\mid\vx_{t}}[\vv']\!=\!\bm{0}$, the conditional mean is $\E[\boldsymbol{g}^{(\beta)}\mid\vx_{t}]\!=\!2\boldsymbol{g}^{\!\top}(\bar{\vr}+\beta(\mJ{+}\mI)\vb)$ and the centered noise is $-2\boldsymbol{g}^{\!\top}\bigl((1{-}\beta)\mJ-\beta\mI\bigr)\vv'$ (relative to the ideal target $2\boldsymbol{g}^{\!\top}\bar{\vr}$). The conditional MSE w.r.t.\ the ideal target therefore decomposes as
+        \begin{equation*}
+            \mathrm{MSE} \;=\; \underbrace{4\beta^{2}\,\bigl\|\boldsymbol{g}^{\!\top}(\mJ{+}\mI)\vb\bigr\|^{2}}_{\text{bias}^{2}} \;+\; \underbrace{4\,\Tr\!\Bigl(\boldsymbol{g}\boldsymbol{g}^{\!\top}\bigl((1{-}\beta)\mJ-\beta\mI\bigr)\Sigma_{\vv'}\bigl((1{-}\beta)\mJ-\beta\mI\bigr)^{\!\top}\Bigr)}_{\text{variance}}.
+        \end{equation*}
+        \textbf{Step 2: scalar approximation.} Substituting $\mJ\!=\!\kappa\mI_{d}$ and $\Sigma_{\vv'}\!=\!\sigma^{2}\mI_{d}$, and absorbing the parameter-direction normalization $\Tr(\boldsymbol{g}\boldsymbol{g}^{\!\top})\!=\!\|\boldsymbol{g}\|^{2}_{F}$ into a per-component MSE,
+        \begin{equation*}
+            M(\beta) \;\propto\; \beta^{2}(\kappa{+}1)^{2}\|\vb\|^{2} \;+\; \sigma^{2}d\bigl((1{-}\beta)\kappa - \beta\bigr)^{2}.
+        \end{equation*}
+        \textbf{Step 3: minimization.} Differentiating and setting to zero,
+        \begin{align*}
+            \frac{\partial M}{\partial \beta} \;=\;& 2\beta(\kappa{+}1)^{2}\|\vb\|^{2} - 2(\kappa{+}1)\sigma^{2}d\bigl((1{-}\beta)\kappa-\beta\bigr) \;=\; 0\\
+            \Longleftrightarrow\quad& \beta(\kappa{+}1)\bigl(\sigma^{2}d+\|\vb\|^{2}\bigr) \;=\; \sigma^{2}d\,\kappa.
+        \end{align*}
+        Solving yields $\beta^{\star}\!=\!\sigma^{2}d\,\kappa/[(\kappa{+}1)(\sigma^{2}d+\|\vb\|^{2})]$, which factors as the noise-cancellation $\kappa/(\kappa{+}1)$ times the James-Stein shrinkage $\sigma^{2}d/(\sigma^{2}d+\|\vb\|^{2})$.
+
+        \textbf{Step 4: optimum value.} At $\beta^{\star}$, $(1{-}\beta^{\star})\kappa - \beta^{\star} = \kappa\,\|\vb\|^{2}/(\sigma^{2}d+\|\vb\|^{2})$. Substituting back,
+        \begin{equation*}
+            M(\beta^{\star}) \;=\; \frac{\sigma^{4}d^{2}\kappa^{2}\|\vb\|^{2}+\sigma^{2}d\,\kappa^{2}\|\vb\|^{4}}{(\sigma^{2}d+\|\vb\|^{2})^{2}} \;=\; \frac{\sigma^{2}d\,\kappa^{2}\,\|\vb\|^{2}}{\sigma^{2}d+\|\vb\|^{2}}.
+        \end{equation*}
+        \textbf{Step 5: strict dominance over corners.} For $\kappa,\|\vb\|^{2}\!>\!0$:
+        $M(\beta^{\star})/M(0) \!=\! \|\vb\|^{2}/(\sigma^{2}d+\|\vb\|^{2}) \!<\! 1$, so $M(\beta^{\star})\!<\!M(0)$.
+        For the $M(1)$ comparison, $M(1)\!-\!M(\beta^{\star})\!=\!(\kappa{+}1)^{2}\|\vb\|^{2}+\sigma^{2}d-\sigma^{2}d\kappa^{2}\|\vb\|^{2}/(\sigma^{2}d+\|\vb\|^{2})$. The first two terms exceed $\sigma^{2}d\kappa^{2}\|\vb\|^{2}/(\sigma^{2}d+\|\vb\|^{2})$ since $(\kappa{+}1)^{2}\!>\!\kappa^{2}$ for $\kappa\!>\!0$.
+    \end{proof}
+
     \subsection{Derivation of the Trace Weight}
     \label{appx: blue-scalar}
 
@@ -304,7 +343,7 @@
 
     \subsection{Acceleration-to-Noise Ratio from the Trace Weight}
 
-    The trace weight in~\cref{prop: trace-weight} reweights samples by an empirical proxy for the squared acceleration-to-noise ratio of the curvature-variance principle. The connection becomes precise when the schedule $\sigma_{t}$ is chosen consistently with the actual conditional-velocity covariance.
+    For completeness we record an alternative interpretation of the trace weight in~\cref{prop: trace-weight} as an empirical proxy for the squared \textit{acceleration-to-noise ratio}. This characterization predates the control-variate framing of~\Cref{thm: control-variate-optimum} but remains a useful sanity check in the small-curvature-gap regime; the connection becomes precise when the schedule $\sigma_{t}$ is chosen consistently with the actual conditional-velocity covariance.
 
     \begin{proposition}[ANR from the Trace Weight]
         Let $\rho(\vx_{t},r,t)\!:=\!\sigma_{t}^{2}\,\Tr(\mJ\mJ^{\!\top})/d$ denote the curvature term in the denominator of~\eqref{eq: trace-weight}, and assume the schedule satisfies $\sigma_{t}^{2}\!=\!\Tr(\Sigma_{\vv'})/d$ (the moment-matched isotropic approximation, achieved exactly by the \textsc{blue-gauss} schedule of~\Cref{appx: sigma-schedule} under Laplace's approximation of $\pdata$). Then near convergence,
@@ -382,7 +421,7 @@
     \label[appendix]{appx: dit-results}
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-    We test whether the curvature-variance principle scales beyond toys by training DiT~\cite{peebles2023scalablediffusion} variants on ImageNet in the latent space of a frozen Stable Diffusion VAE, following the recipe of~\cite{geng2025meanflowsonestepgenerative}. Both baselines and VaMF runs share identical hyperparameters and code paths; only the loss differs (vanilla MeanFlow MSE versus the trace-weighted MSE in~\eqref{eq: vamf-obj} with $\sigma_t\!=\!1$, the toy-sweep winner of~the toy schedule sweep (\Cref{appx: sigma-schedule}), and a single Hutchinson probe).
+    We test whether the variance-reduction mechanism of~\Cref{thm: jacobi-variance,thm: control-variate-optimum} scales beyond toys by training DiT~\cite{peebles2023scalablediffusion} variants on ImageNet in the latent space of a frozen Stable Diffusion VAE, following the recipe of~\cite{geng2025meanflowsonestepgenerative}. Both baselines and VaMF runs share identical hyperparameters and code paths; only the loss differs (vanilla MeanFlow MSE versus the trace-weighted MSE in~\eqref{eq: vamf-obj} with $\sigma_t\!=\!1$, the toy-sweep winner of~the toy schedule sweep (\Cref{appx: sigma-schedule}), and a single Hutchinson probe).
 
     \subsection{DiT-B/4, ImageNet-$256\!\times\!256$}
     \label{appx: dit-b4-256}
@@ -391,7 +430,7 @@
 
     \begin{table}[!ht]
         \centering
-        \caption{Matched-step training-loss comparison on the DiT-B/4 ImageNet-$256$ latent run. Each cell averages the per-step training MSE over the $30$ logged points immediately preceding the listed step. Negative deltas indicate VaMF-TW is lower; the trace weight provides a small but consistent improvement once it becomes load-bearing past step $\sim\!20$k.}
+        \caption{Matched-step training-loss comparison on the DiT-B/4 ImageNet-$256$ latent run. Each cell averages the per-step training MSE over the $30$ logged points immediately preceding the listed step. Negative deltas indicate VaMF (with EMA proxy + FM anchor + trace-weight reweighting per~\Cref{appx: blue-scalar}) achieves a lower training loss than the baseline beyond step $\sim\!20$k, providing scale-up evidence consistent with the toy-benchmark variance reduction of~\Cref{fig: nr-vs-beta}.}
         \label{tab: dit-loss}
         \begin{tabular}{rrrr}
             \toprule

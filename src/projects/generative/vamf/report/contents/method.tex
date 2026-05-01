@@ -117,13 +117,13 @@ where $\hat{\vv}$ is any deterministic proxy for the marginal velocity (e.g., an
 where $\bar{\vr}$ is the deterministic mean-field residual, the noise term scales the conditional fluctuation $\vv'$ by the matrix $((1{-}\beta)\,\mJ - \beta\,\mI)$, and the bias term scales the proxy error $\vb$ by $\beta\,(\mJ{+}\mI)$.
 
 \begin{theorem}[Optimal control-variate coefficient]
-    Under the scalar-isotropic approximation $\Sigma_{\vv'}\!\approx\!\sigma^{2}\mI_{d}$ and $\mJ\!\approx\!\kappa\mI_{d}$, the conditional MSE of $\boldsymbol{g}^{(\beta)}$ admits a unique minimizer
+    Under the scalar-isotropic approximation $\Sigma_{\vv'}\!\approx\!\sigma^{2}\mI_{d}$ and $\mJ\!\approx\!\kappa\mI_{d}$, the conditional MSE of $\boldsymbol{g}^{(\beta)}$ is $M(\beta) = \beta^{2}(\kappa{+}1)^{2}\|\vb\|^{2} + \sigma^{2}d\bigl((1{-}\beta)\kappa - \beta\bigr)^{2}$ and admits a unique minimizer
     \begin{equation*}
         \boxed{
             \beta^{\star} \;=\; \underbrace{\frac{\kappa}{\kappa+1}}_{\text{noise-cancellation}}\;\cdot\;\underbrace{\frac{\sigma^{2}d}{\sigma^{2}d + \|\vb\|^{2}}}_{\text{shrinkage}},
         }
     \end{equation*}
-    with optimum value $M(\beta^{\star})\!=\!\sigma^{2}d\,\|\vb\|^{2}/(\sigma^{2}d+\|\vb\|^{2})$, the harmonic mean of the corner MSEs $M(0)\!=\!\sigma^{2}\,\|\mJ\|^{2}$ and $M(1)\!=\!\sigma^{2}d+\|(\mJ{+}\mI)\vb\|^{2}$.
+    with optimum value $M(\beta^{\star})\!=\!\sigma^{2}d\,\kappa^{2}\,\|\vb\|^{2}/(\sigma^{2}d+\|\vb\|^{2})$. For all $\kappa,\|\vb\|^{2}\!>\!0$, $M(\beta^{\star})$ strictly dominates both corner MSEs $M(0)\!=\!\sigma^{2}\kappa^{2}d$ (vanilla MeanFlow) and $M(1)\!=\!(\kappa{+}1)^{2}\|\vb\|^{2}+\sigma^{2}d$ (deterministic-tangent estimator with bias).
     \label[theorem]{thm: control-variate-optimum}
 \end{theorem}
 
