@@ -51,6 +51,8 @@ DATASETS = [
     "eight_gaussians",
     "two_moons",
     "swiss_roll",
+    "two_spirals",
+    "pinwheel",
 ]
 METHODS = ["meanflow", "vamf_l2", "vamf_tw"]
 
@@ -59,6 +61,8 @@ DATASET_LABELS = {
     "eight_gaussians": "8-Gaussians",
     "two_moons": "Two Moons",
     "swiss_roll": "Swiss Roll",
+    "two_spirals": "Two Spirals",
+    "pinwheel": "Pinwheel",
 }
 METHOD_LABELS = {
     "meanflow": "MeanFlow",
