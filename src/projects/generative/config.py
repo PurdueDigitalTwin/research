@@ -449,6 +449,27 @@ def vamf_l2_dit_imagenet_256_latent() -> _config.ExperimentConfig:
     return config
 
 
+def vamf_beta05_dit_imagenet_256_latent() -> _config.ExperimentConfig:
+    r"""DiT-B/4 ImageNet-256 latent at the interior tangent-mixing point β=0.5.
+
+    Identical to ``meanflow_dit_imagenet_256_latent`` (the baseline)
+    except ``tangent_beta=0.5`` — the JVP tangent is the average of
+    the vanilla MeanFlow CFG-mixed velocity (computed under
+    stop-gradient of the current params) and the VaMF-L2 EMA-derived
+    velocity. Together with the baseline (β=0) and VaMF-L2 (β=1)
+    runs, this provides the third datapoint needed to validate
+    Theorem 3's interior-optimum prediction at DiT scale.
+
+    All other hyperparameters (adaptive_weight_power=1.0, no FM
+    anchor, etc.) match the baseline so this run isolates the effect
+    of β alone.
+    """
+    config = meanflow_dit_imagenet_256_latent()
+    config.exp_name = "vamf_beta05_dit_b4_imagenet_256_latent"
+    config.model.tangent_beta = 0.5
+    return config
+
+
 def vamf_l2_aw1_dit_imagenet_256_latent() -> _config.ExperimentConfig:
     r"""VaMF-L2 DiT-B/4 on ImageNet 256x256, with Karras adaptive weighting.
 

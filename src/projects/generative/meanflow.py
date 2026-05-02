@@ -971,6 +971,18 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
         # level per Theorem 1; combine with fm_anchor for asymptotic
         # bias control per Theorem 2.
         ema_tangent: bool = False,
+        # JVP-tangent mixing coefficient beta in [0, 1]. The tangent
+        # used inside the JVP becomes
+        #   v_tang(beta) = (1 - beta) * v_g_current + beta * v_g_ema
+        # where v_g_current uses ``stop_gradient(params)`` and v_g_ema
+        # uses ``state.ema_params``. beta = 0 recovers vanilla MeanFlow;
+        # beta = 1 recovers VaMF-L2 / the deterministic-tangent corner.
+        # 0 < beta < 1 realizes the interior of the control-variate
+        # trade-off (Theorem 3 of the paper). Backward compatibility:
+        # when ``ema_tangent=True`` is set, this is forced to 1.0
+        # regardless of the value passed; when both are at defaults
+        # (False / 0.0), behavior is identical to vanilla MeanFlow.
+        tangent_beta: float = 0.0,
         # Flow-matching anchor: auxiliary regression of u_theta(z, r,
         # t) against v_cond at small (t - r) interval. Drives the EMA
         # boundary tangent toward the true marginal velocity, removing
@@ -1006,6 +1018,13 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
         self.tw_sigma_schedule = tw_sigma_schedule
         self.tw_sigma_constant = tw_sigma_constant
         self.ema_tangent = ema_tangent
+        # Resolve the effective tangent-mixing beta: ema_tangent=True is
+        # equivalent to tangent_beta=1.0 (back-compat).
+        self.tangent_beta = 1.0 if ema_tangent else float(tangent_beta)
+        if not 0.0 <= self.tangent_beta <= 1.0:
+            raise ValueError(
+                f"tangent_beta must be in [0, 1], got {self.tangent_beta}"
+            )
         self.fm_anchor_weight = fm_anchor_weight
         self.fm_anchor_delta_min = fm_anchor_delta_min
         self.fm_anchor_delta_max = fm_anchor_delta_max
@@ -1201,14 +1220,16 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
         # Ground truth velocity (used in CFG formula + dropout)
         v = e - x
 
-        # VaMF-L2: use the EMA parameters for the JVP tangent (and
-        # the CFG-baked v_uncond/v_cond components that compose it).
-        # This realizes the deterministic-tangent corner (β = 1) of
-        # the control-variate trade-off, eliminating the Jacobian-
-        # amplified gradient variance term g^T J Σ J^T g.
-        # When ``ema_tangent=False``, falls back to vanilla MeanFlow
-        # (β = 0): tangent uses the current params under stop-grad.
-        tangent_params_for_cfg = state.ema_params if self.ema_tangent else None
+        # JVP-tangent control variate (Theorem 3 of the paper).
+        #   beta = 0  : vanilla MeanFlow tangent uses stop_gradient
+        #               of the current params (β = 0 corner).
+        #   beta = 1  : VaMF-L2 tangent uses EMA params (β = 1
+        #               corner, eliminates g^T J Σ J^T g term).
+        #   0 < beta < 1 : interpolates between the two CFG-mixed
+        #               velocities to realize an interior point on
+        #               the control-variate trade-off curve.
+        beta = self.tangent_beta
+        ema_params = state.ema_params
 
         def _loss_fn(
             params: PyTree,
@@ -1216,50 +1237,47 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
             # --- CFG baking: compute guided velocity target ---
             # Following the official MeanFlow, the CFG formula
             # mixes ground-truth velocity v = e - x with network
-            # predictions v_uncond and v_cond at h=0. For VaMF-L2,
-            # use EMA params so the JVP tangent is deterministic
-            # w.r.t. the current optimization step.
+            # predictions v_uncond and v_cond at h=0.
             ts_h0 = self._make_timestamps(t_in=t, r_in=t)
-            cfg_params = (
-                tangent_params_for_cfg
-                if tangent_params_for_cfg is not None
-                else jax.lax.stop_gradient(params)
-            )
-
-            # Unconditional velocity (null class)
             null_labels = jnp.full_like(labels, self.num_classes)
-            v_uncond = self._network.apply(
-                variables={"params": cfg_params},
-                inputs=z,
-                timestamps=ts_h0,
-                labels=null_labels,
-                edm_cond=None,
-                deterministic=True,
-            )
-            assert isinstance(v_uncond, jax.Array)
 
-            # Conditional velocity (with class labels)
-            v_cond = self._network.apply(
-                variables={"params": cfg_params},
-                inputs=z,
-                timestamps=ts_h0,
-                labels=labels,
-                edm_cond=None,
-                deterministic=True,
-            )
-            assert isinstance(v_cond, jax.Array)
+            def _cfg_vg(cfg_params):
+                """Compute the CFG-mixed velocity from given params."""
+                v_uncond_p = self._network.apply(
+                    variables={"params": cfg_params},
+                    inputs=z,
+                    timestamps=ts_h0,
+                    labels=null_labels,
+                    edm_cond=None,
+                    deterministic=True,
+                )
+                assert isinstance(v_uncond_p, jax.Array)
+                v_cond_p = self._network.apply(
+                    variables={"params": cfg_params},
+                    inputs=z,
+                    timestamps=ts_h0,
+                    labels=labels,
+                    edm_cond=None,
+                    deterministic=True,
+                )
+                assert isinstance(v_cond_p, jax.Array)
+                return (
+                    self.cfg_omega * v
+                    + (1.0 - self.cfg_omega - self.cfg_kappa) * v_uncond_p
+                    + self.cfg_kappa * v_cond_p
+                )
 
-            # Official CFG formula (meanflow/meanflow.py):
-            #   v_g = omega*v + (1-omega-kappa)*v_uncond
-            #         + kappa*v_cond
-            # where v = e - x is the ground-truth velocity.
-            # With omega=1.0, kappa=0.5:
-            #   v_g = (e-x) - 0.5*v_uncond + 0.5*v_cond
-            v_g = (
-                self.cfg_omega * v
-                + (1.0 - self.cfg_omega - self.cfg_kappa) * v_uncond
-                + self.cfg_kappa * v_cond
-            )
+            # β-mixed CFG velocity. The two component velocities are
+            # always evaluated under stop-gradient (the JVP tangent is
+            # treated as constant w.r.t. θ regardless of β).
+            if beta <= 0.0:
+                v_g = _cfg_vg(jax.lax.stop_gradient(params))
+            elif beta >= 1.0:
+                v_g = _cfg_vg(ema_params)
+            else:
+                v_g_cur = _cfg_vg(jax.lax.stop_gradient(params))
+                v_g_ema = _cfg_vg(ema_params)
+                v_g = (1.0 - beta) * v_g_cur + beta * v_g_ema
 
             # --- Class dropout: dropped samples revert to
             # ground-truth velocity and get null labels ---
