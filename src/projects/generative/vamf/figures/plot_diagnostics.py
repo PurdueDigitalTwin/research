@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from src.projects.generative.vamf.figures import _style
+from src.utilities import logging as _logging
 
 # ==============================================================================
 # Constants
@@ -133,7 +134,7 @@ def plot_variance_amplification(data, work_dir):
     path = os.path.join(work_dir, "exp1_variance_amplification.pdf")
     fig.savefig(path)
     plt.close()
-    print(f"  Saved {path}")
+    _logging.rank_zero_info("Figure saved to %s.", path)
 
 
 def plot_curvature_gap(data, work_dir):
@@ -169,7 +170,7 @@ def plot_curvature_gap(data, work_dir):
     path = os.path.join(work_dir, "exp2_curvature_gap.pdf")
     fig.savefig(path)
     plt.close()
-    print(f"  Saved {path}")
+    _logging.rank_zero_info("Figure saved to %s.", path)
 
 
 def plot_jacobian_norm(data, work_dir):
@@ -202,7 +203,7 @@ def plot_jacobian_norm(data, work_dir):
     path = os.path.join(work_dir, "exp4_jacobian_norm.pdf")
     fig.savefig(path)
     plt.close()
-    print(f"  Saved {path}")
+    _logging.rank_zero_info("Figuer saved to %s.", path)
 
 
 def plot_training_curves(wandb_data, work_dir):
@@ -292,7 +293,7 @@ def plot_training_curves(wandb_data, work_dir):
     path = os.path.join(work_dir, "exp3_training_curves.pdf")
     fig.savefig(path)
     plt.close()
-    print(f"  Saved {path}")
+    _logging.rank_zero_info("Figure saved to %s.", path)
 
 
 def main(argv: typing.List[str]):
@@ -300,50 +301,56 @@ def main(argv: typing.List[str]):
 
     os.makedirs(flags.FLAGS.work_dir, exist_ok=True)
     _apply_style_palette(flags.FLAGS.style)
-    print(f"Style: {flags.FLAGS.style}")
+    _logging.rank_zero_info(
+        "Plotting with figure style %s.", flags.FLAGS.style
+    )
 
     # Plot wandb training curves (Exp 3) — always available
     if os.path.exists(flags.FLAGS.wandb_metrics):
-        print("Plotting Experiment 3 (training curves)...")
+        _logging.rank_zero_info("Plotting Experiment 3 (training curves)...")
         with open(flags.FLAGS.wandb_metrics) as f:
             wandb_data = json.load(f)
         plot_training_curves(wandb_data, flags.FLAGS.work_dir)
     else:
-        print(f"Warning: {flags.FLAGS.wandb_metrics} not found")
+        _logging.rank_zero_warning(
+            "Warning: %s not found", flags.FLAGS.wandb_metrics
+        )
 
     # Plot diagnostic experiments (Exp 1, 2, 4)
     if os.path.exists(flags.FLAGS.diagnostic_results):
-        print("Plotting diagnostic experiments...")
+        _logging.rank_zero_info("Plotting diagnostic experiments...")
         with open(flags.FLAGS.diagnostic_results) as f:
             diag_data = json.load(f)
 
         if "exp1_variance_amplification" in diag_data:
-            print("  Experiment 1 (variance amplification)...")
+            _logging.rank_zero_info("Experiment 1 (variance amplification)...")
             plot_variance_amplification(
                 diag_data["exp1_variance_amplification"],
                 flags.FLAGS.work_dir,
             )
 
         if "exp2_curvature_gap" in diag_data:
-            print("  Experiment 2 (curvature gap)...")
+            _logging.rank_zero_info("Experiment 2 (curvature gap)...")
             plot_curvature_gap(
                 diag_data["exp2_curvature_gap"],
                 flags.FLAGS.work_dir,
             )
 
         if "exp4_jacobian_norm" in diag_data:
-            print("  Experiment 4 (Jacobian norm)...")
+            _logging.rank_zero_info("Experiment 4 (Jacobian norm)...")
             plot_jacobian_norm(
                 diag_data["exp4_jacobian_norm"],
                 flags.FLAGS.work_dir,
             )
     else:
-        print(
-            f"Warning: {flags.FLAGS.diagnostic_results} not found — "
-            "skipping diagnostic plots"
+        _logging.rank_zero_warning(
+            "Warning: %s not found — " "skipping diagnostic plots",
+            flags.FLAGS.diagnostic_results,
         )
 
-    print("Done.")
+    _logging.rank_zero_info("All Done!")
+
+    return 0
 
 
 if __name__ == "__main__":
