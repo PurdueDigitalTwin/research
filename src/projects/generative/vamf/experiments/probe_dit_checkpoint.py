@@ -32,6 +32,7 @@ import numpy as np
 from orbax import checkpoint as ocp
 
 from src.projects.generative import config as _cfg
+from src.projects.generative import meanflow as _meanflow
 from src.projects.generative.vamf.model import diagnostic as _diagnostic
 from src.utilities import logging as _logging
 
@@ -92,6 +93,18 @@ flags.DEFINE_integer(
     default=42,
     help="Random seed for reproducibility.",
 )
+flags.DEFINE_bool(
+    name="synthetic_data",
+    default=False,
+    help=(
+        "If True, replace the ImageNet latent sampler with i.i.d. "
+        "Gaussian noise of the same shape (32x32x4). The Theorem-1 "
+        "variance ratio is intrinsic to the model's Jacobian at fixed "
+        "(t, r) so the data distribution affects only the absolute "
+        "variance scale, not the ratio itself. Useful for local "
+        "CUDA runs without GCS-backed data access."
+    ),
+)
 
 
 def _restore_params(model, checkpoint_dir: str) -> typing.Any:
@@ -118,8 +131,10 @@ def _restore_params(model, checkpoint_dir: str) -> typing.Any:
     return params
 
 
-def _build_u_fn(model, params):
-    """Wrap the DiT backbone as a ``u_fn(z, r, t) -> u`` closure.
+def _build_u_fn(
+    model: _meanflow.MeanFlowDiTModel, params: typing.Any
+) -> typing.Callable[[jax.Array, jax.Array, jax.Array], jax.Array]:
+    r"""Wraps the DiT backbone as a ``u_fn(z, r, t) -> u`` closure.
 
     Uses the unconditional / null class label (``num_classes`` is the
     drop index by convention in the DiT class embedder). This isolates
@@ -128,7 +143,7 @@ def _build_u_fn(model, params):
     """
     null_label = jnp.int32(model.num_classes)
 
-    def u_fn(z, r, t):
+    def u_fn(z: jax.Array, r: jax.Array, t: jax.Array) -> jax.Array:
         n = z.shape[0]
         timestamps = model._make_timestamps(t_in=t, r_in=r)
         labels = jnp.full((n,), null_label, dtype=jnp.int32)
@@ -151,12 +166,12 @@ def _build_latent_sampler(
     pool_size: int = 1024,
     seed: int = 42,
 ) -> typing.Callable[[jax.Array, int], jax.Array]:
-    """Sample ImageNet latents (32x32x4) from a small cached pool.
+    r"""Sample ImageNet latents (32x32x4) from a small cached pool.
 
     Reads a single shard of the pre-encoded TFDS-style latent dataset
     using the data module from the Fiddle config, materializes the first
     ``pool_size`` examples on host, and returns a ``(rng, n) -> batch``
-    sampler over them.
+    sampler over the samples.
     """
     _logging.rank_zero_info(
         "Building latent sampler from config %s ...", config_fn_name
@@ -229,7 +244,18 @@ def main(argv: typing.List[str]) -> int:
 
     params = _restore_params(model, F.checkpoint_dir)
     u_fn = _build_u_fn(model, params)
-    sample_x0 = _build_latent_sampler(F.config_fn, seed=F.seed)
+    if F.synthetic_data:
+        # NOTE: sampling for synthetic Gaussian latents for diagnostic runs.
+        latent_shape = (model.image_size, model.image_size, model.in_channels)
+        _logging.rank_zero_info(
+            "Using synthetic Gaussian latents of shape %s.", latent_shape
+        )
+
+        def sample_x0(key, n):
+            return jrnd.normal(key, (n, *latent_shape), dtype=jnp.float32)
+
+    else:
+        sample_x0 = _build_latent_sampler(F.config_fn, seed=F.seed)  # type: ignore
 
     experiments = {int(x) for x in F.experiments}
     t_values = (0.1, 0.3, 0.5, 0.7, 0.9)
