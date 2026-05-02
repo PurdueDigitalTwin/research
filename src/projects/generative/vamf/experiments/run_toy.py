@@ -11,6 +11,7 @@ from absl import flags
 import chex
 from flax import linen as nn
 import jax
+from jax import flatten_util
 from jax import numpy as jnp
 from jax import random as jrnd
 import jaxtyping
@@ -34,20 +35,34 @@ flags.DEFINE_enum(
         "eight_gaussians",
         "two_moons",
         "swiss_roll",
+        "two_spirals",
+        "pinwheel",
     ]
     + [f"gmm_{d}" for d in [2, 4, 8, 16]]
     + [f"dgmm_{d}" for d in [2, 4, 8, 16, 32, 64]],
     help=(
         "Dataset to use, one of ['checkerboard', "
         "'eight_gaussians', 'two_moons', 'swiss_roll', "
-        "'gmm_<d>']"
+        "'two_spirals', 'pinwheel', 'gmm_<d>']"
     ),
 )
 flags.DEFINE_enum(
     name="method",
     default="meanflow",
-    enum_values=["meanflow", "vamf_l2", "vamf_tw"],
-    help=("Method to run, one of ['meanflow', 'vamf_l2', " "'vamf_tw']"),
+    enum_values=[
+        "meanflow",
+        "vamf_l2",
+        "vamf_tw",
+        "vamf_anneal",
+        "vamf_tmix",
+    ],
+    help=(
+        "Method to run. 'vamf_anneal' mixes v_cond and u_bar(x_t,t,t) in "
+        "the regression target (Theorem 2). 'vamf_tmix' mixes them in the "
+        "JVP tangent (Theorem 3): tangent = (1-tangent_beta)*v_cond + "
+        "tangent_beta*u_bar. tangent_beta=0 recovers MeanFlow; "
+        "tangent_beta=1 recovers VaMF-L2."
+    ),
 )
 
 # method hyperparameters
@@ -99,6 +114,26 @@ flags.DEFINE_integer(
     default=1,
     help="Number of Hutchinson probes for trace weight estimation.",
 )
+flags.DEFINE_float(
+    name="target_alpha",
+    default=0.0,
+    help=(
+        "Mixing weight alpha in [0, 1] for the annealed regression target "
+        "v(alpha) = (1-alpha)*v_cond + alpha*u_bar(x_t,t,t). Only used by "
+        "method=vamf_anneal. alpha=0 recovers VaMF-L2; alpha=1 is full "
+        "EMA-target."
+    ),
+)
+flags.DEFINE_float(
+    name="tangent_beta",
+    default=1.0,
+    help=(
+        "Mixing weight beta in [0, 1] for the JVP tangent (Theorem 3): "
+        "tangent = (1-beta)*v_cond + beta*u_bar(x_t,t,t). "
+        "Only used by method=vamf_tmix. beta=0 recovers MeanFlow; "
+        "beta=1 recovers VaMF-L2 (full EMA tangent)."
+    ),
+)
 flags.DEFINE_boolean(
     name="exact_trace",
     default=False,
@@ -147,6 +182,22 @@ flags.DEFINE_integer(
     name="log_every_n_steps",
     default=500,
     help="Log training metrics every N steps.",
+)
+flags.DEFINE_integer(
+    name="measure_grad_var_every",
+    default=0,
+    help=(
+        "If > 0, measure per-step gradient noise ratio every N steps. "
+        "0 disables the diagnostic."
+    ),
+)
+flags.DEFINE_integer(
+    name="measure_grad_var_n_batches",
+    default=8,
+    help=(
+        "Number of independent mini-batches used to estimate gradient "
+        "covariance and mean per measurement point."
+    ),
 )
 flags.DEFINE_string(
     name="work_dir",
@@ -234,6 +285,61 @@ def swissroll(key, n):
     return jnp.stack([t * jnp.cos(t), t * jnp.sin(t)], -1) / 8 + noise
 
 
+def two_spirals(key, n):
+    r"""Two interleaved Archimedean spirals.
+
+    Args:
+        key (Any): Random key generator.
+        n (int): Number of samples to generate.
+
+    Returns:
+        An array of sample points from two spirals that interleave.
+    """
+    k_t, k_branch, k_noise = jrnd.split(key, 3)
+    n_per = n // 2
+    t = jnp.sqrt(jrnd.uniform(k_t, (n,))) * 540.0 * jnp.pi / 180.0
+    sign = jnp.where(jnp.arange(n) < n_per, 1.0, -1.0)
+    x = sign * t * jnp.cos(t) / 5.0
+    y = sign * t * jnp.sin(t) / 5.0
+    pts = jnp.stack([x, y], axis=-1)
+    noise = jrnd.normal(k_noise, (n, 2)) * 0.08
+    del k_branch  # unused
+    return pts + noise
+
+
+def pinwheel(key, n, num_arms: int = 5):
+    r"""Pinwheel mixture: ``num_arms`` curved Gaussian arms.
+
+    Each component is a Gaussian rotated and sheared so it traces a
+    spiral arm. The arms intersect near the origin, creating heavy
+    mode-mixing and high local curvature.
+
+    Args:
+        key (Any): Random key generator.
+        n (int): Number of samples to generate.
+        num_arms (int): Number of arms. Defaults to 5.
+
+    Returns:
+        An array of sample points.
+    """
+    k_idx, k_xy = jrnd.split(key, 2)
+    rate = 0.25
+    rads = jnp.linspace(0.0, 2.0 * jnp.pi, num_arms + 1)[:-1]
+    radial_std = 0.3
+    tangential_std = 0.1
+
+    idx = jrnd.choice(k_idx, num_arms, shape=(n,))
+    base = jrnd.normal(k_xy, (n, 2)) * jnp.array([radial_std, tangential_std])
+    base = base + jnp.array([1.0, 0.0])
+    angles = rads[idx] + rate * jnp.exp(base[:, 0])
+    cos, sin = jnp.cos(angles), jnp.sin(angles)
+    rot = jnp.stack(
+        [jnp.stack([cos, -sin], axis=-1), jnp.stack([sin, cos], axis=-1)],
+        axis=-2,
+    )
+    return jnp.einsum("nij,nj->ni", rot, base) * 1.5
+
+
 def gmm(key: typing.Any, n: int, d: int, k: int = 8) -> jax.Array:
     r"""Isotropic Gaussian mixture in ``d`` dimensions.
 
@@ -285,6 +391,8 @@ _DATASET_FN = {
     "eight_gaussians": eight_gaussians,
     "two_moons": two_moons,
     "swiss_roll": swissroll,
+    "two_spirals": two_spirals,
+    "pinwheel": pinwheel,
 }
 
 
@@ -583,6 +691,8 @@ class MeanFlowMLPModel(_model.Model):
         tw_n_probes: int = 1,
         exact_trace: bool = False,
         tw_sigma: str = "none",
+        target_alpha: float = 0.0,
+        tangent_beta: float = 1.0,
         dtype: typing.Any = None,
         param_dtype: typing.Any = None,
         precision: typing.Any = None,
@@ -598,6 +708,8 @@ class MeanFlowMLPModel(_model.Model):
         self._tw_n_probes = tw_n_probes
         self._exact_trace = exact_trace
         self._tw_sigma = tw_sigma
+        self._target_alpha = float(target_alpha)
+        self._tangent_beta = float(tangent_beta)
         self._network = MeanFlowMLPModule(
             features=features,
             num_layers=num_layers,
@@ -668,15 +780,14 @@ class MeanFlowMLPModel(_model.Model):
 
         return output
 
-    @typing_extensions.override
-    def training_step(
-        self,
-        *,
-        batch: typing.Any,
-        state: typing.Any,
-        rngs: typing.Any,
-        **kwargs,
-    ) -> typing.Tuple[typing.Any, _model.StepOutputs]:
+    def _loss_fn_and_aux(self, batch, state, rngs):
+        """Build the loss closure used by training and gradient probes.
+
+        Returns (loss_fn, aux) where loss_fn(params) -> (loss, metrics).
+        Both ``training_step`` and ``compute_gradient`` use this so that
+        the gradient-variance diagnostic measures the *same* loss surface
+        that training optimizes.
+        """
         x0 = batch
 
         def loss_fn(params):
@@ -698,10 +809,11 @@ class MeanFlowMLPModel(_model.Model):
             z = (1.0 - t[..., None]) * x0 + t[..., None] * e
             v_cond = e - x0
 
-            # JVP tangent: EMA prediction or stochastic
+            # JVP tangent: pure stochastic, pure EMA, or beta-mixed.
             if self._method in (
                 "vamf_l2",
                 "vamf_tw",
+                "vamf_anneal",
             ):
                 v_tang = jax.lax.stop_gradient(
                     self._network.apply(
@@ -711,8 +823,22 @@ class MeanFlowMLPModel(_model.Model):
                         t,
                     )
                 )
+            elif self._method == "vamf_tmix":
+                # NOTE: v_{tangent} = (1-beta) * v_cond + beta * u_bar(x_t,t,t)
+                ema_v = jax.lax.stop_gradient(
+                    self._network.apply(
+                        {"params": ema_vel},
+                        z,
+                        t,
+                        t,
+                    )
+                )
+                assert isinstance(ema_v, jax.Array)
+                b = self._tangent_beta
+                v_tang = (1.0 - b) * v_cond + b * ema_v
             else:
                 v_tang = v_cond
+            assert isinstance(v_tang, jax.Array)
 
             def u_fn(z_in, r_in, t_in):
                 return self._network.apply(
@@ -732,7 +858,17 @@ class MeanFlowMLPModel(_model.Model):
 
             gap = jnp.clip(t - r, a_min=0.0, a_max=1.0)
             v_pred = u + gap[..., None] * jax.lax.stop_gradient(dudt)
-            v_target = jax.lax.stop_gradient(v_cond)
+            # Annealed regression target: (1-alpha)*v_cond + alpha*u_bar(x_t,t,t).
+            # alpha=0 recovers the original v_cond target (VaMF-L2 / VaMF-TW
+            # behavior); alpha=1 is full EMA-target. v_tang already holds
+            # u_bar(x_t,t,t) under stop-gradient for the EMA methods.
+            if self._method == "vamf_anneal" and self._target_alpha > 0.0:
+                a = self._target_alpha
+                v_target = jax.lax.stop_gradient(
+                    (1.0 - a) * v_cond + a * v_tang
+                )
+            else:
+                v_target = jax.lax.stop_gradient(v_cond)
             per_sample = jnp.sum(
                 jnp.square(v_pred - v_target),
                 axis=-1,
@@ -793,6 +929,18 @@ class MeanFlowMLPModel(_model.Model):
             }
             return loss, metrics
 
+        return loss_fn, None
+
+    @typing_extensions.override
+    def training_step(
+        self,
+        *,
+        batch: typing.Any,
+        state: typing.Any,
+        rngs: typing.Any,
+        **kwargs,
+    ) -> typing.Tuple[typing.Any, _model.StepOutputs]:
+        loss_fn, _ = self._loss_fn_and_aux(batch, state, rngs)
         grads, metrics = jax.grad(
             loss_fn,
             has_aux=True,
@@ -801,6 +949,23 @@ class MeanFlowMLPModel(_model.Model):
         return new_state, _model.StepOutputs(
             scalars=metrics,
         )
+
+    def compute_gradient(
+        self,
+        *,
+        batch: typing.Any,
+        state: typing.Any,
+        rngs: typing.Any,
+    ) -> typing.Any:
+        """Returns the raw parameter gradient for a single (batch, rngs) pair.
+
+        Reuses the exact loss surface of
+        ``training_step`` but does not apply the gradient. Used by the
+        gradient-variance diagnostic (Theorem 3 validation).
+        """
+        loss_fn, _ = self._loss_fn_and_aux(batch, state, rngs)
+        grads, _ = jax.grad(loss_fn, has_aux=True)(state.params)
+        return grads
 
     @typing_extensions.override
     def evaluation_step(
@@ -851,6 +1016,8 @@ def main(argv: typing.List[str]) -> int:
         tw_n_probes=FLAGS.tw_n_probes,
         exact_trace=FLAGS.exact_trace,
         tw_sigma=FLAGS.tw_sigma,
+        target_alpha=FLAGS.target_alpha,
+        tangent_beta=FLAGS.tangent_beta,
     )
     params, _ = model.init(
         batch=jnp.zeros((1, d)),
@@ -890,6 +1057,20 @@ def main(argv: typing.List[str]) -> int:
 
     train_step = jax.jit(_train_step)
 
+    # ---- jit-compiled gradient-variance probe ----
+    # Calls model.compute_gradient with an independent (data, loss) rng
+    # split, returning the flattened parameter gradient. We invoke this
+    # K times with K independent keys per measurement step to estimate
+    # the per-step gradient mean and variance (Theorem 3 diagnostic).
+    def _grad_probe(state, key):
+        k_data, k_loss = jrnd.split(key)
+        x0 = sample_data(k_data, FLAGS.dataset, FLAGS.batch_size)
+        grads = model.compute_gradient(batch=x0, state=state, rngs=k_loss)
+        flat, _ = flatten_util.ravel_pytree(grads)
+        return flat
+
+    grad_probe = jax.jit(_grad_probe)
+
     # ---- jit-compiled eval step (SWD) ----
     n_eval = 4096
 
@@ -924,9 +1105,37 @@ def main(argv: typing.List[str]) -> int:
     history = []
     t0 = time.time()
 
+    grad_var_history = []  # diagnostic: per-step gradient noise ratio
+
     for step in range(FLAGS.steps):
         key, step_key = jrnd.split(key)
         state, step_out = train_step(state, step_key)
+
+        # Gradient-variance probe (Theorem 3 diagnostic).
+        if (
+            FLAGS.measure_grad_var_every > 0
+            and step % FLAGS.measure_grad_var_every == 0
+        ):
+            K = FLAGS.measure_grad_var_n_batches
+            key, *probe_keys = jrnd.split(key, K + 1)
+            grads_flat = jnp.stack(
+                [grad_probe(state, kk) for kk in probe_keys], axis=0
+            )  # (K, P)
+            mean_grad = jnp.mean(grads_flat, axis=0)
+            mean_norm_sq = float(jnp.sum(jnp.square(mean_grad)))
+            # Sample variance trace = (1/(K-1)) sum_k ||g_k - mean||^2
+            tr_cov = float(
+                jnp.sum(jnp.square(grads_flat - mean_grad[None, :])) / (K - 1)
+            )
+            nr = tr_cov / max(mean_norm_sq, 1e-30)
+            grad_var_history.append(
+                {
+                    "step": step,
+                    "tr_cov": tr_cov,
+                    "mean_norm_sq": mean_norm_sq,
+                    "nr": nr,
+                }
+            )
 
         if step % FLAGS.log_every_n_steps == 0 or step == FLAGS.steps - 1:
             key, eval_key = jrnd.split(key)
@@ -978,9 +1187,12 @@ def main(argv: typing.List[str]) -> int:
                     "tw_n_probes": FLAGS.tw_n_probes,
                     "exact_trace": FLAGS.exact_trace,
                     "tw_sigma": FLAGS.tw_sigma,
+                    "target_alpha": FLAGS.target_alpha,
+                    "tangent_beta": FLAGS.tangent_beta,
                     "seed": FLAGS.seed,
                 },
                 "history": history,
+                "grad_var_history": grad_var_history,
                 "final": final,
             },
             f,
