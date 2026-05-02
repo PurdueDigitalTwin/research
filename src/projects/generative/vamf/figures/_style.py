@@ -29,6 +29,9 @@ def style_path(name: str) -> str:
 
 def apply_style(name: str = DEFAULT_STYLE) -> None:
     r"""Activate the named matplotlib style."""
+    plt.rcParams.update(
+        {"text.usetex": True, "text.latex.preamble": r"\usepackage{bm}"}
+    )
     plt.style.use(style_path(name))
 
 
