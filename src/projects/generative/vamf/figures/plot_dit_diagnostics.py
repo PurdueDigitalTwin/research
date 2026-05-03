@@ -23,7 +23,8 @@ The figure has three panels:
 Usage::
 
     bazelisk run //src/projects/generative/vamf/figures:plot_dit_diagnostics -- \\
-        --probe_dir=/tmp/probe_results --output=/tmp/dit_diagnostics.pdf
+        --probe_dir=logs/vamf/dit_probe \\
+        --output=docs/generative/vamf/results/dit_diagnostics.pdf
 """
 
 import json
