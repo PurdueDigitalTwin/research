@@ -61,6 +61,19 @@ ml_py_binary(
 )
 
 ml_py_binary(
+    name = "plot_dit_probe",
+    srcs = ["plot_dit_probe.py"],
+    deps = [
+        "absl-py",
+        "jaxtyping",
+        "matplotlib",
+        "numpy",
+        ":_style",
+        "//src/utilities:logging",
+    ],
+)
+
+ml_py_binary(
     name = "plot_teaser",
     srcs = ["plot_teaser.py"],
     deps = [
