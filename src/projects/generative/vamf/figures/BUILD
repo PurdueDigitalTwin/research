@@ -48,6 +48,18 @@ ml_py_binary(
 )
 
 ml_py_binary(
+    name = "plot_dit_fid_curves",
+    srcs = ["plot_dit_fid_curves.py"],
+    deps = [
+        "absl-py",
+        "matplotlib",
+        "numpy",
+        ":_style",
+        "//src/utilities:logging",
+    ],
+)
+
+ml_py_binary(
     name = "plot_dit_diagnostics",
     srcs = ["plot_dit_diagnostics.py"],
     deps = [
