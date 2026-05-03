@@ -470,6 +470,22 @@ def vamf_beta05_dit_imagenet_256_latent() -> _config.ExperimentConfig:
     return config
 
 
+def vamf_beta025_dit_imagenet_256_latent() -> _config.ExperimentConfig:
+    r"""DiT-B/4 ImageNet-256 latent at tangent-mixing point β=0.25.
+
+    Companion to ``vamf_beta05_dit_imagenet_256_latent``: the JVP
+    tangent is a 0.75/0.25 mix of the current-params CFG velocity and
+    the EMA-derived velocity. Together with baseline (β=0), β=0.5,
+    and VaMF-L2 (β=1), this completes a 4-point β-sweep that tests
+    whether the FID(β) curve is monotone increasing or has interior
+    structure.
+    """
+    config = meanflow_dit_imagenet_256_latent()
+    config.exp_name = "vamf_beta025_dit_b4_imagenet_256_latent"
+    config.model.tangent_beta = 0.25
+    return config
+
+
 def vamf_l2_aw1_dit_imagenet_256_latent() -> _config.ExperimentConfig:
     r"""VaMF-L2 DiT-B/4 on ImageNet 256x256, with Karras adaptive weighting.
 
