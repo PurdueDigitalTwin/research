@@ -328,13 +328,6 @@
 
     \input{assets/tables/dit-fid}
 
-    \begin{figure}[!ht]
-        \centering
-        \includegraphics[width=0.7\textwidth]{assets/figures/dit_fid_curves.pdf}
-        \caption{Three-method FID$_{50\text{k}}$ convergence at DiT-B/4 / ImageNet-$256$ scale. The full trajectories of all three runs (semilog-y) make the three-floor structure apparent: baseline ($\beta\!=\!0$, blue) approaches its floor near FID $12$; the interior $\beta\!=\!0.5$ run (green) tracks $+7.77 \pm 0.11$ FID above baseline in the asymptotic regime (step $95$k--$145$k); and VaMF-L$_{2}$ ($\beta\!=\!1$, orange) finishes its $300$k-step training at FID $23.36$, which $\beta\!=\!0.5$ has already crossed (at step $115$k). The matched-step ordering $\mathrm{FID}(\beta{=}0)\!<\!\mathrm{FID}(\beta{=}0.5)\!<\!\mathrm{FID}(\beta{=}1)$ holds at all $24$ logged checkpoints---direct empirical confirmation of the bias--variance ordering predicted by~\Cref{thm: control-variate-optimum}, with the FID-axis bias amplification (gap ratio $\sim\!1.4{:}1$ across $\beta\!=\!0.5/\beta\!=\!1$) sublinear in the MSE-axis bias coefficients ($1{:}4$).}
-        \label{fig: dit-fid-curves}
-    \end{figure}
-
     \paragraph{Bias and shrinkage trajectory.} To localize the predicted optimum we measure both ingredients of~\Cref{thm: control-variate-optimum} directly on the DiT checkpoints: the EMA boundary-tracking bias by $\|\vb\|^{2}\!\triangleq\!\E_{\vx_{t}}\bigl[\|\vu_{\vtheta}(\vx_{t},t,t)\!-\!\vu_{\bar{\vtheta}}(\vx_{t},t,t)\|^{2}\bigr]$ at synthetic-Gaussian $\vx_{t}$, and the irreducible noise floor $\sigma^{2}d\!\approx\!8.2{\times}10^{3}$ from $\Tr(\Sigma_{\vv'})$ on the same batch.~\Cref{tab: dit-bias-shrinkage} reports the trajectory: the bias \emph{decays} through training, and the shrinkage factor $\sigma^{2}d/(\sigma^{2}d{+}\|\vb\|^{2})$ stays near $1$ throughout converged training. Combined with $\kappa\!\approx\!1$ from the Hutchinson trace, this places $\beta^{\star}\!\in\![0.46,\,0.50]$ across the full trajectory---firmly interior in the gradient-MSE landscape.
 
     \input{assets/tables/dit-bias-shrinkage}
