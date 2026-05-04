@@ -1,0 +1,14 @@
+\begin{table}[!ht]
+    \centering
+    \caption{Direct DiT-checkpoint measurement of the bias-variance decomposition ingredients of~\Cref{thm: control-variate-optimum} at $t\!=\!0.5$. The EMA bias $\|\vb\|^{2}$ averages over $128$ synthetic-Gaussian $\vx_{t}$ samples and is reported for both methods (which track within $20\%$ of each other). The shrinkage factor uses $\sigma^{2}d\!\approx\!8.2{\times}10^{3}$. The predicted $\beta^{\star}$ uses $\kappa\!=\!1$ from the Hutchinson trace.}
+    \label{tab: dit-bias-shrinkage}
+    \begin{tabular}{lcccc}
+        \toprule
+        step (k)                              & $\|\vb\|^{2}$ (avg) & $\sigma^{2}d/(\sigma^{2}d{+}\|\vb\|^{2})$ & $\beta^{\star}$ \\
+        \midrule
+        $20$                                  & $\sim\!700$         & $0.92$                                    & $0.46$ \\
+        $40$                                  & $\sim\!150$         & $0.98$                                    & $0.49$ \\
+        $80$                                  & $\sim\!50$          & $0.99$                                    & $0.50$ \\
+        \bottomrule
+    \end{tabular}
+\end{table}

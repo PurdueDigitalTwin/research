@@ -1,0 +1,24 @@
+\begin{table}[!ht]
+    \caption{Table of Notations.}
+    \label{tab: notation}
+    \centering
+    \begin{tabular}{@{}ll@{}}
+        \toprule
+        \textbf{Notation}  &   \textbf{Description}   \\
+        \midrule
+        $\rvx$, $\rvx_{t}$  & Random variable / random variable at time $t$ \\
+        $\vx$, $\vx_{t}$ & Realized state / state at time $t$: $\vx_{t}=(1-t)\vx_{0}+t\vx_{1}$ \\
+        $\vv(\rvx,t)$ & Marginal velocity field \\
+        $\vv_{\text{cond}}$ & Conditional velocity: $\vv_{\text{cond}}=\vx_{1}-\vx_{0}$ \\
+        $\vv'$ & Velocity fluctuation: $\vv'=\vv_{\text{cond}}-\vv(\vx_{t},t)$, \; $\E_{\vx_{0}\mid\vx_{t}}[\vv']=\bm{0}$ \\
+        $\vu_{\vtheta}(\vx,r,t)$ & Learned average velocity field (two-parameter) \\
+        $\vu_{\bar{\vtheta}}$ & EMA average velocity with parameters $\bar{\vtheta}$ \\
+        $V_{\vtheta}^{\text{EMA}}$ & Compound prediction~\eqref{eq: ema-mf-loss} \\
+        $\mJ$ & Jacobi factor: $\mJ=(t-r)\partial_{\vz}\vu_{\vtheta}-\mI_{d}$ \\
+        $\Sigma_{\vv'}$ & Conditional velocity covariance: $\Cov_{\vx_{0}\mid\vx_{t}}[\vv']$ \\
+        $\sigma_{t}$ & Conditional-velocity variance scale \\
+        $\Delta(\vx_{t},r,t)$ & Curvature gap: $\vu(\vx_{t},r,t)-\vv(\vx_{t},t)$ \\
+        $\texttt{sg}[\cdot]$ & Stop-gradient operator \\
+        \bottomrule
+    \end{tabular}
+\end{table}
