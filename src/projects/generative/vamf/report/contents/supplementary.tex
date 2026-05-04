@@ -12,32 +12,7 @@
     \section{Notations}
     \label[appendix]{appx: notation}
     \Cref{tab: notation} lists all the notations we use in this work.
-    \begin{table}[!ht]
-        \caption{Table of Notations.}
-        \label{tab: notation}
-        \centering
-        \begin{tabular}{@{}ll@{}}
-            \toprule
-            \textbf{Notation}  &   \textbf{Description}   \\
-            \midrule
-            $\rvx$, $\rvx_{t}$  & Random variable / random variable at time $t$ \\
-            $\vx$, $\vx_{t}$ & Realized state / state at time $t$: $\vx_{t}=(1-t)\vx_{0}+t\vx_{1}$ \\
-            $\vv(\rvx,t)$ & Marginal velocity field \\
-            $\vv_{\text{cond}}$ & Conditional velocity: $\vv_{\text{cond}}=\vx_{1}-\vx_{0}$ \\
-            $\vv'$ & Velocity fluctuation: $\vv'=\vv_{\text{cond}}-\vv(\vx_{t},t)$, \; $\E_{\vx_{0}\mid\vx_{t}}[\vv']=\bm{0}$ \\
-            $\vu_{\vtheta}(\vx,r,t)$ & Learned average velocity field (two-parameter) \\
-            $\vu_{\bar{\vtheta}}$ & EMA average velocity with parameters $\bar{\vtheta}$ \\
-            $V_{\vtheta}^{\text{EMA}}$ & Compound prediction~\eqref{eq: ema-mf-loss} \\
-            $\mJ$ & Jacobi factor: $\mJ=(t-r)\partial_{\vz}\vu_{\vtheta}-\mI_{d}$ \\
-            $\Sigma_{\vv'}$ & Conditional velocity covariance: $\Cov_{\vx_{0}\mid\vx_{t}}[\vv']$ \\
-            $\sigma_{t}$ & Conditional-velocity variance scale (schedule, default $\sigma_{t}\!=\!1$) \\
-            $w$ & Trace weight: $w\!=\!1/(1+\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top})/d)$, see~\eqref{eq: trace-weight} \\
-            $\frac{\mathrm{D}\vv}{\mathrm{D}t}$ & Material derivative (flow acceleration): $\partial_{t}\vv+(\nabla_{\vx}\vv)\vv$ \\
-            $\Delta(\vx_{t},r,t)$ & Curvature gap: $\vu(\vx_{t},r,t)-\vv(\vx_{t},t)$ \\
-            $\texttt{sg}[\cdot]$ & Stop-gradient operator \\
-            \bottomrule
-        \end{tabular}
-    \end{table}
+    \input{assets/tables/notation}
 
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     \section{Proof of Lemma}
@@ -135,36 +110,6 @@
             &\quad=\underbrace{\nabla_{\vtheta}\left\|\vr_{\vtheta}\right\|^{2}-2\left(\nabla_{\vtheta}\vu_{\vtheta}\right)^{\!\top}\vr^{\texttt{sg}}}_{\text{mean-field gradient difference}}+\underbrace{\nabla_{\vtheta}\Tr\!\left(\mJ\,\Sigma_{\vv'}\,\mJ^{\!\top}\right)}_{\text{variance-driven difference}}.
         \end{align}
         Expanding the first term: $\nabla_{\vtheta}\|\vr\|^{2}=2(\nabla_{\vtheta}\vr_{\vtheta})^{\!\top}\vr_{\vtheta}$, and $\nabla_{\vtheta}\vr_{\vtheta}$ includes the derivative of the JVP terms $(t-r)(\partial_{\vz}\vu_{\vtheta}\cdot\vv+\partial_{t}\vu_{\vtheta})$ w.r.t.\ $\vtheta$, yielding the second-order mean-field difference $2(t-r)\E[\nabla_{\vtheta}(\partial_{\vz}\vu_{\vtheta}\cdot\vv+\partial_{t}\vu_{\vtheta})\cdot\vr_{\vtheta}]$. At convergence $\vr_{\vtheta}\to\bm{0}$, this term vanishes, and the gap is dominated by the variance-driven term $\nabla_{\vtheta}\Tr(\mJ\,\Sigma_{\vv'}\,\mJ^{\!\top})$.
-    \end{proof}
-
-    \subsection{Proof of~\Cref{thm: material-derivative-expansion} (Flow Acceleration Expansion)}
-
-    \begin{theorem}[Flow Acceleration Expansion of the Curvature Gap]
-        Let $\vv(\vx,t)\!\in\!C^{2}$. The curvature gap $\Delta(\vx_{t},r,t)\!:=\!\vu(\vx_{t},r,t)-\vv(\vx_{t},t)$ admits a Taylor expansion at $(\vx_{t},t)$ along the flow:
-        \begin{equation*}
-            \Delta(\vx_{t},r,t)\;=\;-\frac{(t{-}r)}{2}\frac{\mathrm{D}\vv}{\mathrm{D}t}(\vx_{t},t)+\gR_{2}(\vx_{t},r,t),
-        \end{equation*}
-        where $\frac{\mathrm{D}\vv}{\mathrm{D}t}\!\triangleq\!\partial_{t}\vv+(\nabla_{\vx}\vv)\,\vv$ is the material derivative (\textit{a.k.a.\ flow acceleration}) and $\gR_{2}\!=\!\gO((t{-}r)^{2})$.
-        \label[theorem]{thm: material-derivative-expansion}
-    \end{theorem}
-
-    \begin{proof}
-        Let $\vx_{\tau}$ solve the ODE $\frac{\mathrm{d}\vx_{\tau}}{\mathrm{d}\tau}=\vv(\vx_{\tau},\tau)$ with terminal condition $\vx_{t}=\vx_{t}$. The curvature gap $\Delta=\vu(\vx_{t},r,t)-\vv(\vx_{t},t)$ can be written as:
-        \begin{equation}
-            \Delta(\vx_{t},r,t)=\frac{1}{t-r}\int_{r}^{t}\!\vv(\vx_{\tau},\tau)\,\mathrm{d}\tau-\vv(\vx_{t},t)=\frac{1}{t-r}\int_{r}^{t}\!\left[\vv(\vx_{\tau},\tau)-\vv(\vx_{t},t)\right]\mathrm{d}\tau.
-        \end{equation}
-        Define $h=\tau-t\in[-(t-r),0]$. Since $\vv\in C^{2}$, we Taylor-expand $\vv(\vx_{\tau},\tau)$ about $(\vx_{t},t)$ along the ODE trajectory:
-        \begin{equation}
-            \vv(\vx_{\tau},\tau)=\vv(\vx_{t},t)+\frac{\mathrm{D}\vv}{\mathrm{D}t}(\vx_{t},t)\,h+\frac{1}{2}\frac{\mathrm{D}^{2}\vv}{\mathrm{D}t^{2}}(\vx_{t},t)\,h^{2}+O(h^{3}),
-        \end{equation}
-        where $\frac{\mathrm{D}}{\mathrm{D}t}$ denotes the material derivative along the flow. Substituting and integrating over $h\in[-(t-r),0]$:
-        \begin{align}
-            \Delta&=\frac{1}{t-r}\int_{-(t-r)}^{0}\!\left[\frac{\mathrm{D}\vv}{\mathrm{D}t}\,h+\frac{1}{2}\frac{\mathrm{D}^{2}\vv}{\mathrm{D}t^{2}}\,h^{2}+O(h^{3})\right]\mathrm{d}h \nonumber\\
-            &=\frac{1}{t-r}\left[\frac{\mathrm{D}\vv}{\mathrm{D}t}\cdot\frac{h^{2}}{2}\bigg|_{-(t-r)}^{0}+\frac{1}{2}\frac{\mathrm{D}^{2}\vv}{\mathrm{D}t^{2}}\cdot\frac{h^{3}}{3}\bigg|_{-(t-r)}^{0}+O\!\left((t-r)^{4}\right)\right] \nonumber\\
-            &=\frac{1}{t-r}\left[-\frac{(t-r)^{2}}{2}\frac{\mathrm{D}\vv}{\mathrm{D}t}+\frac{(t-r)^{3}}{6}\frac{\mathrm{D}^{2}\vv}{\mathrm{D}t^{2}}+O\!\left((t-r)^{4}\right)\right] \nonumber\\
-            &=-\frac{(t-r)}{2}\frac{\mathrm{D}\vv}{\mathrm{D}t}(\vx_{t},t)+\frac{(t-r)^{2}}{6}\frac{\mathrm{D}^{2}\vv}{\mathrm{D}t^{2}}(\vx_{t},t)+\gR_{3}(\vx_{t},r,t),
-        \end{align}
-        where $\gR_{3}=O((t-r)^{3})$ is the remainder.
     \end{proof}
 
     \subsection{Proof of~\Cref{prop: vamf-grad} (Gradient of VaMF Loss)}
@@ -289,173 +234,12 @@
         For the $M(1)$ comparison, $M(1)\!-\!M(\beta^{\star})\!=\!(\kappa{+}1)^{2}\|\vb\|^{2}+\sigma^{2}d-\sigma^{2}d\kappa^{2}\|\vb\|^{2}/(\sigma^{2}d+\|\vb\|^{2})$. The first two terms exceed $\sigma^{2}d\kappa^{2}\|\vb\|^{2}/(\sigma^{2}d+\|\vb\|^{2})$ since $(\kappa{+}1)^{2}\!>\!\kappa^{2}$ for $\kappa\!>\!0$.
     \end{proof}
 
-    \subsection{Derivation of the Trace Weight}
-    \label{appx: blue-scalar}
-
-    The control-variate optimum of~\Cref{thm: control-variate-optimum} suggests an alternative \textit{loss-side} reweighting: rather than tuning the tangent coefficient $\beta$, equalize per-sample loss magnitudes by downweighting high-variance samples directly. We formalize this as a \textit{trace weight}
-    \begin{equation}
-        w(\vx_{t},r,t)\;:=\;\frac{1}{1+\sigma_{t}^{2}\,\texttt{sg}\!\left[\Tr(\mJ\mJ^{\!\top})\right]/d}\;=\;\frac{d}{d+\sigma_{t}^{2}\,\texttt{sg}\!\left[\Tr(\mJ\mJ^{\!\top})\right]},
-        \label{eq: trace-weight}
-    \end{equation}
-    derived below as a regularized BLUE-scalar approximation under the isotropic-noise model. Empirically, the trace weight provides marginal additional gain once the EMA tangent removes the dominant Jacobian amplification, so we keep this construction as an appendix-only Lagrangian implementation of the curvature-budget constraint.
-
-    \paragraph{Setup.} Under the EMA tangent (\Cref{subsec: vamf}), \cref{prop: vamf-grad} and the Reynolds decomposition imply that the per-sample loss conditioned on $\vx_{t}$ admits the noise-decomposition
-    \begin{equation}
-        \E_{\vx_{0}\mid\vx_{t}}\!\left[\bigl\|V_{\vtheta}^{\text{EMA}}-\vv_{\text{cond}}\bigr\|_{2}^{2}\right]
-        \;=\;\underbrace{\bigl\|\tilde{\vr}^{\text{EMA}}\bigr\|_{2}^{2}}_{\text{deterministic signal}}
-        \;+\;\underbrace{\Tr\!\left(\mJ\,\Sigma_{\vv'}\,\mJ^{\!\top}\right)}_{\text{irreducible noise floor}\;\nu(\vx_{t},r,t)}.
-        \label{eq: blue-decomp}
-    \end{equation}
-    The noise floor $\nu$ is heteroscedastic: it varies with $(\vx_{t},r,t)$ through both $\mJ$ and $\Sigma_{\vv'}$, and dominates the per-sample loss in high-curvature regions even though it does \emph{not} contribute to the parameter gradient (its $\vtheta$-dependence is wiped by the stop-gradient on the JVP).
-
-    \paragraph{Heteroscedastic-noise BLUE.} Suppose we form a weighted empirical-risk estimator $\hat{\gL}(\vtheta)\!=\!\frac{1}{N}\sum_{i}w_{i}\,\ell_{i}(\vtheta)$ from $N$ independent per-sample losses $\ell_{i}$ whose noise floors $\nu_{i}\!=\!\Var[\ell_{i}\mid\vtheta]$ are heteroscedastic and known. The Best Linear Unbiased Estimator (BLUE) of the population mean assigns
-    \begin{equation}
-        w_{i}^{\text{BLUE}}\;\propto\;\nu_{i}^{-1},
-        \label{eq: blue-classic}
-    \end{equation}
-    minimizing the variance of $\hat{\gL}$ subject to $\E[\hat{\gL}]\!=\!\E_{\vx_{t},r,t}\!\bigl[\E_{\vx_{0}\mid\vx_{t}}[\ell]\bigr]$. Applying~\eqref{eq: blue-classic} to our setting with $\nu_{i}\!=\!\Tr(\mJ_{i}\Sigma_{\vv',i}\mJ_{i}^{\!\top})$ would prescribe $w\!\propto\!1/\Tr(\mJ\Sigma_{\vv'}\mJ^{\!\top})$. Two practical obstacles remain:
-    \begin{enumerate}
-        \item The matrix BLUE $w\!\propto\!(\mJ\Sigma_{\vv'}\mJ^{\!\top})^{-1}$ at the gradient level (rather than the trace) requires a per-sample $d\!\times\!d$ inversion, costing $\gO(d^{3})$ per sample.
-        \item The scalar form $w\!\propto\!1/\Tr(\mJ\Sigma_{\vv'}\mJ^{\!\top})$ is unbounded as $\Tr(\mJ\mJ^{\!\top})\!\to\!0$ (low-curvature regions), where the BLUE prescribes infinite weight on samples with vanishing noise floor.
-    \end{enumerate}
-
-    \paragraph{Isotropic approximation and Tikhonov stabilization.} We resolve both pathologies in two steps. First, the isotropic-noise approximation $\Sigma_{\vv'}\!\approx\!\sigma_{t}^{2}\mI_{d}$ collapses the trace to a scalar:
-    \begin{equation}
-        \Tr(\mJ\Sigma_{\vv'}\mJ^{\!\top})
-        \;=\;\sigma_{t}^{2}\,\Tr(\mJ\mJ^{\!\top}),
-        \label{eq: iso-trace}
-    \end{equation}
-    which is a single Hutchinson estimate at $\gO(d)$ cost. (\Cref{appx: sigma-schedule} discusses concrete choices of $\sigma_{t}$.) Second, we add a Tikhonov regularizer of magnitude $d$ to the denominator:
-    \begin{equation}
-        w(\vx_{t},r,t)
-        \;:=\;\frac{d}{d+\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top})}
-        \;=\;\frac{1}{1+\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top})/d},
-        \label{eq: blue-tikhonov}
-    \end{equation}
-    matching~\eqref{eq: trace-weight}. The regularization has three desirable properties:
-    \begin{itemize}
-        \item \textbf{Boundedness.} $w\!\in\!(0,1]$ for all $(\vx_{t},r,t)$, with $w\!=\!1$ exactly when $\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top})\!=\!0$ (no reweighting in flat regions).
-        \item \textbf{BLUE limit.} As $\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top})\!\to\!\infty$, $w\!\to\!d/[\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top})]$, recovering the BLUE-scalar prescription~\eqref{eq: blue-classic} up to a constant.
-        \item \textbf{Bias-variance tradeoff.} The added $d$ trades a small estimator bias (the BLUE limit is approached but not attained) for bounded weights, eliminating the divergence at low curvature.
-    \end{itemize}
-    The choice of regularizer magnitude $d$ has a clean physical reading: under the BLUE limit the noise contribution per sample equals $w\cdot\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top})\!=\!d$ (i.e., one unit per data dimension), and the regularizer is the smallest constant for which $w\!\le\!1$ uniformly.
-
-    \subsection{Proof of~\Cref{prop: trace-weight} (Trace-Weight Properties)}
-
-    \begin{proposition}[Trace-Weight Properties]
-        Under the trace-weight loss~\eqref{eq: vamf-obj} and the isotropic approximation $\Sigma_{\vv'}\!\approx\!\sigma_{t}^{2}\mI_{d}$:
-        \textbf{(a)} the mean-parameter gradient is the trace-weighted form of~\cref{prop: vamf-grad} with $w$ as a stop-gradient scalar, so the BLUE-style normalization does not enter the parameter update;
-        \textbf{(b)} the expected per-sample contribution to the loss decomposes into a deterministic signal $w\,\|\tilde{\vr}^{\text{EMA}}\|_{2}^{2}$ and a constant noise floor $w\,\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top})\!=\!d\,\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top})/(d+\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top}))\!\le\!d$, eliminating the unbounded curvature growth from~\cref{thm: jacobi-variance};
-        \textbf{(c)} $w$ is monotonically decreasing in $\Tr(\mJ\mJ^{\!\top})$ and, by~\Cref{thm: material-derivative-expansion}, in $(t{-}r)^{2}\|\frac{\mathrm{D}\vv}{\mathrm{D}t}\|^{2}$, so high-curvature long-interval samples are automatically downweighted.
-        \label[proposition]{prop: trace-weight}
-    \end{proposition}
-
-    \begin{proof}
-        \textbf{(a) Gradient form.} The trace weight $w$ in~\eqref{eq: trace-weight} is wrapped in a stop-gradient operator on $\Tr(\mJ\mJ^{\!\top})$, so $\nabla_{\vtheta}w\!=\!0$ and $w$ acts as a fixed scalar multiplier. Differentiating the trace-weighted MSE in~\eqref{eq: vamf-obj} therefore gives
-        \begin{equation}
-            \nabla_{\vtheta}\gL_{\text{VaMF}}^{\text{MF}}\;=\;2\,\E\!\left[w\,(\nabla_{\vtheta}\vu_{\vtheta})^{\!\top}\,\tilde{\vr}^{\text{EMA}}\right]\!,
-        \end{equation}
-        identical to~\cref{prop: vamf-grad} except that each per-sample contribution carries the scalar weight $w$. The conditional fluctuation $\vv'$ produces a cross term $\E[(\nabla_{\vtheta}\vu_{\vtheta})^{\!\top}\vv']\!=\!\bm{0}$ that vanishes by $\E_{\vx_{0}\mid\vx_{t}}[\vv']\!=\!\bm{0}$, so the BLUE-style normalization does not propagate into the gradient computation.
-
-        \textbf{(b) Bounded noise floor.} Writing $V_{\vtheta}^{\text{EMA}}\!-\!\vv_{\text{cond}}\!=\!\tilde{\vr}^{\text{EMA}}\!-\!\vv'$ with the EMA tangent making $\tilde{\vr}^{\text{EMA}}$ deterministic given $\vx_{t}$, the inner expectation of the per-sample loss is
-        \begin{equation}
-            \E_{\vx_{0}\mid\vx_{t}}\!\left[w\,\|V_{\vtheta}^{\text{EMA}}\!-\!\vv_{\text{cond}}\|_{2}^{2}\right]\;=\;w\,\|\tilde{\vr}^{\text{EMA}}\|_{2}^{2}+w\cdot\sigma_{t}^{2}\Tr(\Sigma_{\vv'}),
-        \end{equation}
-        where the cross term vanishes as in (a). Substituting the isotropic-noise approximation $\Sigma_{\vv'}\!\approx\!\sigma_{t}^{2}\mI_{d}$ and the explicit form of $w$ yields the noise contribution
-        \begin{equation}
-            w\cdot\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top})\;=\;\frac{\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top})}{1+\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top})/d}\;=\;\frac{d\,\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top})}{d+\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top})}\;\le\;d,
-        \end{equation}
-        with equality only in the limit $\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top})\!\to\!\infty$. The trace weight thus caps the noise term at the data dimensionality, eliminating the unbounded curvature growth from~\cref{thm: jacobi-variance}.
-
-        \textbf{(c) Curvature-aware downweighting.} The map $w(\xi)\!=\!1/(1+\sigma_{t}^{2}\xi/d)$ is strictly decreasing in $\xi\!=\!\Tr(\mJ\mJ^{\!\top})\!\ge\!0$. By~\Cref{thm: control-variate-optimum} and the Reynolds decomposition, $\E[\Tr(\mJ\mJ^{\!\top})]$ scales with $(t{-}r)^{2}\|\frac{\mathrm{D}\vv}{\mathrm{D}t}\|^{2}$ to leading order, so $w$ shrinks on the same factor and high-curvature long-interval samples are automatically downweighted---realizing the curvature-aware schedule prescribed in~\Cref{appx: blue-scalar} in a single per-sample scalar without requiring an explicit progressive schedule or interval-importance sampling.
-    \end{proof}
-
-    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    \section{Additional Results}
-    \label[appendix]{appx: additional-results}
-    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-    \subsection{Acceleration-to-Noise Ratio from the Trace Weight}
-
-    For completeness we record an alternative interpretation of the trace weight in~\cref{prop: trace-weight} as an empirical proxy for the squared \textit{acceleration-to-noise ratio}. This characterization predates the control-variate framing of~\Cref{thm: control-variate-optimum} but remains a useful sanity check in the small-curvature-gap regime; the connection becomes precise when the schedule $\sigma_{t}$ is chosen consistently with the actual conditional-velocity covariance.
-
-    \begin{proposition}[ANR from the Trace Weight]
-        Let $\rho(\vx_{t},r,t)\!:=\!\sigma_{t}^{2}\,\Tr(\mJ\mJ^{\!\top})/d$ denote the curvature term in the denominator of~\eqref{eq: trace-weight}, and assume the schedule satisfies $\sigma_{t}^{2}\!=\!\Tr(\Sigma_{\vv'})/d$ (the moment-matched isotropic approximation, achieved exactly by the \textsc{blue-gauss} schedule of~\Cref{appx: sigma-schedule} under Laplace's approximation of $\pdata$). Then near convergence,
-        \begin{equation}
-            \rho\;\approx\;\frac{\|\Delta(\vx_{t},r,t)\|^{2}}{\Tr(\Sigma_{\vv'})}\;\approx\;\frac{(t-r)^{2}}{4}\cdot\frac{\left\|\frac{\mathrm{D}\vv}{\mathrm{D}t}(\vx_{t},t)\right\|^{2}}{\Tr(\Sigma_{\vv'})}\;=\;\frac{\mathrm{ANR}(\vx_{t},r,t)^{2}}{4},
-            \label{eq: anr-trace-weight}
-        \end{equation}
-        where $\mathrm{ANR}\!:=\!(t-r)\bigl\|\frac{\mathrm{D}\vv}{\mathrm{D}t}\bigr\|/\sqrt{\Tr(\Sigma_{\vv'})}$. The trace weight is then $w\!=\!1/(1+\rho)\!=\!1/(1+\mathrm{ANR}^{2}/4)$.
-        \label[proposition]{prop: anr}
-    \end{proposition}
-
-    \begin{proof}
-        \textbf{Step 1: noise floor and curvature gap.} Under the EMA tangent (\Cref{subsec: vamf}) and at convergence, \cref{prop: bias-var} gives $\tilde{\vr}^{\text{EMA}}\!\approx\!\bm{0}$, so the per-sample loss reduces to its noise floor $\Tr(\mJ\Sigma_{\vv'}\mJ^{\!\top})$ (cf.~\eqref{eq: blue-decomp}). Substituting the Reynolds-residual expansion $\vr_{\vtheta}^{\texttt{sg}}\!=\!\Delta+(t-r)\frac{\mathrm{d}}{\mathrm{d}t}\vu_{\vtheta}$ from~\Cref{subsec: two-roles} and using the MeanFlow identity $(t-r)\frac{\mathrm{d}}{\mathrm{d}t}\vu\!=\!-\Delta$ gives the per-sample noise floor $\bigl\|\mJ\vv'\bigr\|_{2}^{2}$ at first order; taking expectations and applying the trace identity yields
-        \begin{equation}
-            \E_{\vx_{0}\mid\vx_{t}}\!\bigl[\|\mJ\vv'\|_{2}^{2}\bigr]
-            \;=\;\Tr\!\left(\mJ\,\Sigma_{\vv'}\,\mJ^{\!\top}\right)
-            \;\approx\;\bigl\|\Delta(\vx_{t},r,t)\bigr\|^{2}
-            \label{eq: noise-equals-delta}
-        \end{equation}
-        in the small-gap regime.
-
-        \textbf{Step 2: isotropic moment matching.} Under the schedule assumption $\sigma_{t}^{2}\!=\!\Tr(\Sigma_{\vv'})/d$, the isotropic-noise approximation~\eqref{eq: iso-trace} gives $\Tr(\mJ\Sigma_{\vv'}\mJ^{\!\top})\!=\!\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top})\!=\!\Tr(\Sigma_{\vv'})\Tr(\mJ\mJ^{\!\top})/d$. Combining with~\eqref{eq: noise-equals-delta},
-        \begin{equation}
-            \frac{\sigma_{t}^{2}\Tr(\mJ\mJ^{\!\top})}{d}
-            \;\approx\;\frac{\|\Delta\|^{2}}{\Tr(\Sigma_{\vv'})}
-            \quad\Longleftrightarrow\quad
-            \rho\;\approx\;\frac{\|\Delta\|^{2}}{\Tr(\Sigma_{\vv'})}.
-            \label{eq: rho-delta-bridge}
-        \end{equation}
-
-        \textbf{Step 3: substitute the flow-acceleration expansion.} \Cref{thm: material-derivative-expansion} gives $\|\Delta\|\!\approx\!\tfrac{t-r}{2}\bigl\|\frac{\mathrm{D}\vv}{\mathrm{D}t}\bigr\|$ to leading order, so $\|\Delta\|^{2}/\Tr(\Sigma_{\vv'})\!\approx\!(t-r)^{2}\bigl\|\frac{\mathrm{D}\vv}{\mathrm{D}t}\bigr\|^{2}/[4\,\Tr(\Sigma_{\vv'})]\!=\!\mathrm{ANR}^{2}/4$, completing~\eqref{eq: anr-trace-weight}.
-    \end{proof}
-
-    \paragraph{Schedule sensitivity.} The proof requires the moment-matched schedule $\sigma_{t}^{2}\!=\!\Tr(\Sigma_{\vv'})/d$. Practical schedules (\Cref{appx: sigma-schedule}) only approximate this:
-    \begin{itemize}
-        \item \textsc{blue-gauss} matches it exactly under Laplace's approximation of $\pdata$, so~\eqref{eq: anr-trace-weight} holds to leading order.
-        \item \textsc{u-shape} qualitatively tracks the location of the peak of $\Tr(\Sigma_{\vv'})$ (\cref{eq: gauss-sigma-supp}) but not its absolute scale, so the connection holds up to a $t$-dependent multiplicative constant.
-        \item \textsc{linear} and \textsc{quadratic} are monotone in $t$ and \emph{do not} approximate the U-shape; the connection in~\eqref{eq: anr-trace-weight} is then valid only as a qualitative trend rather than a quantitative identity.
-    \end{itemize}
-    The trace weight remains a valid BLUE-scalar approximation in all three cases (\Cref{appx: blue-scalar}); only the ANR \emph{interpretation} of $\rho$ is schedule-sensitive.
-
-    \subsection{Schedule $\sigma_{t}$ in the Trace Weight}
-    \label{appx: sigma-schedule}
-
-    The trace weight~\eqref{eq: trace-weight} introduces a single hyperparameter, the time-dependent scalar $\sigma_{t}$ that approximates the conditional-velocity standard-deviation scale via $\Sigma_{\vv'}\!\approx\!\sigma_{t}^{2}\mI_{d}$. The exact $\Sigma_{\vv'}$ depends on $\pdata$ and is not generally closed-form; we first derive a tractable instance under Laplace's approximation $\pdata\!\approx\!\gN(\bm{0},\sigma_{d}^{2}\mI_{d})$, then compare five practical schedules empirically.
-
-    \paragraph{Conditional-velocity variance under Laplace's approximation.} Following Laplace's approximation in Bayesian statistics~\cite{tierney1986accurate,mackay1992practical}, we replace $\pdata$ by a Gaussian centered at the mode with covariance set to the inverse Hessian of $-\log\pdata$ at that mode. Take $\vx_{0}\!\sim\!\gN(\bm{0},\sigma_{d}^{2}\mI_{d})$ and $\vx_{1}\!\sim\!\gN(\bm{0},\mI_{d})$ with the linear interpolant $\vx_{t}\!=\!(1-t)\vx_{0}+t\vx_{1}$. Conditional on $\vx_{0}$, the noise contribution is $\vx_{t}\mid\vx_{0}\!\sim\!\gN((1-t)\vx_{0},t^{2}\mI_{d})$. Combining this Gaussian likelihood with the Gaussian prior on $\vx_{0}$ via conjugate inference,
-    \begin{equation}
-        \mathrm{Var}\!\left[\vx_{0}\mid\vx_{t}\right]
-        \;=\;\frac{t^{2}\sigma_{d}^{2}}{\sigma_{d}^{2}(1-t)^{2}+t^{2}}\,\mI_{d}.
-    \end{equation}
-    Substituting $\vv_{\text{cond}}=\vx_{1}-\vx_{0}=(\vx_{t}-\vx_{0})/t$ gives
-    \begin{equation}
-        \Sigma_{\vv'}(\vx_{t},t)
-        \;=\;\frac{1}{t^{2}}\,\mathrm{Var}[\vx_{0}\mid\vx_{t}]
-        \;=\;\frac{\sigma_{d}^{2}}{\sigma_{d}^{2}(1-t)^{2}+t^{2}}\,\mI_{d}.
-        \label{eq: gauss-sigma-supp}
-    \end{equation}
-    \Cref{eq: gauss-sigma-supp} is U-shaped in $t$: at $t=0$ and $t=1$ it equals $\sigma_{d}^{2}$ (resp.\ $1$ for the unit-variance case $\sigma_{d}=1$), and at $t=0.5$ it reaches its maximum of $2\sigma_{d}^{2}/(\sigma_{d}^{2}+1)$. The peak coincides exactly with the regime where the Jacobian-deviation norm $\Tr(\mJ\mJ^{\!\top})$ from~\cref{thm: jacobi-variance} is largest, since both reflect the same physical phenomenon---mid-$t$ mode mixing.
-
-    \paragraph{Practical schedules.} Real $\pdata$ (e.g.\ image latents) is non-Gaussian and Eq.~\eqref{eq: gauss-sigma-supp} is at best a first-order approximation. We therefore benchmark five practical schedules:
-
-    \begin{description}
-        \item[\textsc{none}.] $\sigma_{t}\!=\!1$. The bare BLUE-scalar form. Serves as the cleanest test of the curvature term in isolation.
-        \item[\textsc{linear}.] $\sigma_{t}\!=\!t$. The simplest monotone schedule with $\sigma_{t}^{2}\!=\!t^{2}$ in the denominator of~\eqref{eq: trace-weight}. Suppresses high-$t$ samples where the noise has dispersed.
-        \item[\textsc{quadratic}.] $\sigma_{t}\!=\!t^{2}$, so $\sigma_{t}^{2}\!=\!t^{4}$. Steeper monotone profile, used in early experiments.
-        \item[\textsc{u-shape}.] $\sigma_{t}\!=\!\sqrt{t(1-t)}$, so $\sigma_{t}^{2}\!=\!t(1-t)$. Peaks at $t=0.5$ and vanishes at the endpoints---qualitatively matching the location of~\eqref{eq: gauss-sigma-supp}'s peak without committing to a parametric form.
-        \item[\textsc{blue-gauss}.] $\sigma_{t}^{2}\!=\!1/(\sigma_{d}^{2}(1-t)^{2}+t^{2})$ from~\eqref{eq: gauss-sigma-supp} with $\sigma_{d}\!=\!1$. The closed-form BLUE under Laplace's approximation of $\pdata$.
-    \end{description}
-
-    The toy benchmark sweep across all five schedules appears in~\Cref{sec: experiment}, the toy schedule sweep (\Cref{appx: sigma-schedule}); the empirical winner ($\sigma_t\!=\!1$) is used as the default in the main text and in~\Cref{appx: dit-results}.
-
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     \section{DiT Latent-Space Training on ImageNet}
     \label[appendix]{appx: dit-results}
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-    We test whether the variance-reduction mechanism of~\Cref{thm: jacobi-variance,thm: control-variate-optimum} scales beyond toys by training DiT~\cite{peebles2023scalablediffusion} variants on ImageNet in the latent space of a frozen Stable Diffusion VAE, following the recipe of~\cite{geng2025meanflowsonestepgenerative}. Both baselines and VaMF runs share identical hyperparameters and code paths; only the loss differs (vanilla MeanFlow MSE versus the trace-weighted MSE in~\eqref{eq: vamf-obj} with $\sigma_t\!=\!1$, the toy-sweep winner of~the toy schedule sweep (\Cref{appx: sigma-schedule}), and a single Hutchinson probe).
+    We test whether the variance-reduction mechanism of~\Cref{thm: jacobi-variance,thm: control-variate-optimum} scales beyond toys by training DiT~\cite{peebles2023scalablediffusion} variants on ImageNet in the latent space of a frozen Stable Diffusion VAE, following the recipe of~\cite{geng2025meanflowsonestepgenerative}. Both baselines and VaMF-L$_{2}$ runs share identical hyperparameters and code paths; only the loss differs (vanilla MeanFlow MSE versus the EMA-tangent VaMF-L$_{2}$ loss in~\eqref{eq: vamf-obj} with a single Hutchinson probe).
 
     \subsection{DiT-B/4, ImageNet-$256\!\times\!256$}
     \label{appx: dit-b4-256}
@@ -470,27 +254,7 @@
     \end{equation*}
     with the $\beta\!=\!0.5$ floor still descending at the cut-off. The bias amplification ratio in FID across $\beta\!=\!0.5/\beta\!=\!1$ is approximately $1.4{:}1$, not the $1{:}4$ that the gradient-MSE bias term $\beta^{2}(\kappa{+}1)^{2}\|\vb\|^{2}$ predicts---a quantitative measure of the FID-vs-MSE landscape mismatch discussed in~\Cref{subsec: exp-discussion}. The three-floor structure is the strongest empirical confirmation of the bias--variance decomposition we obtain at DiT scale.
 
-    \begin{table}[!ht]
-        \centering
-        \caption{DiT-B/4 / ImageNet-$256$ FID$_{50\text{k}}$ (lower is better) at representative $5$k-step checkpoints for the baseline ($\beta\!=\!0$, wandb \texttt{hde9iaqj}, finished step $235$k), the interior probe ($\beta\!=\!0.5$, wandb \texttt{milo2x6t}, still running), and VaMF-L$_{2}$ ($\beta\!=\!1$, wandb \texttt{hrnr0uvz}, finished step $295$k). Bottom rows give the matched-step deltas. Note that $\beta\!=\!0.5$ at step $145$k (FID $18.07$) already sits $5.3$ FID below VaMF-L$_{2}$'s final FID $23.36$, with $\beta\!=\!0.5$ still descending.}
-        \label{tab: dit-fid}
-        \resizebox{\textwidth}{!}{%
-        \begin{tabular}{lccccccccccc}
-            \toprule
-            step (k)                                     & $30$    & $40$    & $50$    & $60$    & $80$    & $100$   & $115$   & $130$   & $145$   & final \\
-            \midrule
-            baseline ($\beta\!=\!0$)                     & $128.9$ & $79.2$  & $54.5$  & $41.8$  & $28.3$  & $17.7$  & $14.4$  & $12.1$  & $10.3$  & $12.1^{\dagger}$ \\
-            $\beta\!=\!0.5$                              & $145.2$ & $94.6$  & ---     & ---     & ---     & $25.5$  & $22.2$  & $19.7$  & $18.1$  & (running) \\
-            VaMF-L$_{2}$ ($\beta\!=\!1$)                 & $148.8$ & $104.1$ & $79.9$  & $65.7$  & $49.9$  & $41.7$  & $38.0$  & $35.2$  & $32.7$  & $\mathbf{23.4}$ \\
-            \midrule
-            $\Delta$ ($\beta\!=\!0.5$ $-$ baseline)      & $+16.2$ & $+15.5$ & ---     & ---     & ---     & $+7.9$  & $+7.8$  & $+7.6$  & $+7.8$  & --- \\
-            $\Delta$ ($\beta\!=\!0.5$ $-$ VaMF-L$_{2}$)  & $-3.6$  & $-9.4$  & ---     & ---     & ---     & $-16.2$ & $-15.8$ & $-15.5$ & $-14.6$ & --- \\
-            \bottomrule
-        \end{tabular}
-        }
-        \\\smallskip
-        \footnotesize $\dagger$~Baseline run logged its last eval at step $235$k with FID $12.12$ before being stopped. We extrapolate the floor as $\mathrm{FID}^{\star}\!\approx\!12.3$.
-    \end{table}
+    \input{assets/tables/dit-fid}
 
     \begin{figure}[!ht]
         \centering
@@ -501,19 +265,6 @@
 
     \paragraph{Bias and shrinkage trajectory.} To localize the predicted optimum we measure both ingredients of~\Cref{thm: control-variate-optimum} directly on the DiT checkpoints: the EMA boundary-tracking bias by $\|\vb\|^{2}\!\triangleq\!\E_{\vx_{t}}\bigl[\|\vu_{\vtheta}(\vx_{t},t,t)\!-\!\vu_{\bar{\vtheta}}(\vx_{t},t,t)\|^{2}\bigr]$ at synthetic-Gaussian $\vx_{t}$, and the irreducible noise floor $\sigma^{2}d\!\approx\!8.2{\times}10^{3}$ from $\Tr(\Sigma_{\vv'})$ on the same batch.~\Cref{tab: dit-bias-shrinkage} reports the trajectory: the bias \emph{decays} through training, and the shrinkage factor $\sigma^{2}d/(\sigma^{2}d{+}\|\vb\|^{2})$ stays near $1$ throughout converged training. Combined with $\kappa\!\approx\!1$ from the Hutchinson trace, this places $\beta^{\star}\!\in\![0.46,\,0.50]$ across the full trajectory---firmly interior in the gradient-MSE landscape.
 
-    \begin{table}[!ht]
-        \centering
-        \caption{Direct DiT-checkpoint measurement of the bias-variance decomposition ingredients of~\Cref{thm: control-variate-optimum} at $t\!=\!0.5$. The EMA bias $\|\vb\|^{2}$ averages over $128$ synthetic-Gaussian $\vx_{t}$ samples and is reported for both methods (which track within $20\%$ of each other). The shrinkage factor uses $\sigma^{2}d\!\approx\!8.2{\times}10^{3}$. The predicted $\beta^{\star}$ uses $\kappa\!=\!1$ from the Hutchinson trace.}
-        \label{tab: dit-bias-shrinkage}
-        \begin{tabular}{lcccc}
-            \toprule
-            step (k)                              & $\|\vb\|^{2}$ (avg) & $\sigma^{2}d/(\sigma^{2}d{+}\|\vb\|^{2})$ & $\beta^{\star}$ \\
-            \midrule
-            $20$                                  & $\sim\!700$         & $0.92$                                    & $0.46$ \\
-            $40$                                  & $\sim\!150$         & $0.98$                                    & $0.49$ \\
-            $80$                                  & $\sim\!50$          & $0.99$                                    & $0.50$ \\
-            \bottomrule
-        \end{tabular}
-    \end{table}
+    \input{assets/tables/dit-bias-shrinkage}
 
 \end{appendices}

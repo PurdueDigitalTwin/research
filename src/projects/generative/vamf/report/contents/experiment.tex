@@ -27,53 +27,14 @@ We test three claims directly: (i) per-step gradient variance scales with $\bold
     \label{fig: toy-samples}
 \end{figure}
 
-\begin{table}[t]
-    \centering
-    \caption{Sliced Wasserstein distance (lower is better) on the 2-D toy benchmark, averaged over three seeds $\{42,0,1\}$ at $200$k steps. SW$_p$ is evaluated on $4096$ samples with $500$ random projections; both metrics use the \emph{same} projection key per evaluation for variance-reduced paired estimates.}
-    \label{tab: toy}
-    \begin{tabular}{llcc}
-        \toprule
-        Dataset & Metric & MeanFlow & VaMF \\
-        \midrule
-        \texttt{checkerboard}    & SW$_1$ & $0.175 \pm 0.036$ & $\mathbf{0.134 \pm 0.029}$ \\
-                                 & SW$_2$ & $0.234 \pm 0.042$ & $\mathbf{0.175 \pm 0.046}$ \\
-        \midrule
-        \texttt{eight\_gaussians}& SW$_1$ & $0.098 \pm 0.016$ & $\mathbf{0.085 \pm 0.010}$ \\
-                                 & SW$_2$ & $0.151 \pm 0.022$ & $\mathbf{0.146 \pm 0.023}$ \\
-        \midrule
-        \texttt{two\_moons}      & SW$_1$ & $0.093 \pm 0.028$ & $\mathbf{0.072 \pm 0.019}$ \\
-                                 & SW$_2$ & $0.177 \pm 0.068$ & $\mathbf{0.093 \pm 0.025}$ \\
-        \midrule
-        \texttt{swiss\_roll}     & SW$_1$ & $0.098 \pm 0.058$ & $\mathbf{0.045 \pm 0.003}$ \\
-                                 & SW$_2$ & $0.177 \pm 0.151$ & $\mathbf{0.060 \pm 0.007}$ \\
-        \midrule
-        \texttt{two\_spirals}    & SW$_1$ & $\mathbf{0.034 \pm 0.001}$ & $0.037 \pm 0.001$ \\
-                                 & SW$_2$ & $\mathbf{0.044 \pm 0.001}$ & $0.046 \pm 0.001$ \\
-        \midrule
-        \texttt{pinwheel}        & SW$_1$ & $0.094 \pm 0.011$ & $\mathbf{0.059 \pm 0.005}$ \\
-                                 & SW$_2$ & $0.128 \pm 0.014$ & $\mathbf{0.076 \pm 0.005}$ \\
-        \bottomrule
-    \end{tabular}
-\end{table}
+\input{assets/tables/toy}
 
 \subsection{High-Dimensional Scaling}
 \label{subsec: exp-dgmm}
 
 We sweep the data dimensionality on a dense Gaussian mixture (DGMM)---$64$ overlapping isotropic components on a unit sphere of radius $1.5$ in $\mathbb{R}^{d}$, $d\!\in\!\{2,4,8,16,32,64\}$. \Cref{tab: dgmm-scale} reports SW$_1$ at convergence (mean$\pm$standard error over three seeds). MeanFlow and VaMF are within one standard error at every $d$, with VaMF edging out at $d\!\in\!\{2,8,16\}$ and MeanFlow tying or marginally winning at $d\!\in\!\{32,64\}$. We attribute the absence of a widening gap to the fact that under our control-variate optimum, the noise floor reduces to $\Tr(\Sigma_{\vv'})$ (\Cref{prop: bias-var}) which is independent of $\mJ$. Since DGMM data is approximately isotropic Gaussian, $\Sigma_{\vv'}$ has structure that makes $\vb$ small---so the practical regime is already close to the unconstrained optimum, and the marginal benefit of variance reduction over the irreducible floor is limited.
 
-\begin{table}[t]
-    \centering
-    \caption{DGMM scaling: SW$_1$ at convergence as the dimension $d$ grows (mean$\pm$standard error over three seeds, $200$k steps). Methods are within one standard error at every $d$.}
-    \label{tab: dgmm-scale}
-    \begin{tabular}{lcccccc}
-        \toprule
-        $d$ & $2$ & $4$ & $8$ & $16$ & $32$ & $64$ \\
-        \midrule
-        MeanFlow & $0.152{\scriptstyle\pm0.018}$ & $\mathbf{0.083}{\scriptstyle\pm0.009}$ & $0.062{\scriptstyle\pm0.003}$ & $0.044{\scriptstyle\pm0.002}$ & $\mathbf{0.034}{\scriptstyle\pm0.001}$ & $\mathbf{0.028}{\scriptstyle\pm0.003}$ \\
-        VaMF     & $\mathbf{0.147}{\scriptstyle\pm0.012}$ & $0.083{\scriptstyle\pm0.009}$ & $\mathbf{0.061}{\scriptstyle\pm0.002}$ & $\mathbf{0.043}{\scriptstyle\pm0.002}$ & $0.036{\scriptstyle\pm0.002}$ & $0.028{\scriptstyle\pm0.001}$ \\
-        \bottomrule
-    \end{tabular}
-\end{table}
+\input{assets/tables/dgmm-scale}
 
 \subsection{Convergence Stability}
 \label{subsec: exp-stability}
