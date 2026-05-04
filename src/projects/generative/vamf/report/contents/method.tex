@@ -85,12 +85,12 @@ See the proof in~\Cref{appx: theorem-proof}. Our \Cref{thm: jacobi-variance} ide
     \label[theorem]{thm: semi-gradient-gap}
 \end{theorem}
 
-At convergence, the mean-field difference vanishes ($\vr_{\vtheta}\!\to\!\bm{0}$) and the variance-driven term dominates. Since the optimizer is \textit{blind} to the variance-amplification term in the original MeanFlow, the term is silently accumulating, producing the non-decreasing-loss empirical pathology. \Cref{fig: cm-gap} visualizes the an example case. We showcase that $\|\vv'\|$ is non-zero, increases toward the latent, and concentrates spatially in mode-mixing regions, contributing to the non-decreasing loss.
+At convergence the mean-field difference vanishes ($\vr_{\vtheta}\!\to\!\bm{0}$) and the variance-driven term $\Tr(\mJ\Sigma_{\vv'}\mJ^{\!\top})$ dominates, but the stop-gradient hides it from the optimizer---producing the empirical non-decreasing-loss pathology. \Cref{fig: cm-gap} visualizes the per-state RMS fluctuation $\sqrt{\Tr(\Sigma_{\vv'}\!\mid\!\vx_{t})}$ on a 2-D Gaussian mixture: the magnitude is non-zero, concentrates in mode-mixing regions where conditional paths overlap, and grows toward the latent endpoint.
 
 \begin{figure}[t]
     \centering
     \includegraphics[width=\textwidth]{assets/figures/illustration.pdf}
-    \caption{Conditional-marginal velocity gap with $\pdata$ a 2-D Gaussian mixture with three components. The spatial heatmap of $\E_{\vx_{0}\mid\vx_{t}}\|\vv(\vx_{t},t) - \vv(\vx_{t},t\mid\vx_{0})\|$ shows that the gap is heterogeneous and concentrates in mode-mixing regions where conditional paths overlap.}
+    \caption{Spatial heatmap of the RMS conditional fluctuation $\sqrt{\Tr(\Sigma_{\vv'}\!\mid\!\vx_{t})}\!=\!\sqrt{\E_{\vx_{0}\mid\vx_{t}}\|\vv'\|^{2}}$ at three timesteps on a 2-D three-mode mixture. The norm is taken \emph{before} the expectation, so unlike $\E[\vv']\!=\!\bm{0}$ this quantity is non-zero; it is the second moment that appears in~\Cref{thm: jacobi-variance} and concentrates in mode-mixing regions.}
     \label{fig: cm-gap}
     \vspace{-1em}
 \end{figure}
