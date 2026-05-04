@@ -4,7 +4,7 @@
 \section{Preliminaries}
 \label{sec: preliminary}
 
-\paragraph{Flow-Matching.} Let $\vx$ denote a data sample in $\gX\subset\mathbb{R}^{d}$ . Flow-matching generative models~\cite{lipman2023flowmatchinggenerativemodeling,tong2024improvinggeneralizingflowbasedgenerative} learn a time-dependent diffeomorphism $\psi(\vx,t):\mathbb{R}^{d}\!\times\![0,1]\to\mathbb{R}^{d}$ from a simple distribution $\rvx_{1}\!\sim\!{p}(\rvx,1)$ to the target $\rvx_{0}\!\sim\!{p}(\rvx,0)\!=\!\pdata$ by parameterizing a velocity field $\vv(\vx,t)\!\triangleq\!\frac{\mathrm{d}}{\mathrm{d}t}\psi(\vx,t)$. Since the exact \textit{marginal velocity field} $\vv(\vx,t)$ is generally inaccessible, conditional flow matching instead learns a conditional field $\vv(\vx,t\mid\vx_{0})\!=\!\vx_{1}-\vx_{0}$ with $\vx_{t}\!=\!(1-t)\vx_{0}+t\vx_{1}$. The substitution is justified by the following lemma. See~\Cref{appx: first} for its proof.
+\paragraph{Flow-Matching.} Let $\vx$ denote a data sample in $\gX\subset\mathbb{R}^{d}$ . Flow-matching generative models~\cite{lipman2023flowmatchinggenerativemodeling,tong2024improvinggeneralizingflowbasedgenerative} learn a time-dependent diffeomorphism $\psi(\vx,t):\mathbb{R}^{d}\!\times\![0,1]\to\mathbb{R}^{d}$ from a simple distribution $\rvx_{1}\!\sim\!{p}(\rvx,1)$ to the target $\rvx_{0}\!\sim\!{p}(\rvx,0)\!=\!\pdata$ by parameterizing a velocity field $\vv(\vx,t)\!\triangleq\!\frac{\mathrm{d}}{\mathrm{d}t}\psi(\vx,t)$. Since the exact \textit{marginal velocity field} $\vv(\vx,t)$ is generally inaccessible, conditional flow matching instead learns a conditional field $\vv(\vx,t\mid\vx_{0})\!=\!\vx_{1}-\vx_{0}$ with $\vx_{t}\!=\!(1-t)\vx_{0}+t\vx_{1}$. The following lemma justifies the substitution. See~\Cref{appx: first} for its proof.
 \begin{lemma}
     Given vector fields $\vv(\vx,t\mid\vx_{0})$ generating probability paths $p(\vx,t\mid\vx_{0})$, for any $\rvx_{0}\!\sim\!p(\rvx_{0})$, the expected conditional velocity field is equal to the marginal velocity field
     \begin{equation}
@@ -41,13 +41,13 @@ with $r,t\!\sim\!\gU(0,1)$, $r\!\leq\!t$, $\vx_{0}\!\sim\!\pdata$, $\vx_{1}\!\si
 \section{Variance Reduction in Learning Mean Flows}
 \label{sec: method}
 
-The MeanFlow loss in~\eqref{eq: mf-loss} is empirically known to be \textit{non-decreasing} and to suffer from \textit{high-variance gradients}~\cite{zhang2025alphaflowunderstandingimprovingmeanflow,geng2025improvedmeanflowschallenges}. We investigate the statistical mechanism behind this pathology. Importantly, our analysis isolates the role of the conditional velocity $\vv_{\text{cond}}$ when it appears as the JVP tangent, where it acts as a Monte Carlo control variate for the inaccessible marginal velocity, with a coefficient that vanilla MeanFlow fixes to a suboptimal value. We identify the optimal coefficient and establish a connection to a family of practical fixes proposed by concurrent work.
+The MeanFlow loss in~\eqref{eq: mf-loss} is empirically known to be \textit{non-decreasing} and to suffer from \textit{high-variance gradients}~\cite{zhang2025alphaflowunderstandingimprovingmeanflow,geng2025improvedmeanflowschallenges}. We investigate the statistical mechanism behind this pathology. Importantly, our analysis isolates the role of the conditional velocity field $\vv_{\text{cond}}$ when it appears as the JVP tangent, and identifies that it acts as a Monte Carlo control variate for the inaccessible marginal velocity, with a coefficient that the original MeanFlow fixes to a suboptimal value. We derive the optimal coefficient and establish a connection to practical fixes in concurrent works.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \subsection{Two roles of the conditional velocity field}
 \label{subsec: two-roles}
 
-With Reynolds decomposition, we express the conditional velocity by $\vv_{\text{cond}}\!=\!\vv(\vx_{t},t)+\vv'$ with $\E_{\vx_{0}\mid\vx_{t}}[\vv']\!=\!\bm{0}$ according to~\eqref{eq: margv-condv-relation} and $\Sigma_{\vv'}\!\triangleq\!\Cov_{\vx_{0}\mid\vx_{t}}[\vv']$. The MeanFlow loss in~\eqref{eq: mf-loss} substitutes $\vv_{\text{cond}}$ in two distinct positions, both as the \textit{regression target} $-\vv_{\text{cond}}$, and as the \textit{tangent} inside the total derivative. Carrying the decomposition through per-sample loss $\ell_{\text{MF}}(\vtheta)$ yields:
+With Reynolds decomposition, we express the conditional velocity by $\vv_{\text{cond}}\!=\!\vv(\vx_{t},t)+\vv'$ with $\E_{\vx_{0}\mid\vx_{t}}[\vv']\!=\!\bm{0}$ according to~\eqref{eq: margv-condv-relation} and $\Sigma_{\vv'}\!\triangleq\!\Cov_{\vx_{0}\mid\vx_{t}}[\vv']$. The MeanFlow loss in~\eqref{eq: mf-loss} substitutes $\vv_{\text{cond}}$ in two distinct positions: as the \textit{regression target} $-\vv_{\text{cond}}$, and as the \textit{tangent} inside the total derivative. Carrying the decomposition through per-sample loss $\ell_{\text{MF}}(\vtheta)$ yields:
 \begin{equation}
     \E_{\vx_{0}\mid\vx_{t}}\!\bigl[\ell_{\text{MF}}(\vtheta)\bigr]
     =\bigl\|\vr_{\vtheta}^{\texttt{sg}}\bigr\|^{2}_{2}
@@ -58,10 +58,10 @@ where $\mJ\!\triangleq\!(t{-}r)\partial_{\vz}\vu_{\vtheta}\!-\!\mI_{d}\!\in\!\ma
 
 \noindent\textbf{Unbiased Target.} As the regression target, $\vv_{\text{cond}}$ injects $\vv'$ \textit{linearly} into the residual, contributing the \emph{irreducible} per-sample noise floor $\Tr(\Sigma_{\vv'})$. This contribution is independent of $\vtheta$ and reflects the natural Monte Carlo cost of replacing the inaccessible $\vv$ by a per-sample proxy.
 
-\noindent\textbf{Variance Amplifier.} As the JVP tangent, the same $\vv_{\text{cond}}$ injects $\vv'$ \textit{multiplicatively} through the Jacobi factor $\mJ$, contributing the \emph{amplified} term $\Tr(\mJ\Sigma_{\vv'}\mJ^{\!\top})$. It scales unboundedly with the spectral magnitude of $\mJ$. We identify this amplification the dominant driver of variance at the gradient level:
+\noindent\textbf{Variance Amplifier.} As the JVP tangent, the same $\vv_{\text{cond}}$ injects $\vv'$ \textit{multiplicatively} through the Jacobi factor $\mJ$, contributing the \emph{amplified} term $\Tr(\mJ\Sigma_{\vv'}\mJ^{\!\top})$. It scales unboundedly with the spectral magnitude of $\mJ$. We identify this amplification as the dominant driver of variance at the gradient level:
 
 \begin{theorem}[Jacobian Variance Amplification]
-    Let $\boldsymbol{g}\!\triangleq\!\nabla_{\vtheta}\vu_{\vtheta}(\vx_{t},r,t)\!\in\!\mathbb{R}^{d\times p}$ be the parameter Jacobian of the average velocity. The conditional per-step gradient variance of $\ell_{\text{MF}}(\vtheta)$ in~\eqref{eq: mf-loss} satisfies
+    Let $\boldsymbol{g}\!\triangleq\!\nabla_{\vtheta}\vu_{\vtheta}(\vx_{t},r,t)\!\in\!\mathbb{R}^{d\times p}$ be the gradient of the average velocity. The conditional per-step gradient variance of $\ell_{\text{MF}}(\vtheta)$ in~\eqref{eq: mf-loss} satisfies
     \begin{equation*}
         \boxed{
             \Var\!\left[\nabla_{\vtheta}\ell_{\text{MF}}\mid\vx_{t}\right]
@@ -72,9 +72,7 @@ where $\mJ\!\triangleq\!(t{-}r)\partial_{\vz}\vu_{\vtheta}\!-\!\mI_{d}\!\in\!\ma
     \label[theorem]{thm: jacobi-variance}
 \end{theorem}
 
-The proof, in~\Cref{appx: theorem-proof}, uses the cyclic property of the trace and the positive semi-definiteness of the parameter-space Gram matrix $\boldsymbol{g}\boldsymbol{g}^{\!\top}$.~\Cref{thm: jacobi-variance} identifies the quadratic form $\boldsymbol{g}^{\!\top}\!\mJ\Sigma_{\vv'}\mJ^{\!\top}\boldsymbol{g}$ as the central object: it grows with $\|\mJ\|^{2}$ (large when the spatial Jacobian deviates from identity), saturates only at the irreducible noise floor when $\mJ\!\to\!\bm{0}$, and is uncontrolled by any term in the loss due to the use of the stop-gradient in the original MeanFlow.
-
-\paragraph{The semi-gradient gap.} The stop-gradient operator freezes this amplification from the optimizer by treating $\mJ$ as constant during backpropagation. Without stop-gradient, the optimizer could in principle reduce variance by driving $\mJ\!\to\!\bm{0}$. This establishes a \textit{semi-gradient gap}, formally:
+See the proof in~\Cref{appx: theorem-proof}. Our \Cref{thm: jacobi-variance} identifies that the gradient variance grows with $\|\mJ\|^{2}$, saturates only at the irreducible noise floor when $\mJ\!\to\!\bm{0}$, and is \emph{uncontrolled} by any term in the loss due to the use of the stop-gradient in the original MeanFlow. We notice that, without the stop-gradient operator, the optimizer could in principle reduce variance by driving $\mJ\!\to\!\bm{0}$. This establishes a \textit{semi-gradient gap}, formally:
 
 \begin{theorem}[Semi-Gradient Gap]
     The gradient of the MeanFlow loss $\gL_{\text{MF}}$ with and without the stop-gradient operator differ by
@@ -94,7 +92,7 @@ At convergence, the mean-field difference vanishes ($\vr_{\vtheta}\!\to\!\bm{0}$
     \includegraphics[width=\textwidth]{assets/figures/illustration.pdf}
     \caption{Conditional-marginal velocity gap with $\pdata$ a 2-D Gaussian mixture with three components. The spatial heatmap of $\E_{\vx_{0}\mid\vx_{t}}\|\vv(\vx_{t},t) - \vv(\vx_{t},t\mid\vx_{0})\|$ shows that the gap is heterogeneous and concentrates in mode-mixing regions where conditional paths overlap.}
     \label{fig: cm-gap}
-    \vspace{-2em}
+    \vspace{-1em}
 \end{figure}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
