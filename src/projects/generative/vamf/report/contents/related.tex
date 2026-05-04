@@ -3,24 +3,6 @@
 
 \paragraph{MeanFlow and its training pathology.} Mean Flows~\cite{geng2025meanflowsonestepgenerative} learn an average velocity field via a total-derivative identity, enabling distillation-free one-step generation. The empirical pathology---non-decreasing loss with high gradient variance---was diagnosed in concurrent work from several angles. AlphaFlow~\cite{zhang2025alphaflowunderstandingimprovingmeanflow} attributes slow convergence to gradient conflict between flow-matching and total-derivative consistency components and proposes an $\alpha$-curriculum to manage the tradeoff. Improved MeanFlow~\cite{geng2025improvedmeanflowschallenges} observes that the original compound predictor improperly depends on the conditional velocity input and replaces it with a separate marginal-velocity head trained jointly with stop-gradient. Re-MeanFlow~\cite{zhang2026overcomingcurvaturebottleneckmeanflow} addresses trajectory curvature through a reflow pre-processing step that straightens the conditional paths. Terminal Velocity Matching (TVM)~\cite{zhou2026terminalvelocitymatching} sidesteps the spatial Jacobian entirely by differentiating with respect to the terminal time. Functional Mean Flows~\cite{li2025functionalmeanflowhilbert} extends MeanFlow to Hilbert spaces and studies marginal/conditional consistency for functional data. Each of these works proposes an effective practical fix; in contrast, our work isolates the statistical role of the JVP tangent itself, identifies the conditional fluctuation $\vv'$ as a control variate with the wrong coefficient inside a semi-gradient JVP, and derives the optimal coefficient. Concurrent fixes correspond to different practical realizations of this optimum (\Cref{tab: concurrent-positioning}).
 
-\begin{table}[t]
-    \centering
-    \small
-    \caption{Concurrent fixes for MeanFlow's training pathology, located in our control-variate framework. Each method either drives $\beta\!\to\!1$ with a deterministic proxy, or reduces the amplification factor $\|\mJ\|^{2}$ directly.}
-    \label{tab: concurrent-positioning}
-    \begin{tabular}{@{}lll@{}}
-        \toprule
-        Method & Mechanism in our framework & Practical realization \\
-        \midrule
-        AlphaFlow~\cite{zhang2025alphaflowunderstandingimprovingmeanflow} & avoid high-$\kappa$ regimes & curriculum schedule \\
-        Improved MF~\cite{geng2025improvedmeanflowschallenges} & deterministic tangent ($\beta\!\to\!1$) & separate velocity head + sg \\
-        TVM~\cite{zhou2026terminalvelocitymatching} & remove the spatial Jacobian ($\mJ\!\to\!\bm{0}$) & terminal-time differentiation \\
-        Re-MeanFlow~\cite{zhang2026overcomingcurvaturebottleneckmeanflow} & reduce $\|\mJ\|$ & rectified-flow preprocessing \\
-        \textbf{VaMF (ours)} & deterministic tangent ($\beta\!\to\!1$) & EMA proxy + FM anchor \\
-        \bottomrule
-    \end{tabular}
-\end{table}
-
 \paragraph{Variance reduction in flow training.} Several recent works address variance in flow-based training from a complementary angle. Stable Velocity~\cite{yang2026stablevelocityvarianceperspective} reveals a two-regime variance structure in flow matching and proposes composite conditioning; TPC~\cite{maduabuchi2026temporalpairconsistencyvariancereduced} reduces variance through temporal pair coupling; and preconditioned flow matching~\cite{ahamed2026preconditionedscoreflowmatching} addresses ill-conditioning via anisotropic preconditioning. Bertrand et al.~\cite{bertrand2025closedformflowmatchinggeneralization} argue that stochastic-target variance is negligible for standard flow matching---consistent with our analysis, since the problematic amplification we identify is specific to the MeanFlow JVP, not the flow-matching loss itself. Rectified flows~\cite{liu2022flowstraightfastlearning,lee2024improvingrectifiedflows} reduce trajectory curvature by iterative straightening, which by~\Cref{thm: jacobi-variance} reduces $\|\mJ\|^{2}$ and hence the amplified noise term.
 
 \paragraph{Control variates and target networks.} The control-variate framework we apply has classical roots in Monte Carlo estimation~\cite{glynn2002some}; it is also the analytical structure underlying target networks in deep RL~\cite{mnih2015human} and self-distillation in self-supervised learning~\cite{grill2020bootstrap}. We make the connection explicit by interpreting the EMA-derived tangent in MeanFlow as a target-network-style proxy that drives the control-variate coefficient toward its optimum.

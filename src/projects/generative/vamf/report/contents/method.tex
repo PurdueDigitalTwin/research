@@ -72,7 +72,7 @@ where $\mJ\!\triangleq\!(t{-}r)\partial_{\vz}\vu_{\vtheta}\!-\!\mI_{d}\!\in\!\ma
     \label[theorem]{thm: jacobi-variance}
 \end{theorem}
 
-See the proof in~\Cref{appx: theorem-proof}. Our \Cref{thm: jacobi-variance} identifies that the gradient variance grows with $\|\mJ\|^{2}$, saturates only at the irreducible noise floor when $\mJ\!\to\!\bm{0}$, and is \emph{uncontrolled} by any term in the loss due to the use of the stop-gradient in the original MeanFlow. We notice that, without the stop-gradient operator, the optimizer could in principle reduce variance by driving $\mJ\!\to\!\bm{0}$. This establishes a \textit{semi-gradient gap}, formally:
+See the proof in~\Cref{appx: theorem-proof}. Our \Cref{thm: jacobi-variance} identifies that the gradient variance grows with $\|\mJ\|^{2}$, saturates only at the irreducible noise floor when $\mJ\!\to\!\bm{0}$, and is \emph{uncontrolled} by any term in the loss due to the use of the stop-gradient in the original MeanFlow. We notice that, without the stop-gradient operator, the optimizer could in principle reduce variance by driving $\mJ\!\to\!\bm{0}$. This establishes a \textit{semi-gradient gap}, formally,
 
 \begin{theorem}[Semi-Gradient Gap]
     The gradient of the MeanFlow loss $\gL_{\text{MF}}$ with and without the stop-gradient operator differ by
@@ -96,22 +96,22 @@ At convergence, the mean-field difference vanishes ($\vr_{\vtheta}\!\to\!\bm{0}$
 \end{figure}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-\subsection{Bias-variance tradeoff and the tangent as a control variate}
+\subsection{Rethinking tangent as a control variate}
 \label{subsec: control-variate}
 
-The amplification in~\Cref{thm: jacobi-variance} arises because the JVP tangent $\vv_{\text{cond}}\!=\!\vv\!+\!\vv'$ injects the zero-mean fluctuation $\vv'$. This corresponds to the canonical structure of a Monte Carlo \textit{control variate}, where $\vv_{\text{cond}}$ is a stochastic estimator of the inaccessible $\vv$ with known mean, and the coefficient on the noise term $\vv'$ can be a free parameter that determines the bias-variance trade-off. We make this explicit by introducing a tangent-mixing coefficient $\beta\!\in\![0,1]$:
+The amplification in~\Cref{thm: jacobi-variance} arises due to using $\vv_{\text{cond}}\!=\!\vv\!+\!\vv'$ as the JVP tangent injects the zero-mean fluctuation $\vv'$. This actually corresponds to the canonical structure of a Monte Carlo \textit{control variate}~\cite{glasserman2003montecarlo}, where $\vv_{\text{cond}}$ is a stochastic estimator of the inaccessible $\vv$ with known mean, and the coefficient on the noise term $\vv'$ can be a free parameter that determines the bias-variance trade-off. We make this explicit by introducing a tangent-mixing coefficient $\beta\!\in\![0,1]$:
 \begin{equation}
     \tilde{\vv}_{\text{tang}}(\beta)\;\triangleq\;(1-\beta)\,\vv_{\text{cond}} + \beta\,\hat{\vv}\;=\;\vv + (1-\beta)\,\vv' + \beta\,\vb,
     \label{eq: tangent-mix}
 \end{equation}
-where $\hat{\vv}$ can be any deterministic proxy for the marginal velocity (\textit{e.g., an EMA-derived estimate}) with bias $\vb\!\triangleq\!\hat{\vv}-\vv$ that is deterministic given $\vx_{t}$. Herein, $\beta\!=\!0$ recovers vanilla MeanFlow and $\beta\!=\!1$ replaces the tangent entirely with the deterministic proxy.
+where $\hat{\vv}$ can be any deterministic proxy for the marginal velocity (\textit{e.g., a velocity network}) with bias $\vb\!\triangleq\!\hat{\vv}-\vv$ that is deterministic given $\vx_{t}$. Herein, $\beta\!=\!0$ recovers vanilla MeanFlow and $\beta\!=\!1$ replaces the tangent entirely with the deterministic proxy.
 
-\paragraph{Bias and variance.} Substituting $\tilde{\vv}_{\text{tang}}(\beta)$ for $\vv_{\text{cond}}$ in the JVP tangent and propagating through the loss, the per-sample gradient writes
+\noindent\textbf{Bias-variance trade-off.} Substituting $\tilde{\vv}_{\text{tang}}(\beta)$ for $\vv_{\text{cond}}$ in the JVP tangent and propagating through the loss, the per-sample gradient writes
 \begin{equation}
     \boldsymbol{g}^{(\beta)} \;=\; 2\,\boldsymbol{g}^{\!\top}\!\Bigl[\vr_{\vtheta} \;+\; \bigl((1{-}\beta)\,\mJ - \beta\,\mI\bigr)\,\vv' \;+\; \beta\,(\mJ{+}\mI)\,\vb\Bigr],
     \label{eq: g-beta}
 \end{equation}
-where $\vr_{\vtheta}$ is the deterministic mean-field residual, the noise term scales the conditional fluctuation $\vv'$ by the matrix $((1{-}\beta)\,\mJ - \beta\,\mI)$, and the bias term scales the proxy error $\vb$ by $\beta\,(\mJ{+}\mI)$.
+where the noise term scales the conditional fluctuation $\vv'$ by the matrix $((1{-}\beta)\,\mJ - \beta\,\mI)$, and the bias term scales the proxy error $\vb$ by $\beta\,(\mJ{+}\mI)$. This establishes the following theorem.
 
 \begin{theorem}[Optimal control-variate coefficient]
     Under the scalar-isotropic approximation $\Sigma_{\vv'}\!\approx\!\sigma^{2}\mI_{d}$ and $\mJ\!\approx\!\kappa\mI_{d}$, the conditional MSE of $\boldsymbol{g}^{(\beta)}$ is $M(\beta) = \beta^{2}(\kappa{+}1)^{2}\|\vb\|^{2} + \sigma^{2}d\bigl((1{-}\beta)\kappa - \beta\bigr)^{2}$ and admits a unique minimizer
@@ -128,6 +128,8 @@ The proof is a direct application of bias-variance decomposition to~\eqref{eq: g
 
 \paragraph{Vanilla MeanFlow is generally suboptimal.} Vanilla MeanFlow uses $\beta\!=\!0$ which is optimal only when $\kappa\!=\!0$ (i.e., $\partial_{\vz}\vu_{\vtheta}\!=\!\frac{1}{t-r}\mI_{d}$) or when no deterministic proxy is available ($\|\vb\|\!=\!\infty$). Both conditions fail in practice: trained backbones produce $\partial_{\vz}\vu_{\vtheta}$ matrices that are spectrally far from $\frac{1}{t-r}\mI_{d}$, and an EMA copy of $\vu_{\vtheta}$ provides a viable deterministic proxy at near-zero compute cost.
 
+\input{assets/tables/concurrent}
+
 \paragraph{Concurrent fixes through this lens.} Several remedies for MeanFlow's training pathology in concurrent work can now be located in the same one-parameter family. Each fix corresponds to a different practical realization of the optimum, distinguished by \emph{which proxy} they use for $\vv$ and \emph{which value of $\beta$} the construction implicitly selects:
 \begin{itemize}
     \item \textbf{Deterministic-tangent methods} (Improved MF~\cite{geng2025improvedmeanflowschallenges}, EMA tangents) take $\beta\!\to\!1$ with a learned or EMA-derived proxy $\hat{\vv}$. The amplified noise term is eliminated; the bias term $(\mJ{+}\mI)\vb$ is controlled by training the proxy.
@@ -136,6 +138,7 @@ The proof is a direct application of bias-variance decomposition to~\eqref{eq: g
     \item \textbf{Curriculum methods} (AlphaFlow~\cite{zhang2025alphaflowunderstandingimprovingmeanflow}) avoid high-$\kappa$ regimes during training rather than reducing the variance directly.
 \end{itemize}
 None of these methods explicitly identify the control-variate structure or derive $\beta^{\star}$. We do, and we use the result both as an analytical lens for these methods and as the foundation for our practical training framework.
+
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \subsection{Variance-Aware MeanFlow}

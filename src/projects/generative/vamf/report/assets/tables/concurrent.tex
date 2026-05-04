@@ -1,0 +1,17 @@
+\begin{table}[t]
+    \centering
+    \small
+    \caption{Practical fixes in concurrent works for training pathology in MeanFlow as coefficient in control variate. Each method either drives $\beta\!\to\!1$ with a deterministic proxy, or reduces the amplification factor $\|\mJ\|^{2}$ directly.}
+    \label{tab: concurrent-positioning}
+    \begin{tabular}{@{}lll@{}}
+        \toprule
+        Method & Mechanism in our framework & Practical realization \\
+        \midrule
+        AlphaFlow~\cite{zhang2025alphaflowunderstandingimprovingmeanflow} & avoid high-$\kappa$ regimes & curriculum schedule \\
+        Improved MF~\cite{geng2025improvedmeanflowschallenges} & deterministic tangent ($\beta\!\to\!1$) & separate velocity head + sg \\
+        TVM~\cite{zhou2026terminalvelocitymatching} & remove the spatial Jacobian ($\mJ\!\to\!\bm{0}$) & terminal-time differentiation \\
+        Re-MeanFlow~\cite{zhang2026overcomingcurvaturebottleneckmeanflow} & reduce $\|\mJ\|$ & rectified-flow preprocessing \\
+        \textbf{VaMF (ours)} & deterministic tangent ($\beta\!\to\!1$) & EMA proxy + FM anchor \\
+        \bottomrule
+    \end{tabular}
+\end{table}
