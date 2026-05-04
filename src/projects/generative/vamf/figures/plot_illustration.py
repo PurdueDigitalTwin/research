@@ -87,10 +87,24 @@ def _create_samples(
     return z, data
 
 
-def _mc_marginal_velocity(z, data):
-    """Returns Monte-Carlo estimator of v(x,t) and E[||v_cond - v||]."""
+def _mc_marginal_velocity(
+    z: jax.Array,
+    data: jax.Array,
+) -> typing.Callable[[jax.Array, float], typing.Tuple[jax.Array, jax.Array]]:
+    r"""Returns Monte-Carlo estimator of v(x,t) and ``sqrt(Tr(Sigma_{v'}))``.
 
-    def velocity(x: jax.Array, t: float):
+    Args:
+        z (jax.Array): Latent features with a shape of ``(*, 2)``.
+        data (jax.Array): Samples from data distribution of shape ``(*, 2)``.
+
+    Returns:
+        A wrapped function which takes in a tuple of location ``x`` and flow
+            time step ``t`` and returns a tuple of Monte-Carlo estimator of
+            the marginal velocity ``v(x,t)`` and the trace of the covariance
+            of the conditional flunctuation.
+    """
+
+    def velocity(x: jax.Array, t: float) -> typing.Tuple[jax.Array, jax.Array]:
         cond_vf = z - data  # (N, 2)
         mu = (1 - t) * data + t * z  # (N, 2)
         log_w = (
@@ -103,10 +117,13 @@ def _mc_marginal_velocity(z, data):
         )
         weights = jax.nn.softmax(log_w, axis=-1)
         out = jnp.einsum("mn,nd->md", weights, cond_vf)
-        diffs = out[:, None, :] - cond_vf[None, :, :]
-        norms = jnp.linalg.norm(diffs, axis=-1)
-        expected_diff = jnp.sum(weights * norms, axis=-1)
-        return out, expected_diff
+        # Per-pair fluctuation v(x_t,t) - v_{cond,n}
+        diffs = out[:, None, :] - cond_vf[None, :, :]  # (M, N, 2)
+        sq_norms = jnp.sum(jnp.square(diffs), axis=-1)  # (M, N)
+        # Tr(Sigma_{v'} | x_t) = E_{x_0|x_t}[||v'||^2]
+        expected_sq = jnp.sum(weights * sq_norms, axis=-1)  # (M,)
+        rms_fluct = jnp.sqrt(expected_sq)
+        return out, rms_fluct
 
     return velocity
 
@@ -128,8 +145,8 @@ def _draw_heatmap_panel(
     is_first: bool,
     is_last: bool,
 ) -> plt.Axes:
-    _, expected_diff = velocity_fn(grid_points, t_eval)
-    diff_heatmap = expected_diff.reshape(X.shape)
+    _, rms_fluct = velocity_fn(grid_points, t_eval)
+    diff_heatmap = rms_fluct.reshape(X.shape)
 
     if buffer_radius is not None:
         x_t_eval = (1 - t_eval) * data + t_eval * z
@@ -157,7 +174,8 @@ def _draw_heatmap_panel(
         fig = ax.get_figure()
         cbar = fig.colorbar(mesh, ax=ax, fraction=0.046, pad=0.04)
         cbar.set_label(
-            r"$\mathbb{E}_{x_0 \mid x_t}\,\|v - v_{\mathrm{cond}}\|$"
+            r"$\sqrt{\mathrm{Tr}(\Sigma_{v'} \mid x_t)}"
+            r"\!=\!\sqrt{\mathbb{E}_{x_0 \mid x_t}\|v'\|^2}$"
         )
 
     # Conditional paths.
