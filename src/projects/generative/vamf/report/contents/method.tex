@@ -4,7 +4,7 @@
 \section{Preliminaries}
 \label{sec: preliminary}
 
-\paragraph{Flow-Matching.} Let $\gX\subset\mathbb{R}^{d}$ and $\vx$ a data sample. Flow-matching generative models~\cite{lipman2023flowmatchinggenerativemodeling,tong2024improvinggeneralizingflowbasedgenerative} learn a time-dependent diffeomorphism $\psi(\vx,t):\mathbb{R}^{d}\!\times\![0,1]\to\mathbb{R}^{d}$ from a simple distribution $\rvx_{1}\!\sim\!{p}(\rvx,1)$ to the target $\rvx_{0}\!\sim\!{p}(\rvx,0)\!=\!\pdata$ through parameterizing a velocity field $\vv(\vx,t)\!\triangleq\!\frac{\mathrm{d}}{\mathrm{d}t}\psi(\vx,t)$. Since the exact \textit{marginal velocity field} $\vv(\vx,t)$ is generally inaccessible, conditional flow matching instead learns a conditional field $\vv(\vx,t\mid\vx_{0})\!=\!\vx_{1}-\vx_{0}$ with $\vx_{t}\!=\!(1-t)\vx_{0}+t\vx_{1}$. The substitution is justified by the following lemma. See~\Cref{appx: first} for the proof.
+\paragraph{Flow-Matching.} Let $\vx$ denote a data sample in $\gX\subset\mathbb{R}^{d}$ . Flow-matching generative models~\cite{lipman2023flowmatchinggenerativemodeling,tong2024improvinggeneralizingflowbasedgenerative} learn a time-dependent diffeomorphism $\psi(\vx,t):\mathbb{R}^{d}\!\times\![0,1]\to\mathbb{R}^{d}$ from a simple distribution $\rvx_{1}\!\sim\!{p}(\rvx,1)$ to the target $\rvx_{0}\!\sim\!{p}(\rvx,0)\!=\!\pdata$ by parameterizing a velocity field $\vv(\vx,t)\!\triangleq\!\frac{\mathrm{d}}{\mathrm{d}t}\psi(\vx,t)$. Since the exact \textit{marginal velocity field} $\vv(\vx,t)$ is generally inaccessible, conditional flow matching instead learns a conditional field $\vv(\vx,t\mid\vx_{0})\!=\!\vx_{1}-\vx_{0}$ with $\vx_{t}\!=\!(1-t)\vx_{0}+t\vx_{1}$. The substitution is justified by the following lemma. See~\Cref{appx: first} for its proof.
 \begin{lemma}
     Given vector fields $\vv(\vx,t\mid\vx_{0})$ generating probability paths $p(\vx,t\mid\vx_{0})$, for any $\rvx_{0}\!\sim\!p(\rvx_{0})$, the expected conditional velocity field is equal to the marginal velocity field
     \begin{equation}
@@ -16,7 +16,7 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % MeanFlow
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-\paragraph{One-step Mean Flows.} Iterative integration of $\vv(\vx,t)$ at inference is expensive and can be numerically unstable. To bypass it, Mean Flows~\cite{geng2025meanflowsonestepgenerative} learn a two-parameter average velocity field $\vu(\rvx,r,t)$ via the identity
+\paragraph{One-step Mean Flows.} Iterative integration of $\vv(\vx,t)$ at inference is expensive and can be numerically unstable. To bypass it, Mean Flows~\cite{geng2025meanflowsonestepgenerative} learn a two-parameter average velocity field $\vu(\rvx,r,t)$ through regressing the identity
 \begin{equation}
     (t-r)\,\vu(\vx,r,t)=\int_{r}^{t}\vv(\vx,\tau)\,\mathrm{d}\tau.
     \label{eq: meanflow-identity}
@@ -27,7 +27,7 @@ Differentiating with respect to the terminal time $t$ yields
     \tfrac{\mathrm{d}}{\mathrm{d}t}\vu=\partial_{\vx}\vu\!\cdot\!\vv(\vx,t)+\partial_{t}\vu,
     \label{eq: td-meanflow-identity}
 \end{equation}
-where the total derivative $\frac{\mathrm{d}}{\mathrm{d}t}\vu$ is essentially a Jacobian-vector product (JVP), denoted $\texttt{JVP}(\vu,(\vx,r,t),(\vv(\vx,t),0,1))$. The original MeanFlow paper~\cite{geng2025meanflowsonestepgenerative} replaces \emph{both} occurrences of the marginal field with the conditional field $\vv_{\text{cond}}\!=\!\vx_{1}\!-\!\vx_{0}$, giving the MeanFlow loss
+where the total derivative $\frac{\mathrm{d}}{\mathrm{d}t}\vu$ is essentially a JVP, denoted by $\texttt{JVP}(\vu,(\vx,r,t),(\vv(\vx,t),0,1))$. The original MeanFlow paper~\cite{geng2025meanflowsonestepgenerative} replaces \emph{both} occurrences of the marginal field with the conditional field $\vv_{\text{cond}}\!=\!\vx_{1}\!-\!\vx_{0}$, giving the MeanFlow loss
 \begin{equation}
     \mathcal{L}_{\text{MF}}(\vtheta)=
     \E_{r,t,\vx_{0},\vx_{1}}\!\left[\left\|\vu_{\vtheta}+(t-r)\,\texttt{sg}\!\left[\texttt{JVP}(\vu_{\vtheta},(\vz,r,t),(\vv_{\text{cond}},0,1))\right]-\vv_{\text{cond}}\right\|_{2}^{2}\right],
