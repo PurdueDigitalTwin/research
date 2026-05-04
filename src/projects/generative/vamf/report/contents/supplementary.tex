@@ -44,6 +44,78 @@
     \end{proof}
 
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    \section{Implementation Details}
+    \label[appendix]{appx: implementation}
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+    To validate the framework empirically (\Cref{sec: experiment}), we instantiate the $\beta\!=\!1$ corner of~\Cref{thm: control-variate-optimum} as a backbone-preserving training recipe, \textit{Variance-Aware MeanFlow} (VaMF). Two design choices realize the corner at near-zero compute overhead.
+
+    \paragraph{EMA proxy.} We take $\hat{\vv}\!=\!\vu_{\bar{\vtheta}}(\vx_{t},t,t)$ where $\bar{\vtheta}$ is a Polyak-averaged copy of $\vtheta$~\cite{polyak1992acceleration,tarvainen2017mean}, $\bar{\vtheta}\!\gets\!\mu\bar{\vtheta}\!+\!(1{-}\mu)\vtheta$ with $\mu\!\in\![0,1)$. The resulting loss replaces the conditional tangent in~\eqref{eq: mf-loss} with the EMA proxy:
+    \begin{equation}
+        \mathcal{L}_{\text{MF}}^{\text{EMA}}(\vtheta)=
+        \E_{r,t,\vx_{0},\vx_{1}}\!\left[\left\|\vu_{\vtheta}+(t{-}r)\,\texttt{sg}\!\left[\texttt{JVP}\!\bigl(\vu_{\vtheta},(\vz,r,t),(\vu_{\bar{\vtheta},t},0,1)\bigr)\right]-\vv_{\text{cond}}\right\|_{2}^{2}\right],
+        \label{eq: ema-mf-loss}
+    \end{equation}
+    with $\vu_{\bar{\vtheta},t}\!\triangleq\!\vu(\vx_{t},t,t;\bar{\vtheta})$. Crucially, the regression target remains $\vv_{\text{cond}}$: the tangent and target play distinct statistical roles per~\Cref{subsec: two-roles}, and only the tangent needs to be replaced.
+
+    \paragraph{Flow-matching anchor.} The proxy bias $\vb\!=\!\vu_{\bar{\vtheta},t}\!-\!\vv$ must be controlled or it propagates through the $\beta\,(\mJ{+}\mI)\vb$ bias term. We supervise the boundary condition $\vu(\vx_{t},t,t)\!=\!\vv(\vx_{t},t)$ directly with a small flow-matching loss
+    \begin{equation}
+        \gL_{\text{FM}}(\vtheta)=\E_{t,\vx_{0},\vx_{1}}\!\left[\left\|\vu_{\vtheta}(\vx_{t},t{-}\delta,t)-\vv_{\text{cond}}\right\|_{2}^{2}\right],
+        \label{eq: fm-anchor}
+    \end{equation}
+    where $\delta\!\sim\!\gU[\delta_{\min},\delta_{\max}]$ with $\delta_{\max}\!\ll\!1$. For small $\delta$, $\vu(\vx_{t},t{-}\delta,t)$ approximates the instantaneous velocity, and~\eqref{eq: margv-condv-relation} guarantees $\E[\vv_{\text{cond}}\mid\vx_{t}]\!=\!\vv(\vx_{t},t)$, so $\gL_{\text{FM}}$ drives $\vu_{\vtheta}(\vx_{t},t,t)\!\to\!\vv(\vx_{t},t)$, and via EMA, $\vu_{\bar{\vtheta}}(\vx_{t},t,t)\!\to\!\vv$ and hence $\vb\!\to\!\bm{0}$. The full VaMF loss is
+    \begin{equation}
+        \gL_{\text{VaMF}}(\vtheta)=\gL_{\text{MF}}^{\text{EMA}}(\vtheta)+\lambda\,\gL_{\text{FM}}(\vtheta),
+        \label{eq: vamf-obj}
+    \end{equation}
+    with $\lambda\!>\!0$. The training procedure is~\Cref{alg: va-mf}.
+
+    \input{assets/algorithms/vamf}
+
+    \paragraph{Optimality.} The combination of EMA proxy plus FM anchor approximates the $\beta\!\to\!1$ limit of~\Cref{thm: control-variate-optimum} at the cost of one additional JVP per step.~\Cref{prop: vamf-grad,prop: bias-var} (proofs in~\Cref{appx: theorem-proof}) characterize the resulting gradient and bias structure:
+
+    \begin{proposition}[Gradient of VaMF Loss]
+        The gradient of $\gL_{\text{MF}}^{\text{EMA}}$ takes the form
+        \begin{equation*}
+            \nabla_{\vtheta}\gL_{\text{MF}}^{\text{EMA}}=2\,\E\!\left[\boldsymbol{g}\,\tilde{\vr}^{\text{EMA}}\right],
+        \end{equation*}
+        where $\tilde{\vr}^{\text{EMA}}\!\triangleq\!V_{\vtheta}^{\text{EMA}}\!-\!\vv(\vx_{t},t)$, and no $\mJ\vv'$ noise term appears.
+        \label[proposition]{prop: vamf-grad}
+    \end{proposition}
+
+    \begin{proposition}[Bias-Variance Tradeoff]
+        The EMA mean-field residual decomposes as
+        \begin{equation*}
+            \tilde{\vr}^{\text{EMA}}=\vr_{\vtheta}+(t{-}r)\,\partial_{\vz}\vu_{\vtheta}\!\left(\vu_{\bar{\vtheta}}(\vx_{t},t,t)-\vv(\vx_{t},t)\right),
+        \end{equation*}
+        where $\vr_{\vtheta}$ is the true MeanFlow residual. The FM anchor drives $\vu_{\bar{\vtheta}}(\vx_{t},t,t)\!\to\!\vv(\vx_{t},t)$, giving $\tilde{\vr}^{\text{EMA}}\!\to\!\bm{0}$.
+        \label[proposition]{prop: bias-var}
+    \end{proposition}
+
+    \paragraph{Why the target stays unbiased.} \Cref{prop: vamf-grad,prop: bias-var} treat the proxy $\hat{\vv}$ as a tangent-only replacement. A natural alternative is to substitute $\hat{\vv}$ for the regression target $\vv_{\text{cond}}$ as well, yielding a ``fully self-consistent'' loss in the spirit of self-distillation. The next proposition shows that the two replacements are not interchangeable: only the tangent admits a gap-attenuated bias.
+
+    \begin{proposition}[Target--Tangent Bias Asymmetry]
+        Let $\hat{\vv}=\vu_{\bar{\vtheta}}(\vx_{t},t,t)$ be a deterministic proxy with bias $\vb\!\triangleq\!\hat{\vv}-\vv(\vx_{t},t)$. Consider two ways of substituting $\hat{\vv}$ into~\eqref{eq: mf-loss}:
+        \begin{enumerate}
+            \item[\textnormal{(i)}] \textnormal{Tangent replacement (VaMF):} keep the target $\vv_{\text{cond}}$ but replace the JVP tangent. At the loss minimum,
+            \begin{equation*}
+                \vu^{\star}(\vx_{t},r,t)-\vv(\vx_{t},t)=-(t{-}r)\,\partial_{\vz}\vu^{\star}\,\vb+\gO(\|\vb\|^{2}),
+            \end{equation*}
+            so the stationary error is $\gO((t{-}r)\,\|\partial_{\vz}\vu\|\,\|\vb\|)$ and vanishes at $r\!\to\!t$.
+            \item[\textnormal{(ii)}] \textnormal{Target replacement:} substitute $\hat{\vv}$ for $\vv_{\text{cond}}$ in the regression target. At $r\!=\!t$ the loss minimum satisfies
+            \begin{equation*}
+                \vu^{\star}(\vx_{t},t,t)-\vv(\vx_{t},t)=\vb,
+            \end{equation*}
+            i.e., the stationary error equals the proxy bias \emph{exactly}, uniformly in $t$ and independent of the gap $(t{-}r)$.
+        \end{enumerate}
+        \label[proposition]{prop: target-tangent-asymmetry}
+    \end{proposition}
+
+    The proof is given in~\Cref{appx: theorem-proof}. The asymmetry has three immediate consequences. \emph{First,} VaMF's design choice---replace only the tangent, keep $\vv_{\text{cond}}$ as target---is not arbitrary: tangent-replacement bias is multiplicatively damped by the gap $(t{-}r)$, while target-replacement bias is not. \emph{Second,} the FM anchor in~\eqref{eq: fm-anchor} suffices to control the residual VaMF bias because it pins $\vu_{\vtheta}(\vx_{t},t,t)\!\to\!\vv$ at the boundary $r\!=\!t$, where any target-replacement scheme would require an analogous anchor at \emph{every} $(r,t)$. \emph{Third,} the proposition locates a failure mode in self-distillation--style MeanFlow variants that use a deterministic proxy for both roles: the loss admits the trivial fixed point $\vu^{\star}\!\equiv\!\hat{\vv}$, which is preserved under proxy updates and only escaped by external supervision pulling $\hat{\vv}$ back toward $\vv$ at every $t$. Concurrent methods that adopt this pattern indeed report sensitivity to the proxy-update schedule and the boundary regularizer~\cite{geng2025improvedmeanflowschallenges,zhang2026overcomingcurvaturebottleneckmeanflow}.
+
+    \Cref{prop: vamf-grad} confirms that the $\mJ\vv'$ amplification of~\Cref{thm: jacobi-variance} is eliminated; \Cref{prop: bias-var} confirms that the residual EMA bias is controlled by the FM anchor, recovering the asymptotic optimum of~\Cref{thm: control-variate-optimum}; \Cref{prop: target-tangent-asymmetry} explains why the FM anchor at the boundary $r\!=\!t$ alone is sufficient.
+
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     \section{Proofs of Theorems and Propositions}
     \label[appendix]{appx: theorem-proof}
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
