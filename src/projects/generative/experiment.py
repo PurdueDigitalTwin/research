@@ -5,6 +5,7 @@ import platform
 import traceback
 import typing
 
+from etils import epath
 import fiddle as fdl
 from flax import jax_utils
 import jax
@@ -357,7 +358,7 @@ def train_and_evaluate(
             )
 
             # Restore EMA params (saved as `params/` by the trainer).
-            params_dir = tf.io.gfile.join(ckpt_path, "params")
+            params_dir = epath.Path(ckpt_path) / "params"
             params_restore_args = jax.tree_util.tree_map(
                 lambda _: ocp.ArrayRestoreArgs(sharding=sharding),
                 params,
@@ -373,7 +374,7 @@ def train_and_evaluate(
             # Restore the rest of the train state (saved with
             # `ema_params={}` placeholder).
             state_template = dataclasses.replace(state, ema_params={})
-            state_dir = tf.io.gfile.join(ckpt_path, "state")
+            state_dir = epath.Path(ckpt_path) / "state"
             state_restore_args = jax.tree_util.tree_map(
                 lambda _: ocp.ArrayRestoreArgs(sharding=sharding),
                 state_template,
