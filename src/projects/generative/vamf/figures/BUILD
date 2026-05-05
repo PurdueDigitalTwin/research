@@ -95,3 +95,15 @@ ml_py_binary(
         ":_style",
     ],
 )
+
+ml_py_binary(
+    name = "plot_beta_sweep",
+    srcs = ["plot_beta_sweep.py"],
+    deps = [
+        "absl-py",
+        "matplotlib",
+        "numpy",
+        ":_style",
+        "//src/utilities:logging",
+    ],
+)
