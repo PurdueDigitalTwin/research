@@ -1,12 +1,12 @@
-"""Three-method FID-vs-step paper figure for the DiT-B/4 ImageNet-256 runs.
+"""Four-method FID-vs-step paper figure for the DiT-B/4 ImageNet-256 runs.
 
 The input JSON has shape ``{run_label: [(step, fid), ...], ...}``
-with run_label in {"baseline", "vamf_l2", "beta05"}.
+with run_label in {"baseline", "beta025", "beta05", "beta1"}.
 
 Usage::
 
     bazelisk run //src/projects/generative/vamf/figures:plot_dit_fid_curves -- \\
-        --fid_json=logs/vamf/dit_probe/three_method_fid.json \\
+        --fid_json=logs/vamf/dit_probe/four_method_fid.json \\
         --output=docs/generative/vamf/results/dit_fid_curves.pdf
 """
 
@@ -72,51 +72,40 @@ def main(argv: typing.List[str]) -> int:
     with open(F.fid_json) as f:
         data = json.load(f)
 
-    base = _filter(data["baseline"], F.skip_below_step)
-    vamf = _filter(data["vamf_l2"], F.skip_below_step)
-    b05 = _filter(data["beta05"], F.skip_below_step)
+    # Each label is keyed in the input JSON with the (run_label, key, marker, color, plot_kwargs) ordering.
+    series = [
+        ("baseline", r"$\beta\!=\!0$ (baseline)", "s", palette["meanflow"]),
+        (
+            "beta025",
+            r"$\beta\!=\!0.25$ (interior)",
+            "D",
+            palette.get("beta025", "#1f77b4"),
+        ),
+        ("beta05", r"$\beta\!=\!0.5$ (interior)", "^", palette["vamf_tw"]),
+        ("beta1", r"$\beta\!=\!1$ (corner)", "o", palette["vamf_l2"]),
+    ]
 
     fig, ax = plt.subplots(1, 1, figsize=(6.0, 3.6))
-
-    base_steps = np.asarray([s for s, _ in base]) / 1000.0
-    base_fids = np.asarray([f for _, f in base])
-    vamf_steps = np.asarray([s for s, _ in vamf]) / 1000.0
-    vamf_fids = np.asarray([f for _, f in vamf])
-    b05_steps = np.asarray([s for s, _ in b05]) / 1000.0
-    b05_fids = np.asarray([f for _, f in b05])
-
-    ax.semilogy(
-        base_steps,
-        base_fids,
-        marker="s",
-        markersize=4,
-        linewidth=1.6,
-        color=palette["meanflow"],
-        label=r"MeanFlow baseline ($\beta\!=\!0$)",
-    )
-    ax.semilogy(
-        b05_steps,
-        b05_fids,
-        marker="^",
-        markersize=4,
-        linewidth=1.6,
-        color=palette["vamf_tw"],
-        label=r"$\beta\!=\!0.5$ (interior)",
-    )
-    ax.semilogy(
-        vamf_steps,
-        vamf_fids,
-        marker="o",
-        markersize=4,
-        linewidth=1.6,
-        color=palette["vamf_l2"],
-        label=r"VaMF-L$_{2}$ ($\beta\!=\!1$)",
-    )
+    for key, label, marker, color in series:
+        if key not in data:
+            continue
+        traj = _filter(data[key], F.skip_below_step)
+        steps = np.asarray([s for s, _ in traj]) / 1000.0
+        fids = np.asarray([f for _, f in traj])
+        ax.semilogy(
+            steps,
+            fids,
+            marker=marker,
+            markersize=4,
+            linewidth=1.6,
+            color=color,
+            label=label,
+        )
 
     ax.set_xlabel("training step (thousands)")
     ax.set_ylabel(r"FID (lower is better)")
     ax.set_title(
-        r"DiT-B/4 ImageNet-$256$ FID convergence at three $\beta$ values"
+        r"DiT-B/4 ImageNet-$256$ FID convergence at four $\beta$ values"
     )
     ax.legend(loc="upper right", frameon=True, fontsize=9)
     ax.grid(True, which="both", linestyle=":", alpha=0.4)
