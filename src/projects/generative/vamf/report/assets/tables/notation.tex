@@ -1,24 +1,56 @@
 \begin{table}[!ht]
-    \caption{Table of Notations.}
+    \caption{Table of notations.}
     \label{tab: notation}
     \centering
     \begin{tabular}{@{}ll@{}}
         \toprule
         \textbf{Notation}  &   \textbf{Description}   \\
         \midrule
-        $\rvx$, $\rvx_{t}$  & Random variable / random variable at time $t$ \\
+        \multicolumn{2}{@{}l}{\emph{States and velocities}} \\
+        $\rvx$, $\rvx_{t}$  & Random data sample / state at interpolant time $t$ \\
         $\vx$, $\vx_{t}$ & Realized state / state at time $t$: $\vx_{t}=(1-t)\vx_{0}+t\vx_{1}$ \\
-        $\vv(\rvx,t)$ & Marginal velocity field \\
+        $\vv(\vx,t)$ & Marginal velocity field \\
         $\vv_{\text{cond}}$ & Conditional velocity: $\vv_{\text{cond}}=\vx_{1}-\vx_{0}$ \\
-        $\vv'$ & Velocity fluctuation: $\vv'=\vv_{\text{cond}}-\vv(\vx_{t},t)$, \; $\E_{\vx_{0}\mid\vx_{t}}[\vv']=\bm{0}$ \\
-        $\vu_{\vtheta}(\vx,r,t)$ & Learned average velocity field (two-parameter) \\
-        $\vu_{\bar{\vtheta}}$ & EMA average velocity with parameters $\bar{\vtheta}$ \\
-        $V_{\vtheta}^{\text{EMA}}$ & Compound prediction~\eqref{eq: ema-mf-loss} \\
-        $\mJ$ & Jacobi factor: $\mJ=(t-r)\partial_{\vz}\vu_{\vtheta}-\mI_{d}$ \\
+        $\vv'$ & Conditional velocity fluctuation: $\vv'=\vv_{\text{cond}}-\vv(\vx_{t},t)$, \; $\E_{\vx_{0}\mid\vx_{t}}[\vv']=\bm{0}$ \\
+        $\hat{\vv}$ & Deterministic proxy for $\vv$ (e.g., EMA velocity at boundary $r=t$) \\
+        \midrule
+        \multicolumn{2}{@{}l}{\emph{Networks}} \\
+        $\vu_{\vtheta}(\vx,r,t)$ & Learned two-parameter average velocity field (parameters $\vtheta$) \\
+        $\vu_{\bar{\vtheta}}$ & EMA copy of $\vu_{\vtheta}$, parameters $\bar{\vtheta}$ \\
+        \midrule
+        \multicolumn{2}{@{}l}{\emph{Spatial-Jacobian quantities}} \\
+        $\partial_{\vz}\vu_{\vtheta}$ & Spatial Jacobian of $\vu_{\vtheta}$ w.r.t.\ its first argument \\
+        $\mJ$ & Jacobi factor: $\mJ=(t-r)\partial_{\vz}\vu_{\vtheta}-\mI_{d}\in\mathbb{R}^{d\times d}$ \\
+        $\mA$ & Shorthand $\mA\!\triangleq\!\mJ+\mI_{d}=(t-r)\partial_{\vz}\vu_{\vtheta}$ \\
+        $\kappa$ & Scalar-isotropic surrogate for $\mJ$: $\mJ\!\approx\!\kappa\mI_{d}$ \\
+        \midrule
+        \multicolumn{2}{@{}l}{\emph{Bias-variance ingredients}} \\
         $\Sigma_{\vv'}$ & Conditional velocity covariance: $\Cov_{\vx_{0}\mid\vx_{t}}[\vv']$ \\
-        $\sigma_{t}$ & Conditional-velocity variance scale \\
-        $\Delta(\vx_{t},r,t)$ & Curvature gap: $\vu(\vx_{t},r,t)-\vv(\vx_{t},t)$ \\
+        $\sigma^{2}d$ & Trace of $\Sigma_{\vv'}$; in scalar-isotropic case $\Sigma_{\vv'}\!=\!\sigma^{2}\mI_{d}$ \\
+        $\vb$ & Proxy bias: $\vb\!\triangleq\!\hat{\vv}-\vv(\vx_{t},t)$ \\
+        $\widehat{\|\vb\|^{2}}$ & EMA-tracking proxy: $\E_{\vx_{t}}\!\left[\|\vu_{\vtheta}(\vx_{t},t,t)-\vu_{\bar{\vtheta}}(\vx_{t},t,t)\|^{2}\right]$ \\
+        \midrule
+        \multicolumn{2}{@{}l}{\emph{Gradients}} \\
+        $\nabla_{\vtheta}\ell_{\text{MF}}$ & Per-step gradient of the MeanFlow loss \\
+        $\boldsymbol{g}$ & Parameter Jacobian of the network output: $\boldsymbol{g}\!\triangleq\!\nabla_{\vtheta}\vu_{\vtheta}\!\in\!\mathbb{R}^{d\times p}$ \\
+        $\mG_{\vtheta}$ & Parameter-space Gram matrix: $\mG_{\vtheta}\!\triangleq\!\boldsymbol{g}\boldsymbol{g}^{\!\top}\!\in\!\mathbb{R}^{d\times d}$ \\
+        \midrule
+        \multicolumn{2}{@{}l}{\emph{Tangent-mixing coefficient}} \\
+        $\beta\!\in\![0,1]$ & Tangent-mixing coefficient~\eqref{eq: tangent-mix} \\
+        $\beta^{\star}$ & Closed-form scalar-isotropic minimizer of $M(\beta)$ in~\Cref{thm: control-variate-optimum} \\
+        $\beta^{\star}_{\text{matrix}}$ & Matrix-form minimizer (\Cref{appx: theorem-proof}, equation~\eqref{eq: beta-star-matrix}) \\
+        $M(\beta)$ & Conditional MSE of the per-sample gradient~\eqref{eq: g-beta} at coefficient $\beta$ \\
+        \midrule
+        \multicolumn{2}{@{}l}{\emph{Loss components}} \\
+        $\gL_{\text{MF}}$ & Vanilla MeanFlow loss~\eqref{eq: mf-loss} \\
+        $\gL_{\text{MF}}^{\text{EMA}}$ & EMA-tangent variant of the MeanFlow loss~\eqref{eq: ema-mf-loss} \\
+        $\gL_{\text{FM}}$ & Flow-matching anchor loss~\eqref{eq: fm-anchor} \\
+        $\gL_{\beta=1}$ & $\beta\!=\!1$ corner training loss~\eqref{eq: vamf-obj} \\
+        \midrule
+        \multicolumn{2}{@{}l}{\emph{Operators}} \\
         $\texttt{sg}[\cdot]$ & Stop-gradient operator \\
+        $\texttt{JVP}(\vu,\boldsymbol{x},\boldsymbol{v})$ & Jacobian-vector product of $\vu$ at $\boldsymbol{x}$ in tangent direction $\boldsymbol{v}$ \\
+        $\Tr(\cdot)$, $\Cov[\cdot]$, $\Var[\cdot]$ & Trace, covariance, variance \\
         \bottomrule
     \end{tabular}
 \end{table}
