@@ -236,28 +236,27 @@ def jacobian_norm(
     return results
 
 
-# ----- Experiment 5: matrix-form β★ sign and magnitude -----------------------
+# ----- Experiment 5: matrix-form optimal beta sign and magnitude --------------
 def _exp5_probe(
-    u_fn: UFn, x0: jax.Array, e: jax.Array, t_val: jax.Array, r_val: jax.Array
+    u_fn: UFn,
+    x0: jax.Array,
+    e: jax.Array,
+    t_val: jax.Array,
+    r_val: jax.Array,
 ) -> typing.Tuple[jax.Array, jax.Array]:
-    r"""Per-batch matrix-form β★ estimator (no-bias variant) at fixed ``(t, r)``.
+    r"""Per-batch matrix-form optimal beta without bias at fixed ``(t, r)``.
 
     Returns ``(mean_num, mean_den)`` such that
 
-      β★_no_bias  =  E[num] / E[den]
+    .. math::
+      \beta^{\ast}_{\text{no_bias}}  =  E[num] / E[den]
 
     is the variance-only matrix-form optimum (Theorem 4 generalization,
-    under parameter-isotropy ``G_θ ∝ I`` and dropping the bias term
+    under parameter-isotropy gradient gram matrix and dropping the bias term
     ``‖(J+I) b‖²`` from the denominator). The full β★_matrix can only
     be smaller than this value (by the bias term) and shares the same
     sign — so the *sign* of E[num] determines whether β★_matrix is
-    interior, at the corner ``β=0`` (negative), or at ``β=1``.
-
-    Per-sample expressions (with ``J = (t-r) ∂_z u_θ - I``,
-    ``v' = v_cond - u_θ(z, t, t)``):
-
-      ‖J v'‖² + (J v') · v'   =   (t-r)² ‖∂_z u_θ · v'‖²  −  (t-r) (v' · ∂_z u_θ · v')
-      ‖(J+I) v'‖²              =   (t-r)² ‖∂_z u_θ · v'‖²
+    interior, at the corner ``\\beta=0`` (negative), or at ``\\beta=1``.
     """
     n = x0.shape[0]
     t = jnp.broadcast_to(t_val, (n,))
@@ -300,17 +299,18 @@ def matrix_form_beta_star(
     fixed_gap: float = 0.25,
     log_fn: typing.Callable[..., None] | None = None,
 ) -> dict:
-    r"""Estimate the matrix-form β★ (no-bias variant) at each ``t``.
+    r"""Estimate the matrix-form optimal beta (no-bias variant) at each ``t``.
 
-    Reports per-``t`` numerator/denominator and aggregated β★_no_bias
-    across all probes. Since the bias term in the full denominator can
-    only enlarge it, the full β★_matrix obeys
+    Reports per-``t`` numerator/denominator and aggregated optimal beta without
+    bias across all probes. Since the bias term in the full denominator can
+    only enlarge it, the full optimal beta obeys
 
-      sign(β★_matrix)  =  sign(β★_no_bias),
-      |β★_matrix|     ≤  |β★_no_bias|.
+    .. math::
+      sign(\\beta^{\ast}_matrix)  =  sign(\\beta^{\ast}_{\text{no_bias}}),
+      |\\beta^{\ast}_{\text{matrix}}|\!\leq\!|\beta^{\ast}_{\text{no_bias}}|.
 
-    A negative β★_no_bias clips to corner β=0; a positive value bounds
-    the interior optimum from above.
+    A negative optimal beta without bias term clips to corner β=0;
+    a positive value bounds the interior optimum from above.
     """
 
     @jax.jit
