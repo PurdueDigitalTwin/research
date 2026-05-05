@@ -115,7 +115,11 @@ def _restore_params(model, checkpoint_dir: str) -> typing.Any:
 
     params_dir = epath.Path(os.path.join(checkpoint_dir.rstrip("/"), "params"))
     _logging.rank_zero_info("Loading checkpoint from %s...", params_dir)
-    sharding = jax.sharding.SingleDeviceSharding(jax.devices()[0])
+    # On multi-host TPU pods, ``jax.devices()[0]`` is chip 0 of worker 0,
+    # which is non-addressable from workers 1+. Use the local device so
+    # each worker loads its own copy of the model (cheap for B/4 scale,
+    # avoids cross-host coordination during restore).
+    sharding = jax.sharding.SingleDeviceSharding(jax.local_devices()[0])
     restore_args = jax.tree_util.tree_map(
         lambda _: ocp.ArrayRestoreArgs(sharding=sharding),
         params,
@@ -329,10 +333,13 @@ def main(argv: typing.List[str]) -> int:
     }
     payload = {"metadata": metadata, "results": all_results}
 
-    output_path = epath.Path(F.output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps(payload, indent=2))
-    _logging.rank_zero_info("Results saved to %s", output_path)
+    # Only worker 0 writes the result (all workers compute the same value
+    # under the same seed; gating avoids cross-host write races on gs://).
+    if jax.process_index() == 0:
+        output_path = epath.Path(F.output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(json.dumps(payload, indent=2))
+        _logging.rank_zero_info("Results saved to %s", output_path)
 
     if "exp1_variance_amplification" in all_results:
         _logging.rank_zero_info("=" * 60)
