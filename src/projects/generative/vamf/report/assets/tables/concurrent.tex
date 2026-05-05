@@ -13,9 +13,8 @@
         Kim~\textit{et al.}~\cite{kim2025understandingacceleratingmeanflow} & deterministic tangent ($\beta\!\to\!1$) & staged training schedule \\
         TVM~\cite{zhou2026terminalvelocitymatching} & remove the spatial Jacobian ($\mJ\!\to\!\bm{0}$) & terminal-time differentiation \\
         Re-MeanFlow~\cite{zhang2026overcomingcurvaturebottleneckmeanflow} & reduce $\|\mJ\|$ & rectified-flow preprocessing \\
-        Rectified MF~\cite{zhang2025rectifiedmeanflow} & reduce $\|\mJ\|$ & self-distilled trajectory straightening \\
         Decoupled MF~\cite{lee2025decoupledmeanflow} & bypass JVP construction & flow-map conditioning on later $t$ \\
-        \textbf{VaMF (ours)} & deterministic tangent ($\beta\!\to\!1$) & EMA proxy + FM anchor \\
+        \textbf{$\beta\!=\!1$ (ours)} & deterministic tangent ($\beta\!\to\!1$) & EMA proxy + FM anchor \\
         \bottomrule
     \end{tabular}
 \end{table}

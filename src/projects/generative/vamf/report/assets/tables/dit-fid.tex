@@ -1,21 +1,24 @@
 \begin{table}[!ht]
     \centering
-    \caption{DiT-B/4 / ImageNet-$256$ FID$_{50\text{k}}$ (lower is better) at representative $5$k-step checkpoints for the baseline ($\beta\!=\!0$, wandb \texttt{hde9iaqj}, finished step $235$k), the interior probe ($\beta\!=\!0.5$, wandb \texttt{milo2x6t}, still running), and VaMF-L$_{2}$ ($\beta\!=\!1$, wandb \texttt{hrnr0uvz}, finished step $295$k). Bottom rows give the matched-step deltas. Note that $\beta\!=\!0.5$ at step $145$k (FID $18.07$) already sits $5.3$ FID below VaMF-L$_{2}$'s final FID $23.36$, with $\beta\!=\!0.5$ still descending.}
+    \caption{DiT-B/4 / ImageNet-$256$ FID$_{50\text{k}}$ (lower is better) at representative $5$k-step checkpoints across the four-point $\beta$-sweep. The baseline ($\beta\!=\!0$) and $\beta\!=\!1$ corner runs were trained to completion ($235$k and $295$k logged steps, respectively); the interior probe at $\beta\!=\!0.5$ completed its scheduled $300$k steps with final FID $12.51$ at step $295$k; the interior probe at $\beta\!=\!0.25$ is still training at the time of submission, with the latest logged FID at step $145$k. Bottom rows give the matched-step deltas. The four-point ordering $\mathrm{FID}(\beta\!=\!0)\!<\!\mathrm{FID}(\beta\!=\!0.25)\!<\!\mathrm{FID}(\beta\!=\!0.5)\!<\!\mathrm{FID}(\beta\!=\!1)$ holds at every matched-step checkpoint.}
     \label{tab: dit-fid}
     \resizebox{\textwidth}{!}{%
-    \begin{tabular}{lccccccccccc}
+    \begin{tabular}{lcccccccccc}
         \toprule
         step (k)                                     & $30$    & $40$    & $50$    & $60$    & $80$    & $100$   & $115$   & $130$   & $145$   & final \\
         \midrule
         baseline ($\beta\!=\!0$)                     & $128.9$ & $79.2$  & $54.5$  & $41.8$  & $28.3$  & $17.7$  & $14.4$  & $12.1$  & $10.3$  & $12.1^{\dagger}$ \\
-        $\beta\!=\!0.5$                              & $145.2$ & $94.6$  & ---     & ---     & ---     & $25.5$  & $22.2$  & $19.7$  & $18.1$  & (running) \\
-        VaMF-L$_{2}$ ($\beta\!=\!1$)                 & $148.8$ & $104.1$ & $79.9$  & $65.7$  & $49.9$  & $41.7$  & $38.0$  & $35.2$  & $32.7$  & $\mathbf{23.4}$ \\
+        $\beta\!=\!0.25$                             & $138.5$ & $88.4$  & $61.6$  & $46.7$  & $30.4$  & $23.3$  & $20.3$  & $18.3$  & $16.7$  & (running)$^{\ddagger}$ \\
+        $\beta\!=\!0.5$                              & $145.2$ & $94.6$  & n/a     & n/a     & n/a     & $25.5$  & $22.2$  & $19.7$  & $18.1$  & $\mathbf{12.5}$ \\
+        $\beta\!=\!1$                 & $148.8$ & $104.1$ & $79.9$  & $65.7$  & $49.9$  & $41.7$  & $38.0$  & $35.2$  & $32.7$  & $\mathbf{23.4}$ \\
         \midrule
-        $\Delta$ ($\beta\!=\!0.5$ $-$ baseline)      & $+16.2$ & $+15.5$ & ---     & ---     & ---     & $+7.9$  & $+7.8$  & $+7.6$  & $+7.8$  & --- \\
-        $\Delta$ ($\beta\!=\!0.5$ $-$ VaMF-L$_{2}$)  & $-3.6$  & $-9.4$  & ---     & ---     & ---     & $-16.2$ & $-15.8$ & $-15.5$ & $-14.6$ & --- \\
+        $\Delta$ ($\beta\!=\!0.25$ $-$ baseline)     & $+9.6$  & $+9.2$  & $+7.1$  & $+4.9$  & $+2.1$  & $+5.6$  & $+5.9$  & $+6.2$  & $+6.4$  & n/a \\
+        $\Delta$ ($\beta\!=\!0.5$ $-$ baseline)      & $+16.3$ & $+15.4$ & n/a     & n/a     & n/a     & $+7.8$  & $+7.8$  & $+7.6$  & $+7.8$  & n/a \\
+        $\Delta$ ($\beta\!=\!1$ $-$ baseline)         & $+19.9$ & $+24.9$ & $+25.4$ & $+23.9$ & $+21.6$ & $+24.0$ & $+23.6$ & $+23.1$ & $+22.4$ & n/a \\
         \bottomrule
     \end{tabular}
     }
     \\\smallskip
-    \footnotesize $\dagger$~Baseline run logged its last eval at step $235$k with FID $12.12$ before being stopped. We extrapolate the floor as $\mathrm{FID}^{\star}\!\approx\!12.3$.
+    \footnotesize $\dagger$~The baseline run was stopped at step $235$k with last logged FID $12.12$; its minimum logged FID was $10.34$ at step $145$k, with mild late-training drift thereafter. We report the late-training value as the empirical asymptotic floor for the matched-step comparison.
+    \\$\ddagger$~Latest logged $\beta\!=\!0.25$ FID at the time of submission is $14.79$ at step $170$k, still descending; the run is scheduled for $300$k total steps.
 \end{table}

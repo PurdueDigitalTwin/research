@@ -8,7 +8,7 @@
 \begin{lemma}
     Given vector fields $\vv(\vx,t\mid\vx_{0})$ generating probability paths $p(\vx,t\mid\vx_{0})$, for any $\rvx_{0}\!\sim\!p(\rvx_{0})$, the expected conditional velocity field is equal to the marginal velocity field
     \begin{equation}
-        \vv(\vx,t)=\E_{\vx_{0}\sim{p(\vx_{0},t\mid\vx)}}\!\left[\vv(\vx,t\mid\vx_{0})\right].
+        \vv(\vx,t)=\E_{\vx_{0}\sim{p(\vx_{0}\mid\vx_{t}=\vx)}}\!\left[\vv(\vx,t\mid\vx_{0})\right].
         \label{eq: margv-condv-relation}
     \end{equation}
 \end{lemma}
@@ -16,12 +16,12 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % MeanFlow
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-\paragraph{One-step Mean Flows.} Iterative integration of $\vv(\vx,t)$ at inference is expensive and can be numerically unstable. To bypass it, Mean Flows~\cite{geng2025meanflowsonestepgenerative} learn a two-parameter average velocity field $\vu(\rvx,r,t)$ through regressing the identity
+\paragraph{One-step Mean Flows.} Iterative integration of $\vv(\vx,t)$ at inference is expensive and can be numerically unstable. To bypass it, Mean Flows~\cite{geng2025meanflowsonestepgenerative} learn a two-parameter average velocity field $\vu(\rvx,r,t)$ through regressing the identity along the flow trajectory $\vx_{\tau}\!=\!\psi(\vx_{r},\tau)$ initialized at $\vx_{r}\!=\!\vx$:
 \begin{equation}
-    (t-r)\,\vu(\vx,r,t)=\int_{r}^{t}\vv(\vx,\tau)\,\mathrm{d}\tau.
+    (t-r)\,\vu(\vx,r,t)=\int_{r}^{t}\vv(\vx_{\tau},\tau)\,\mathrm{d}\tau.
     \label{eq: meanflow-identity}
 \end{equation}
-Differentiating with respect to the terminal time $t$ yields
+Differentiating with respect to the terminal time $t$ along the same trajectory yields
 \begin{equation}
     \vu(\vx,r,t)+(t-r)\tfrac{\mathrm{d}}{\mathrm{d}t}\vu(\vx,r,t)=\vv(\vx,t),\qquad
     \tfrac{\mathrm{d}}{\mathrm{d}t}\vu=\partial_{\vx}\vu\!\cdot\!\vv(\vx,t)+\partial_{t}\vu,
@@ -54,38 +54,38 @@ With Reynolds decomposition, we express the conditional velocity by $\vv_{\text{
     +\texttt{sg}\!\bigl[\Tr(\mJ\Sigma_{\vv'}\mJ^{\!\top})\bigr],
     \label{eq: per-sample-expand}
 \end{equation}
-where $\mJ\!\triangleq\!(t{-}r)\partial_{\vz}\vu_{\vtheta}\!-\!\mI_{d}\!\in\!\mathbb{R}^{d\times d}$ is a \textit{Jacobi factor} determined by the Jacobian matrix $\partial_{\vz}\vu_{\vtheta}$ and $\vr_{\vtheta}^{\texttt{sg}}\!\triangleq\!\vu_{\vtheta}\!+\!(t{-}r)\,\texttt{sg}[\partial_{\vz}\vu_{\vtheta}\!\cdot\!\vv\!+\!\partial_{t}\vu_{\vtheta}]\!-\!\vv$ is the deterministic mean-field residual. Since the residual $\vr_{\vtheta}^{\texttt{sg}}$ is the exact loss we aim to minimize given by~\eqref{eq: td-meanflow-identity}, the trace term leads to the non-decreasing loss and eliminates $\textit{iff}$ the Jacobi satisfies $\partial_{\vx}\vu_{\vtheta}=(t-r)\mI_{d}$. As a result, we identify two roles of the conditional velocity field in this decomposition:
+where $\mJ\!\triangleq\!(t{-}r)\partial_{\vz}\vu_{\vtheta}\!-\!\mI_{d}\!\in\!\mathbb{R}^{d\times d}$ is a \textit{Jacobi factor} determined by the Jacobian matrix $\partial_{\vz}\vu_{\vtheta}$ and $\vr_{\vtheta}^{\texttt{sg}}\!\triangleq\!\vu_{\vtheta}\!+\!(t{-}r)\,\texttt{sg}[\partial_{\vz}\vu_{\vtheta}\!\cdot\!\vv\!+\!\partial_{t}\vu_{\vtheta}]\!-\!\vv$ is the deterministic mean-field residual. Since the residual $\vr_{\vtheta}^{\texttt{sg}}$ is the exact loss we aim to minimize given by~\eqref{eq: td-meanflow-identity}, the trace term leads to the non-decreasing loss and eliminates $\textit{iff}$ the Jacobi satisfies $\partial_{\vz}\vu_{\vtheta}=\frac{1}{t-r}\mI_{d}$ (equivalently, $\mJ\!=\!\bm{0}$). As a result, we identify two roles of the conditional velocity field in this decomposition:
 
 \noindent\textbf{Unbiased Target.} As the regression target, $\vv_{\text{cond}}$ injects $\vv'$ \textit{linearly} into the residual, contributing the \emph{irreducible} per-sample noise floor $\Tr(\Sigma_{\vv'})$. This contribution is independent of $\vtheta$ and reflects the natural Monte Carlo cost of replacing the inaccessible $\vv$ by a per-sample proxy.
 
 \noindent\textbf{Variance Amplifier.} As the JVP tangent, the same $\vv_{\text{cond}}$ injects $\vv'$ \textit{multiplicatively} through the Jacobi factor $\mJ$, contributing the \emph{amplified} term $\Tr(\mJ\Sigma_{\vv'}\mJ^{\!\top})$. It scales unboundedly with the spectral magnitude of $\mJ$. We identify this amplification as the dominant driver of variance at the gradient level:
 
 \begin{theorem}[Jacobian Variance Amplification]
-    Let $\boldsymbol{g}\!\triangleq\!\nabla_{\vtheta}\vu_{\vtheta}(\vx_{t},r,t)\!\in\!\mathbb{R}^{d\times p}$ be the gradient of the average velocity. The conditional per-step gradient variance of $\ell_{\text{MF}}(\vtheta)$ in~\eqref{eq: mf-loss} satisfies
+    Let $\boldsymbol{g}\!\triangleq\!\nabla_{\vtheta}\vu_{\vtheta}(\vx_{t},r,t)\!\in\!\mathbb{R}^{d\times p}$ be the parameter Jacobian of the average velocity. The trace of the conditional gradient covariance of $\ell_{\text{MF}}(\vtheta)$ in~\eqref{eq: mf-loss} satisfies
     \begin{equation*}
         \boxed{
-            \Var\!\left[\nabla_{\vtheta}\ell_{\text{MF}}\mid\vx_{t}\right]
+            \Tr\!\left(\Cov\!\left[\nabla_{\vtheta}\ell_{\text{MF}}\mid\vx_{t}\right]\right)
             \;\propto\;
-            \boldsymbol{g}^{\!\top}\,\mJ\,\Sigma_{\vv'}\,\mJ^{\!\top}\,\boldsymbol{g}.
+            \Tr\!\left(\boldsymbol{g}^{\!\top}\,\mJ\,\Sigma_{\vv'}\,\mJ^{\!\top}\,\boldsymbol{g}\right).
         }
     \end{equation*}
     \label[theorem]{thm: jacobi-variance}
 \end{theorem}
 
-See the proof in~\Cref{appx: theorem-proof}. Our \Cref{thm: jacobi-variance} identifies that the gradient variance grows with $\|\mJ\|^{2}$, saturates only at the irreducible noise floor when $\mJ\!\to\!\bm{0}$, and is \emph{uncontrolled} by any term in the loss due to the use of the stop-gradient in the original MeanFlow. We notice that, without the stop-gradient operator, the optimizer could in principle reduce variance by driving $\mJ\!\to\!\bm{0}$. This establishes a \textit{semi-gradient gap}, formally,
+See the proof in~\Cref{appx: theorem-proof}. Our \Cref{thm: jacobi-variance} identifies that the scalar gradient variance grows with $\|\mJ\|^{2}$ (for fixed $\boldsymbol{g}$ and $\Sigma_{\vv'}$), saturates only at the irreducible noise floor when $\mJ\!\to\!\bm{0}$, and is \emph{uncontrolled} by any term in the loss due to the use of the stop-gradient in the original MeanFlow. We notice that, without the stop-gradient operator, the optimizer could in principle reduce variance by driving $\mJ\!\to\!\bm{0}$. This establishes a \textit{semi-gradient gap}, formally,
 
 \begin{theorem}[Semi-Gradient Gap]
     The gradient of the MeanFlow loss $\gL_{\text{MF}}$ with and without the stop-gradient operator differ by
     \begin{equation*}
         \boxed{
-            \underbrace{2(t{-}r)\,\E\!\left[\nabla_{\vtheta}\!\left(\partial_{\vx_{t}}\vu_{\vtheta}\!\cdot\!\vv+\partial_{t}\vu_{\vtheta}\right)\!\cdot\!\vr_{\vtheta}\right]}_{\text{mean-field gradient difference}}
+            \underbrace{2(t{-}r)\,\E\!\left[\bigl(\nabla_{\vtheta}\!\left(\partial_{\vz}\vu_{\vtheta}\!\cdot\!\vv+\partial_{t}\vu_{\vtheta}\right)\bigr)^{\!\top}\vr_{\vtheta}\right]}_{\text{mean-field gradient difference}}
             +\underbrace{\E\!\left[\nabla_{\vtheta}\Tr\!\left(\mJ\Sigma_{\vv'}\mJ^{\!\top}\right)\right]}_{\text{variance-driven gradient difference}}.
         }
     \end{equation*}
     \label[theorem]{thm: semi-gradient-gap}
 \end{theorem}
 
-At convergence the mean-field difference vanishes ($\vr_{\vtheta}\!\to\!\bm{0}$) and the variance-driven term $\Tr(\mJ\Sigma_{\vv'}\mJ^{\!\top})$ dominates, but the stop-gradient hides it from the optimizer---producing the empirical non-decreasing-loss pathology. \Cref{fig: cm-gap} visualizes the per-state RMS fluctuation $\sqrt{\Tr(\Sigma_{\vv'}\!\mid\!\vx_{t})}$ on a 2-D Gaussian mixture: the magnitude is non-zero, concentrates in mode-mixing regions where conditional paths overlap, and grows toward the latent endpoint.
+At convergence the mean-field difference vanishes ($\vr_{\vtheta}\!\to\!\bm{0}$) and the variance-driven term $\Tr(\mJ\Sigma_{\vv'}\mJ^{\!\top})$ dominates, but the stop-gradient hides it from the optimizer, producing the empirical non-decreasing-loss pathology. \Cref{fig: cm-gap} visualizes the per-state RMS fluctuation $\sqrt{\Tr(\Sigma_{\vv'}\!\mid\!\vx_{t})}$ on a 2-D Gaussian mixture: the magnitude is non-zero, concentrates in mode-mixing regions where conditional paths overlap, and grows toward the latent endpoint.
 
 \begin{figure}[t]
     \centering
@@ -118,13 +118,17 @@ where the noise term scales the conditional fluctuation $\vv'$ by the matrix $((
     \begin{equation*}
         M(\beta)\;\triangleq\;\E_{\vv'\mid\vx_{t}}\bigl[\bigl\|\boldsymbol{g}^{(\beta)}-2\,\boldsymbol{g}^{\!\top}\vr_{\vtheta}\bigr\|_{2}^{2}\bigr].
     \end{equation*}
-    Under the scalar-isotropic approximation $\Sigma_{\vv'}\!\approx\!\sigma^{2}\mI_{d}$ and $\mJ\!\approx\!\kappa\mI_{d}$, $M(\beta) = \beta^{2}(\kappa{+}1)^{2}\|\vb\|^{2} + \sigma^{2}d\bigl((1{-}\beta)\kappa - \beta\bigr)^{2}$ and admits a unique minimizer
+    Under the scalar-isotropic approximation $\Sigma_{\vv'}\!\approx\!\sigma^{2}\mI_{d}$, $\mJ\!\approx\!\kappa\mI_{d}$, and the parameter-isotropy approximation $\boldsymbol{g}\boldsymbol{g}^{\!\top}\!\propto\!\mI_{d}$ (which reduces $M$ to a per-component MSE; cf.~\Cref{appx: theorem-proof}),
+    \begin{equation*}
+        M(\beta) \;\propto\; \beta^{2}(\kappa{+}1)^{2}\|\vb\|^{2} + \sigma^{2}d\bigl((1{-}\beta)\kappa - \beta\bigr)^{2}.
+    \end{equation*}
+    For $\kappa\!>\!0$, $M(\beta)$ admits a unique minimizer
     \begin{equation*}
         \boxed{
             \beta^{\star} \;=\; \underbrace{\frac{\kappa}{\kappa+1}}_{\text{noise-cancellation}}\;\cdot\;\underbrace{\frac{\sigma^{2}d}{\sigma^{2}d + \|\vb\|^{2}}}_{\text{shrinkage}},
         }
     \end{equation*}
-    with optimum value $M(\beta^{\star})\!=\!\sigma^{2}d\,\kappa^{2}\,\|\vb\|^{2}/(\sigma^{2}d+\|\vb\|^{2})$. For all $\kappa,\|\vb\|^{2}\!>\!0$, $M(\beta^{\star})$ strictly dominates both corner MSEs $M(0)\!=\!\sigma^{2}\kappa^{2}d$ (vanilla MeanFlow) and $M(1)\!=\!(\kappa{+}1)^{2}\|\vb\|^{2}+\sigma^{2}d$ (deterministic-tangent estimator with bias).
+    with optimum value $M(\beta^{\star})\!\propto\!\sigma^{2}d\,\kappa^{2}\,\|\vb\|^{2}/(\sigma^{2}d+\|\vb\|^{2})$. For all $\kappa,\|\vb\|^{2}\!>\!0$, $M(\beta^{\star})$ strictly dominates both corner MSEs $M(0)\!\propto\!\sigma^{2}\kappa^{2}d$ (vanilla MeanFlow) and $M(1)\!\propto\!(\kappa{+}1)^{2}\|\vb\|^{2}+\sigma^{2}d$ (deterministic-tangent estimator with bias). The boundary case $\kappa\!=\!-1$ (which corresponds to $\partial_{\vz}\vu_{\vtheta}\!=\!\bm{0}$ at initialization) leaves $M(\beta)$ constant and is excluded.
     \label[theorem]{thm: control-variate-optimum}
 \end{theorem}
 
@@ -145,7 +149,7 @@ None of these methods explicitly identify the control-variate structure or deriv
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-\subsection{Empirical instantiation: Variance-Aware MeanFlow (VaMF)}
+\subsection{Empirical instantiation of the $\beta\!=\!1$ corner}
 \label{subsec: vamf}
 
-To validate the framework empirically, we need a concrete realization of $\beta^{\star}$ that we can sweep at scale. We construct \textit{Variance-Aware MeanFlow} (VaMF) as a controlled instance of the $\beta\!=\!1$ corner: the JVP tangent is replaced by an EMA-derived deterministic proxy $\hat{\vv}\!=\!\vu_{\bar{\vtheta}}(\vx_{t},t,t)$, and a small flow-matching anchor at $r\!=\!t$ keeps the proxy bias $\vb\!=\!\hat{\vv}-\vv$ small so the bias term $\beta(\mJ{+}\mI)\vb$ in~\eqref{eq: g-beta} stays controlled. The regression target remains $\vv_{\text{cond}}$ unchanged---only the tangent is replaced, exploiting the role asymmetry of~\Cref{subsec: two-roles}. The construction adds one extra JVP per step relative to vanilla MeanFlow. \Cref{appx: implementation} gives the full loss, training algorithm, and three propositions characterizing the resulting gradient form, residual bias, and the necessity of the target--tangent role split. In~\Cref{sec: experiment} we sweep $\beta\!\in\!\{0,0.25,0.5,1\}$ with VaMF realizing the $\beta\!=\!1$ corner, the linear interpolation realizing $\beta\!\in\!\{0.25,0.5\}$, and vanilla MeanFlow realizing $\beta\!=\!0$.
+To validate the framework empirically, we need a concrete realization of $\beta^{\star}$ that we can sweep at scale. We construct a controlled instance of the $\beta\!=\!1$ corner of~\Cref{thm: control-variate-optimum}: the JVP tangent is replaced by an EMA-derived deterministic proxy $\hat{\vv}\!=\!\vu_{\bar{\vtheta}}(\vx_{t},t,t)$, and a small flow-matching anchor at $r\!=\!t$ keeps the proxy bias $\vb\!=\!\hat{\vv}-\vv$ small so the bias term $\beta(\mJ{+}\mI)\vb$ in~\eqref{eq: g-beta} stays controlled. The regression target remains $\vv_{\text{cond}}$ unchanged; only the tangent is replaced, exploiting the role asymmetry of~\Cref{subsec: two-roles}. The construction adds one extra JVP per step relative to vanilla MeanFlow. \Cref{appx: implementation} gives the full loss, training algorithm, and three propositions characterizing the resulting gradient form, residual bias, and the necessity of the target/tangent role split. In~\Cref{sec: experiment} we sweep $\beta\!\in\!\{0,0.25,0.5,1\}$ with the EMA-tangent recipe realizing the $\beta\!=\!1$ corner, the linear interpolation realizing $\beta\!\in\!\{0.25,0.5\}$, and vanilla MeanFlow realizing $\beta\!=\!0$.
