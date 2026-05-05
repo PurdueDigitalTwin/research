@@ -347,10 +347,55 @@ def train_and_evaluate(
 
     if exp_config.mode == "train":
         if exp_config.trainer.checkpoint_dir is not None:
-            logging.rank_zero_error(
-                "Resuming from checkpoint not implemented."
+            ckpt_path = exp_config.trainer.checkpoint_dir.rstrip("/")
+            logging.rank_zero_info(
+                "Resuming from checkpoint: %s", ckpt_path
             )
-            return 1
+            # Sharding for single-device load (pre-replication).
+            sharding = jax.sharding.SingleDeviceSharding(
+                jax.local_devices()[0]
+            )
+
+            # Restore EMA params (saved as `params/` by the trainer).
+            params_dir = tf.io.gfile.join(ckpt_path, "params")
+            params_restore_args = jax.tree_util.tree_map(
+                lambda _: ocp.ArrayRestoreArgs(sharding=sharding),
+                params,
+            )
+            params_handler = ocp.PyTreeCheckpointHandler()
+            ema_params_loaded = params_handler.restore(
+                directory=params_dir,
+                item=params,
+                transforms=None,
+                restore_args=params_restore_args,
+            )
+
+            # Restore the rest of the train state (saved with
+            # `ema_params={}` placeholder).
+            state_template = dataclasses.replace(state, ema_params={})
+            state_dir = tf.io.gfile.join(ckpt_path, "state")
+            state_restore_args = jax.tree_util.tree_map(
+                lambda _: ocp.ArrayRestoreArgs(sharding=sharding),
+                state_template,
+            )
+            state_handler = ocp.PyTreeCheckpointHandler()
+            state_restored = state_handler.restore(
+                directory=state_dir,
+                item=state_template,
+                transforms=None,
+                restore_args=state_restore_args,
+            )
+            # Re-attach EMA params to the restored state.
+            state = dataclasses.replace(
+                state_restored, ema_params=ema_params_loaded
+            )
+            params = state.params
+            jax.block_until_ready(state)
+            logging.rank_zero_info(
+                "Resumed train state at step %d (target %d).",
+                int(state.step),
+                exp_config.trainer.num_train_steps,
+            )
         logging.rank_zero_info("Compiling training step functions...")
         rng, train_key, eval_key = jax.random.split(rng, num=3)
         p_train_step = functools.partial(model.training_step, rngs=train_key)
