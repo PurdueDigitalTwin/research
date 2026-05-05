@@ -234,3 +234,130 @@ def jacobian_norm(
                 float(J_mean),
             )
     return results
+
+
+# ----- Experiment 5: matrix-form β★ sign and magnitude -----------------------
+def _exp5_probe(
+    u_fn: UFn, x0: jax.Array, e: jax.Array, t_val: jax.Array, r_val: jax.Array
+) -> typing.Tuple[jax.Array, jax.Array]:
+    r"""Per-batch matrix-form β★ estimator (no-bias variant) at fixed ``(t, r)``.
+
+    Returns ``(mean_num, mean_den)`` such that
+
+      β★_no_bias  =  E[num] / E[den]
+
+    is the variance-only matrix-form optimum (Theorem 4 generalization,
+    under parameter-isotropy ``G_θ ∝ I`` and dropping the bias term
+    ``‖(J+I) b‖²`` from the denominator). The full β★_matrix can only
+    be smaller than this value (by the bias term) and shares the same
+    sign — so the *sign* of E[num] determines whether β★_matrix is
+    interior, at the corner ``β=0`` (negative), or at ``β=1``.
+
+    Per-sample expressions (with ``J = (t-r) ∂_z u_θ - I``,
+    ``v' = v_cond - u_θ(z, t, t)``):
+
+      ‖J v'‖² + (J v') · v'   =   (t-r)² ‖∂_z u_θ · v'‖²  −  (t-r) (v' · ∂_z u_θ · v')
+      ‖(J+I) v'‖²              =   (t-r)² ‖∂_z u_θ · v'‖²
+    """
+    n = x0.shape[0]
+    t = jnp.broadcast_to(t_val, (n,))
+    r = jnp.broadcast_to(r_val, (n,))
+    gap = _gap_broadcast(t - r, x0.ndim)
+    z = (1.0 - _gap_broadcast(t, x0.ndim)) * x0 + _gap_broadcast(
+        t, x0.ndim
+    ) * e
+    v_cond = e - x0
+
+    # Marginal estimate from the model's own boundary u_θ(z, t, t).
+    # This is the same approximation used by the existing EMA-bias probe;
+    # at a converged checkpoint it has small bias |b| and the matrix-form
+    # β★ sign reading is robust to that residual bias.
+    v_marginal = jax.lax.stop_gradient(u_fn(z, t, t))
+    v_prime = v_cond - v_marginal
+
+    # Pure spatial JVP: ∂_z u_θ · v' (zero tangents for r and t).
+    zeros_n = jnp.zeros(n)
+    _, jvp_z = jax.jvp(u_fn, (z, r, t), (v_prime, zeros_n, zeros_n))
+
+    # (J+I) v' = (t-r) · ∂_z u_θ · v'
+    Jpi_v = gap * jvp_z
+    # J v' = (J+I) v' - v'
+    J_v = Jpi_v - v_prime
+
+    # Per-sample inner products (sum over data axes, no square).
+    num_sample = jnp.sum(J_v * Jpi_v, axis=tuple(range(1, x0.ndim)))
+    den_sample = jnp.sum(jnp.square(Jpi_v), axis=tuple(range(1, x0.ndim)))
+    return jnp.mean(num_sample), jnp.mean(den_sample)
+
+
+def matrix_form_beta_star(
+    u_fn: UFn,
+    sample_x0: Sampler,
+    key: jax.Array,
+    n_samples: int,
+    *,
+    t_probes: typing.Sequence[float] = tuple(np.arange(0.1, 1.0, 0.1)),
+    fixed_gap: float = 0.25,
+    log_fn: typing.Callable[..., None] | None = None,
+) -> dict:
+    r"""Estimate the matrix-form β★ (no-bias variant) at each ``t``.
+
+    Reports per-``t`` numerator/denominator and aggregated β★_no_bias
+    across all probes. Since the bias term in the full denominator can
+    only enlarge it, the full β★_matrix obeys
+
+      sign(β★_matrix)  =  sign(β★_no_bias),
+      |β★_matrix|     ≤  |β★_no_bias|.
+
+    A negative β★_no_bias clips to corner β=0; a positive value bounds
+    the interior optimum from above.
+    """
+
+    @jax.jit
+    def _probe(x0, e, t_val, r_val):
+        return _exp5_probe(u_fn, x0, e, t_val, r_val)
+
+    results = {}
+    nums, dens = [], []
+    for t_val in t_probes:
+        k_data, k_noise, key = jrnd.split(key, 3)
+        x0 = sample_x0(k_data, n_samples)
+        e = jrnd.normal(k_noise, x0.shape, dtype=x0.dtype)
+        r_val = max(float(t_val) - fixed_gap, 1e-4)
+        num, den = _probe(
+            x0,
+            e,
+            jnp.float32(t_val),
+            jnp.float32(r_val),
+        )
+        num, den = float(num), float(den)
+        beta_t = num / den if den > 1e-12 else float("nan")
+        results[f"t={t_val:.1f}"] = {
+            "num": num,
+            "den": den,
+            "beta_star_no_bias": beta_t,
+        }
+        nums.append(num)
+        dens.append(den)
+        if log_fn is not None:
+            log_fn(
+                "  t=%.1f: num=%+.4f  den=%+.4f  β★(no bias)=%+.4f",
+                t_val,
+                num,
+                den,
+                beta_t,
+            )
+    aggregated = sum(nums) / sum(dens) if sum(dens) > 1e-12 else float("nan")
+    results["aggregated"] = {
+        "beta_star_no_bias": aggregated,
+        "num_total": sum(nums),
+        "den_total": sum(dens),
+        "n_t_values": len(t_probes),
+    }
+    if log_fn is not None:
+        log_fn(
+            "Aggregated matrix-form β★(no bias) = %+.4f  (across %d t values)",
+            aggregated,
+            len(t_probes),
+        )
+    return results

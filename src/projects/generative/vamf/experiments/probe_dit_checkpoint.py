@@ -303,6 +303,23 @@ def main(argv: typing.List[str]) -> int:
             log_fn=_logging.rank_zero_info,
         )
 
+    if 5 in experiments:
+        _logging.rank_zero_info(
+            "=== Experiment 5: Matrix-form β★ (sign + magnitude) ==="
+        )
+        key = jrnd.PRNGKey(F.seed + 3)
+        all_results[
+            "exp5_matrix_form_beta_star"
+        ] = _diagnostic.matrix_form_beta_star(
+            u_fn,
+            sample_x0,
+            key,
+            F.n_samples,
+            t_probes=t_values,
+            fixed_gap=F.diag_gap,
+            log_fn=_logging.rank_zero_info,
+        )
+
     metadata = {
         "checkpoint_dir": F.checkpoint_dir,
         "config_fn": F.config_fn,
