@@ -122,7 +122,7 @@
 \item {\bf Experiment statistical significance}
     \item[] Question: Does the paper report error bars suitably and correctly defined or other appropriate information about the statistical significance of the experiments?
     \item[] Answer: \answerYes{} % Replace by \answerYes{}, \answerNo{}, or \answerNA{}.
-    \item[] Justification: For toy and DGMM experiments, every reported number aggregates three random seeds $\{42, 0, 1\}$ with the standard error of the mean reported alongside (\Cref{tab: toy,tab: dgmm-scale,fig: nr-vs-beta,fig: sw1-vs-beta}). The DiT-B/4 / ImageNet-$256$ experiments are single-seed (acknowledged in the Limitations paragraph of~\Cref{sec: conclusion}); the matched-step gap analysis in~\Cref{appx: dit-results} reports asymptotic offsets averaged over $11$ consecutive matched-step windows ($\pm 0.11$ FID standard deviation), which provides a within-run measure of consistency rather than across-seed variance.
+    \item[] Justification: For toy and DGMM experiments, every reported number aggregates three random seeds $\{42, 0, 1\}$ with the standard error of the mean reported alongside (\Cref{tab: toy,tab: dgmm-scale,fig: nr-vs-beta,fig: sw1-vs-beta,fig: dgmm-beta}). The DiT-B/4 / ImageNet-$256$ experiments are single-seed (acknowledged in the Limitations paragraph of~\Cref{sec: conclusion}); the four-point ordering claim is supported across $54$ consecutive $5$k-aligned matched-step datapoints (steps $30$k to $295$k), reported in~\Cref{tab: dit-fid}, which provides a within-run measure of consistency rather than across-seed variance.
     \item[] Guidelines:
     \begin{itemize}
         \item The answer \answerNA{} means that the paper does not include experiments.
@@ -139,7 +139,7 @@
 \item {\bf Experiments compute resources}
     \item[] Question: For each experiment, does the paper provide sufficient information on the computer resources (type of compute workers, memory, time of execution) needed to reproduce the experiments?
     \item[] Answer: \answerYes{} % Replace by \answerYes{}, \answerNo{}, or \answerNA{}.
-    \item[] Justification: We report all the information about the resources to run the experiments in the supplementary material.
+    \item[] Justification: Compute resources are reported in detail in~\Cref{appx: dit-results} (TPU v4-32 for the DiT-B/4 / ImageNet-$256$ runs, $\sim\!1$--$1.5$ days per run; the $\beta\!=\!0$ baseline crashed mid-training and was resumed from the $240$k checkpoint to reach $295$k) and~\Cref{sec: experiment} (single consumer GPU for the toy and DGMM $\beta$-sweeps; $\sim\!2$ minutes per toy run, $\sim\!5$ minutes per DGMM run; $198$ toy runs $+$ $198$ DGMM runs $+$ a $20$-run gradient-variance sub-sweep).
     \item[] Guidelines:
     \begin{itemize}
         \item The answer \answerNA{} means that the paper does not include experiments.
