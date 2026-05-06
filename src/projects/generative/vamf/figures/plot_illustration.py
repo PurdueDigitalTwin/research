@@ -15,39 +15,45 @@ from src.projects.generative.vamf.figures import _style
 
 # -- flags ---------------------------------------------------------------------
 flags.DEFINE_enum(
-    "style",
-    _style.DEFAULT_STYLE,
-    list(_style.STYLES),
-    "Render target. 'paper' = light/serif; 'slides' = dark/sans-serif.",
+    name="style",
+    default=_style.DEFAULT_STYLE,
+    enum_values=list(_style.STYLES),
+    help="Render target. 'paper' = light/serif; 'slides' = dark/sans-serif.",
 )
 flags.DEFINE_float(
-    "buffer_radius",
-    None,
-    "Radius around the conditional paths for heatmap evaluation. "
-    "If None, evaluate the full area.",
+    name="buffer_radius",
+    default=None,
+    help=(
+        "Radius around the conditional paths for heatmap evaluation. "
+        "If None, evaluate the full area."
+    ),
     required=False,
 )
 flags.DEFINE_integer(
-    "n_grid_points",
-    200,
-    "Number of grid points per axis to evaluate the marginal velocity.",
+    name="n_grid_points",
+    default=200,
+    help="Number of grid points per axis to evaluate the marginal velocity.",
 )
 flags.DEFINE_integer(
-    "n_samples",
-    100,
-    "Number of Monte Carlo samples to estimate the marginal velocity.",
+    name="n_samples",
+    default=100,
+    help="Number of Monte Carlo samples to estimate the marginal velocity.",
 )
 flags.DEFINE_boolean(
-    "show_samples",
-    False,
-    "Whether to overlay the conditional samples x_t.",
+    name="show_samples",
+    default=False,
+    help="Whether to overlay the conditional samples ``x_t``.",
 )
 flags.DEFINE_list(
-    "t_evals",
-    ["0.25", "0.5", "0.75"],
-    "Timesteps at which to draw the spatial gap heatmap.",
+    name="t_evals",
+    default=["0.25", "0.5", "0.75"],
+    help="Timesteps at which to draw the spatial gap heatmap.",
 )
-flags.DEFINE_integer("seed", 42, "Random seed.")
+flags.DEFINE_integer(
+    name="seed",
+    default=42,
+    help="Random seed.",
+)
 flags.DEFINE_string(
     "work_dir",
     None,
@@ -55,9 +61,9 @@ flags.DEFINE_string(
     required=True,
 )
 flags.DEFINE_string(
-    "filename",
-    "illustration.pdf",
-    "Output filename.",
+    name="filename",
+    default="illustration.pdf",
+    help="Output filename.",
 )
 
 
@@ -129,25 +135,19 @@ def _mc_marginal_velocity(
 
 
 # -- panels --------------------------------------------------------------------
-def _draw_heatmap_panel(
-    ax: plt.Axes,
+def _compute_heatmap(
     X: jax.Array,
     grid_points: jax.Array,
     t_eval: float,
     z: jax.Array,
     data: jax.Array,
     velocity_fn: typing.Callable,
-    grid_min: float,
-    grid_max: float,
-    buffer_radius: float,
-    show_samples: bool,
-    palette,
-    is_first: bool,
-    is_last: bool,
-) -> plt.Axes:
+    buffer_radius: typing.Optional[float],
+) -> jax.Array:
+    r"""Return the RMS-fluctuation heatmap for a given single ``t_eval``."""
+
     _, rms_fluct = velocity_fn(grid_points, t_eval)
     diff_heatmap = rms_fluct.reshape(X.shape)
-
     if buffer_radius is not None:
         x_t_eval = (1 - t_eval) * data + t_eval * z
         dists = jnp.linalg.norm(
@@ -161,7 +161,26 @@ def _draw_heatmap_panel(
             jnp.nan,
             diff_heatmap,
         )
+    assert isinstance(diff_heatmap, jax.Array)
 
+    return diff_heatmap
+
+
+def _draw_heatmap_panel(
+    ax: plt.Axes,
+    diff_heatmap: jax.Array,
+    t_eval: float,
+    z: jax.Array,
+    data: jax.Array,
+    grid_min: float,
+    grid_max: float,
+    show_samples: bool,
+    palette,
+    is_first: bool,
+    vmin: float,
+    vmax: float,
+) -> typing.Any:
+    r"""Render a single heatmap subplot."""
     mesh = ax.imshow(
         diff_heatmap,
         extent=[grid_min, grid_max, grid_min, grid_max],
@@ -169,14 +188,9 @@ def _draw_heatmap_panel(
         cmap=palette["heatmap_cmap"],
         alpha=0.95,
         zorder=1,
+        vmin=vmin,
+        vmax=vmax,
     )
-    if is_last:
-        fig = ax.get_figure()
-        cbar = fig.colorbar(mesh, ax=ax, fraction=0.046, pad=0.04)
-        cbar.set_label(
-            r"$\sqrt{\mathrm{Tr}(\Sigma_{v'} \mid x_t)}"
-            r"\!=\!\sqrt{\mathbb{E}_{x_0 \mid x_t}\|v'\|^2}$"
-        )
 
     # Conditional paths.
     ax.plot(
@@ -184,7 +198,7 @@ def _draw_heatmap_panel(
         [z[:, 1], data[:, 1]],
         color=palette["path"],
         lw=0.5,
-        alpha=0.5,
+        alpha=0.25,
         zorder=3,
     )
     # Endpoints.
@@ -192,9 +206,9 @@ def _draw_heatmap_panel(
         z[:, 0],
         z[:, 1],
         c=palette["latent"],
-        s=22,
+        s=30,
         lw=0.0,
-        alpha=0.8,
+        alpha=0.5,
         zorder=4,
         label=r"latent $\mathbf{x}_1$",
     )
@@ -202,9 +216,9 @@ def _draw_heatmap_panel(
         data[:, 0],
         data[:, 1],
         c=palette["data"],
-        s=22,
+        s=30,
         lw=0.0,
-        alpha=0.8,
+        alpha=0.5,
         zorder=4,
         label=r"data $\mathbf{x}_0$",
     )
@@ -234,15 +248,17 @@ def _draw_heatmap_panel(
         rf"$t = {t_eval:.2f}$",
         loc="left",
         fontweight="bold",
+        fontsize=8,
     )
-    ax.legend(loc="upper right", fontsize=7)
+    ax.legend(loc="upper right", fontsize=8)
 
-    return ax
+    return mesh
 
 
 # -- main ----------------------------------------------------------------------
 def main(argv: typing.List[str]) -> int:
-    del argv
+    del argv  # unused arguments
+
     F = flags.FLAGS
     os.makedirs(F.work_dir, exist_ok=True)
 
@@ -253,7 +269,7 @@ def main(argv: typing.List[str]) -> int:
     rng, sample_key = jax.random.split(rng)
     z, data = _create_samples(sample_key, F.n_samples)
 
-    grid_min, grid_max = -1.0, 8.0
+    grid_min, grid_max = -1.5, 7.5
     xs = jnp.linspace(grid_min, grid_max, num=F.n_grid_points)
     ys = jnp.linspace(grid_min, grid_max, num=F.n_grid_points)
     X, Y = jnp.meshgrid(xs, ys)
@@ -261,28 +277,44 @@ def main(argv: typing.List[str]) -> int:
 
     velocity_fn = _mc_marginal_velocity(z, data)
 
+    # Pre-compute heatmaps for all t values so panels share the same scale.
+    t_evals = [float(s) for s in F.t_evals]
+    heatmaps = [
+        _compute_heatmap(
+            X, grid_points, t, z, data, velocity_fn, F.buffer_radius
+        )
+        for t in t_evals
+    ]
+    finite_vals = jnp.concatenate([h.ravel() for h in heatmaps])
+    finite_mask = jnp.isfinite(finite_vals)
+    vmin = float(jnp.min(jnp.where(finite_mask, finite_vals, jnp.inf)))
+    vmax = float(jnp.max(jnp.where(finite_mask, finite_vals, -jnp.inf)))
+
     fig = plt.figure(figsize=(10.5, 4.0))
     gs = gridspec.GridSpec(1, 3, wspace=0.28, figure=fig)
-
-    for i, t_str in enumerate(F.t_evals):
-        t_eval = float(t_str)
+    axes = []
+    mesh = None
+    for i, (t_eval, heatmap) in enumerate(zip(t_evals, heatmaps)):
         ax = fig.add_subplot(gs[0, i])
-        ax = _draw_heatmap_panel(
+        mesh = _draw_heatmap_panel(
             ax,
-            X,
-            grid_points,
+            heatmap,
             t_eval,
             z,
             data,
-            velocity_fn,
             grid_min,
             grid_max,
-            F.buffer_radius,
             F.show_samples,
             palette,
             is_first=(i == 0),
-            is_last=(i == len(F.t_evals) - 1),
+            vmin=vmin,
+            vmax=vmax,
         )
+        axes.append(ax)
+
+    # Single colorbar shared across all panels.
+    cbar = fig.colorbar(mesh, ax=axes, fraction=0.015, pad=0.02)
+    cbar.set_label(r"$\sqrt{\mathrm{Tr}(\Sigma_{v'} \mid x_t)}$", fontsize=10)
 
     out_path = os.path.join(F.work_dir, F.filename)
     fig.savefig(out_path)
