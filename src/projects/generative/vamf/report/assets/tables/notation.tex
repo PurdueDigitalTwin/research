@@ -11,7 +11,7 @@
         $\vx$, $\vx_{t}$ & Realized state / state at time $t$: $\vx_{t}=(1-t)\vx_{0}+t\vx_{1}$ \\
         $\vv(\vx,t)$ & Marginal velocity field \\
         $\vv_{\text{cond}}$ & Conditional velocity: $\vv_{\text{cond}}=\vx_{1}-\vx_{0}$ \\
-        $\vv'$ & Conditional velocity fluctuation: $\vv'=\vv_{\text{cond}}-\vv(\vx_{t},t)$, \; $\E_{\vx_{0}\mid\vx_{t}}[\vv']=\bm{0}$ \\
+        $\vv^{\prime}$ & Conditional velocity fluctuation: $\vv^{\prime}=\vv_{\text{cond}}-\vv(\vx_{t},t)$, \; $\E_{\vx_{0}\mid\vx_{t}}[\vv^{\prime}]=\bm{0}$ \\
         $\hat{\vv}$ & Deterministic proxy for $\vv$ (e.g., EMA velocity at boundary $r=t$) \\
         \midrule
         \multicolumn{2}{@{}l}{\emph{Networks}} \\
@@ -19,21 +19,21 @@
         $\vu_{\bar{\vtheta}}$ & EMA copy of $\vu_{\vtheta}$, parameters $\bar{\vtheta}$ \\
         \midrule
         \multicolumn{2}{@{}l}{\emph{Spatial-Jacobian quantities}} \\
-        $\partial_{\vz}\vu_{\vtheta}$ & Spatial Jacobian of $\vu_{\vtheta}$ w.r.t.\ its first argument \\
-        $\mJ$ & Jacobi factor: $\mJ=(t-r)\partial_{\vz}\vu_{\vtheta}-\mI_{d}\in\mathbb{R}^{d\times d}$ \\
-        $\mA$ & Shorthand $\mA\!\triangleq\!\mJ+\mI_{d}=(t-r)\partial_{\vz}\vu_{\vtheta}$ \\
+        $\partial_{\vx_{t}}\vu_{\vtheta}$ & Spatial Jacobian of $\vu_{\vtheta}$ w.r.t.\ its first argument \\
+        $\mJ$ & Jacobi factor: $\mJ=(t-r)\partial_{\vx_{t}}\vu_{\vtheta}-\mI_{d}\in\mathbb{R}^{d\times d}$ \\
+        $\mA$ & Shorthand $\mA\!\triangleq\!\mJ+\mI_{d}=(t-r)\partial_{\vx_{t}}\vu_{\vtheta}$ \\
         $\kappa$ & Scalar-isotropic surrogate for $\mJ$: $\mJ\!\approx\!\kappa\mI_{d}$ \\
         \midrule
         \multicolumn{2}{@{}l}{\emph{Bias-variance ingredients}} \\
-        $\Sigma_{\vv'}$ & Conditional velocity covariance: $\Cov_{\vx_{0}\mid\vx_{t}}[\vv']$ \\
-        $\sigma^{2}d$ & Trace of $\Sigma_{\vv'}$; in scalar-isotropic case $\Sigma_{\vv'}\!=\!\sigma^{2}\mI_{d}$ \\
+        $\Sigma_{\vv^{\prime}}$ & Conditional velocity covariance: $\Cov_{\vx_{0}\mid\vx_{t}}[\vv^{\prime}]$ \\
+        $\sigma^{2}d$ & Trace of $\Sigma_{\vv^{\prime}}$; in scalar-isotropic case $\Sigma_{\vv^{\prime}}\!=\!\sigma^{2}\mI_{d}$ \\
         $\vb$ & Proxy bias: $\vb\!\triangleq\!\hat{\vv}-\vv(\vx_{t},t)$ \\
         $\widehat{\|\vb\|^{2}}$ & EMA-tracking proxy: $\E_{\vx_{t}}\!\left[\|\vu_{\vtheta}(\vx_{t},t,t)-\vu_{\bar{\vtheta}}(\vx_{t},t,t)\|^{2}\right]$ \\
         \midrule
         \multicolumn{2}{@{}l}{\emph{Gradients}} \\
         $\nabla_{\vtheta}\ell_{\text{MF}}$ & Per-step gradient of the MeanFlow loss \\
-        $\boldsymbol{g}$ & Parameter Jacobian of the network output: $\boldsymbol{g}\!\triangleq\!\nabla_{\vtheta}\vu_{\vtheta}\!\in\!\mathbb{R}^{d\times p}$ \\
-        $\mG_{\vtheta}$ & Parameter-space Gram matrix: $\mG_{\vtheta}\!\triangleq\!\boldsymbol{g}\boldsymbol{g}^{\!\top}\!\in\!\mathbb{R}^{d\times d}$ \\
+        $\vg$ & Parameter Jacobian of the network output: $\vg\!\triangleq\!\nabla_{\vtheta}\vu_{\vtheta}\!\in\!\mathbb{R}^{d\times p}$ \\
+        $\mG_{\vtheta}$ & Parameter-space Gram matrix: $\mG_{\vtheta}\!\triangleq\!\vg\vg^{\!\top}\!\in\!\mathbb{R}^{d\times d}$ \\
         \midrule
         \multicolumn{2}{@{}l}{\emph{Tangent-mixing coefficient}} \\
         $\beta\!\in\![0,1]$ & Tangent-mixing coefficient~\eqref{eq: tangent-mix} \\

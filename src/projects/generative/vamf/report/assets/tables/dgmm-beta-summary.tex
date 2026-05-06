@@ -1,0 +1,17 @@
+\begin{table}[t]
+    \centering
+    \caption{DGMM $\beta$-sweep summary across dimensions $d\!\in\!\{2,4,8,16,32,64\}$: SW$_{1}$ at the unbiased corner ($\beta\!=\!0$) versus the empirical optimum $\beta^{\ast}\!=\!\arg\min_{\beta\in\{0.0,0.1,\dots,1.0\}}\mathrm{SW}_{1}(\beta)$, with mean$\pm$SEM over three seeds (full grid in~\Cref{tab: dgmm-beta-full}). The reduction column marks gaps that exceed one SEM with $\dagger$. SW$_{1}$ is essentially $\beta$-insensitive at $d\!\le\!32$ (consistent with $\kappa/(\kappa{+}1)\!\approx\!1$ in the small-$\|\vb\|^{2}$ regime); only $d\!=\!64$ shows a tentative interior minimum.}
+    \label{tab: dgmm-beta-summary}
+    \begin{tabular}{ccccc}
+        \toprule
+        $d$ & SW$_{1}(\beta\!=\!0)$ & SW$_{1}(\beta^{\ast})$ & reduction & $\beta^{\ast}$ \\
+        \midrule
+        $2$  & $0.152{\scriptstyle\pm0.022}$ & $0.146{\scriptstyle\pm0.015}$ & $\sim\!4\%$  & $1.0$ \\
+        $4$  & $0.083{\scriptstyle\pm0.011}$ & $0.083{\scriptstyle\pm0.011}$ & $<\!1\%$    & $0.8$ \\
+        $8$  & $0.062{\scriptstyle\pm0.003}$ & $0.062{\scriptstyle\pm0.003}$ & $\sim\!1\%$ & $1.0$ \\
+        $16$ & $0.044{\scriptstyle\pm0.002}$ & $0.044{\scriptstyle\pm0.003}$ & $<\!1\%$    & $1.0$ \\
+        $32$ & $0.034{\scriptstyle\pm0.001}$ & $0.033{\scriptstyle\pm0.001}$ & $<\!1\%$    & $0.1$ \\
+        $64$ & $0.028{\scriptstyle\pm0.003}$ & $0.025{\scriptstyle\pm0.001}$ & $\sim\!9\%^{\dagger}$ & $0.4$ \\
+        \bottomrule
+    \end{tabular}
+\end{table}
