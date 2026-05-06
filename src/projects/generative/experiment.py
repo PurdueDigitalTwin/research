@@ -349,10 +349,11 @@ def train_and_evaluate(
     if exp_config.mode == "train":
         if exp_config.trainer.checkpoint_dir is not None:
             ckpt_path = exp_config.trainer.checkpoint_dir.rstrip("/")
-            logging.rank_zero_info(
-                "Resuming from checkpoint: %s", ckpt_path
-            )
-            # Sharding for single-device load (pre-replication).
+            logging.rank_zero_info("Resuming from checkpoint: %s", ckpt_path)
+            # NOTE: universal sharding for single-device load (pre-replication)
+            # This is useful to unify the checkpoint loading procedure since we
+            # are dealing with not only parallel TPU clusters but also single
+            # devices cases on our workstations as well as on Gilbreth
             sharding = jax.sharding.SingleDeviceSharding(
                 jax.local_devices()[0]
             )
