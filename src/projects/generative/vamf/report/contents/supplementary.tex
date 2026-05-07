@@ -14,7 +14,7 @@
     \label[appendix]{appx: notation}
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-    To promote the readibility of our readers, \cref{tab: notation} lists all the notations we use in this work.
+    To promote the readability of our readers, \cref{tab: notation} lists all the notations we use in this work.
     \input{assets/tables/notation}
 
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -35,7 +35,7 @@
     \end{lemma}
 
     \begin{proof}
-        We follow the standard flow-matching construction~\cite{lipman2023flowmatchinggenerativemodeling,tong2024improvinggeneralizingflowbasedgenerative}. A sufficient and necessary condition for a velocity field $\vv(\vx,t)$ to generate a probability density path is given by the continuity equation~\cite{villani2009optimaltransport} which writes:
+        We follow the standard flow-matching construction~\cite{lipman2023flowmatchinggenerativemodeling,tong2024improvinggeneralizingflowbasedgenerative}. A sufficient and necessary condition for a velocity field $\vv(\vx,t)$ to generate a probability density path is given by the continuity equation~\cite{villani2009optimaltransport}, which writes:
         \begin{equation}
             \frac{\partial}{\partial{t}}p(\vx,t)+\mathrm{div}\left(p(\vx,t)\vv(\vx,t)\right)=0.
             \label{eq: continuity-eq}
@@ -44,7 +44,7 @@
         \begin{equation}
             p(\vx,t)=\int_{\gX}p(\vx,t\mid\vx_{0})\,p(\vx_{0})\,\mathrm{d}\vx_{0},\qquad\forall\,p(\vx_{0}).
         \end{equation}
-        Taking the derivative with respect to time step $t$ on both side and applying Bayes' rule yields
+        Taking the derivative with respect to time step $t$ on both sides and applying Bayes' rule yields
         \begin{equation}
             \begin{aligned}
                 \frac{\partial}{\partial{t}}p(\vx,t)
@@ -80,7 +80,7 @@
             &= \left\|\vr^{\texttt{sg}}_{\vtheta}+\mJ\vv^{\prime}\right\|_{2}^{2},
             \end{aligned}
         \end{equation}
-        where $\vr_{\vtheta}^{\texttt{sg}}$ is the mean-field residual and $\mJ=(t-r)\partial_{\vx_{t}}\vu_{\vtheta}-\mI_{d}$ is the Jacobi factor. With stop-gradient operator, the gradient of the per-sample loss pass through only the mean-field residual $\vr_{\vtheta}^{\texttt{sg}}$. Let $\vg\!\triangleq\!\nabla_{\vtheta}\vu_{\vtheta}\in\mathbb{R}^{d\times p}$ denote the parameter Jacobian of the network output. The per-step gradient is then given by
+        where $\vr_{\vtheta}^{\texttt{sg}}$ is the mean-field residual and $\mJ=(t-r)\partial_{\vx_{t}}\vu_{\vtheta}-\mI_{d}$ is the Jacobi factor. With the stop-gradient operator, the gradient of the per-sample loss passes through only the mean-field residual $\vr_{\vtheta}^{\texttt{sg}}$. Let $\vg\!\triangleq\!\nabla_{\vtheta}\vu_{\vtheta}\in\mathbb{R}^{d\times p}$ denote the parameter Jacobian of the network output. The per-step gradient is then given by
         \begin{equation}
             \nabla_{\vtheta}\ell_{\text{MF}}=2\vg^{\!\top}\!\left(\vr_{\vtheta}^{\texttt{sg}}+\mJ\vv^{\prime}\right),
             \label{eq: per-step-grad}
@@ -192,7 +192,7 @@
             M(\beta) \;\propto\; \beta^{2}(\kappa{+}1)^{2}\|\vb\|^{2} \;+\; \sigma^{2}d\bigl((1{-}\beta)\kappa - \beta\bigr)^{2}.
         \end{equation}
 
-        Taking derivative with respect to $\beta$ and setting it to zero gives:
+        Taking the derivative with respect to $\beta$ and setting it to zero gives:
         \begin{equation}
             \beta^{\ast}\!=\!\frac{\alpha_{1}}{\alpha_{2}}\!=\!\frac{\sigma^{2}\kappa(\kappa{+}1)d}{(\kappa{+}1)^{2}(\sigma^{2}d+\|\vb\|^{2})}\!=\!\frac{\kappa}{\kappa{+}1}\cdot\frac{\sigma^{2}d}{\sigma^{2}d+\|\vb\|^{2}}.
         \end{equation}
@@ -202,7 +202,7 @@
             M(\beta^{\ast}) \;\propto\; \frac{\sigma^{2}d\,\kappa^{2}\,\|\vb\|^{2}}{\sigma^{2}d+\|\vb\|^{2}}.
         \end{equation*}
         For $\kappa\!>\!0$ and $\|\vb\|^{2}\!>\!0$: $M(\beta^{\ast})/M(0) \!=\! \|\vb\|^{2}/(\sigma^{2}d+\|\vb\|^{2}) \!<\! 1$, so $M(\beta^{\ast})\!<\!M(0)$.
-        For the $M(1)$ comparison, $M(1)\!-\!M(\beta^{\ast})\!\propto\!(\kappa{+}1)^{2}\|\vb\|^{2}+\sigma^{2}d-\sigma^{2}d\kappa^{2}\|\vb\|^{2}/(\sigma^{2}d+\|\vb\|^{2})$, and the first two terms exceed $\sigma^{2}d\kappa^{2}\|\vb\|^{2}/(\sigma^{2}d+\|\vb\|^{2})$ since $(\kappa{+}1)^{2}\!>\!\kappa^{2}$ for $\kappa\!>\!0$. Strict dominance is therefore over the unconstrained interior optimum; if $\beta^{\ast}_{\text{matrix}}\!\notin\![0,1]$ the box-constrained optimum is at the nearer corner and the dominance is non-strict.
+        For the $M(1)$ comparison, $M(1)\!-\!M(\beta^{\ast})\!\propto\!(\kappa{+}1)^{2}\|\vb\|^{2}+\sigma^{2}d-\sigma^{2}d\kappa^{2}\|\vb\|^{2}/(\sigma^{2}d+\|\vb\|^{2})$, and the first two terms exceed $\sigma^{2}d\kappa^{2}\|\vb\|^{2}/(\sigma^{2}d+\|\vb\|^{2})$ since $(\kappa{+}1)^{2}\!>\!\kappa^{2}$ for $\kappa\!>\!0$. Strict dominance is therefore over the unconstrained interior optimum; if $\beta^{\ast}_{\text{matrix}}\!\notin\![0,1]$, the box-constrained optimum is at the nearer corner, and the dominance is non-strict.
     \end{proof}
 
     \subsection{Proof of~\Cref{prop: vamf-grad} (Gradient under the $\beta\!=\!1$ corner loss)}
@@ -263,12 +263,12 @@
         \begin{enumerate}
             \item[\textnormal{(i)}] \textnormal{Tangent replacement (the $\beta\!=\!1$ corner):} keep the target $\vv_{\text{cond}}$ but replace the JVP tangent. At the loss minimum,
             \begin{equation*}
-                \vu^{\star}(\vx_{t},r,t)-\vv(\vx_{t},t)=-\tfrac{1}{2}(t{-}r)\,\partial_{\vx_{t}}\vu^{\star}\,\vb+\gO((t{-}r)\,\|\vb\|^{2}),
+                \vu^{\ast}(\vx_{t},r,t)-\vv(\vx_{t},t)=-\tfrac{1}{2}(t{-}r)\,\partial_{\vx_{t}}\vu^{\ast}\,\vb+\gO((t{-}r)\,\|\vb\|^{2}),
             \end{equation*}
             so the stationary error is $\gO((t{-}r)\,\|\partial_{\vx_{t}}\vu\|\,\|\vb\|)$ and vanishes at $r\!\to\!t$.
             \item[\textnormal{(ii)}] \textnormal{Target replacement:} substitute $\hat{\vv}$ for $\vv_{\text{cond}}$ in the regression target. At $r\!=\!t$ the loss minimum satisfies
             \begin{equation*}
-                \vu^{\star}(\vx_{t},t,t)-\vv(\vx_{t},t)=\vb,
+                \vu^{\ast}(\vx_{t},t,t)-\vv(\vx_{t},t)=\vb,
             \end{equation*}
             i.e., the stationary error equals the proxy bias \emph{exactly}, uniformly in $t$ and independent of the gap $(t{-}r)$.
         \end{enumerate}
@@ -282,29 +282,29 @@
         \end{equation*}
         and the loss is $\E\|V_{\vtheta}^{\text{EMA}}-\vv_{\text{cond}}\|^{2}$. By stationarity, $\E[V_{\vtheta}^{\text{EMA}}\!-\!\vv_{\text{cond}}\mid\vx_{t}]\!=\!\bm{0}$ at the minimum. Taking conditional expectation and using $\E[\vv_{\text{cond}}\mid\vx_{t}]\!=\!\vv(\vx_{t},t)$,
         \begin{equation*}
-            \vu^{\star}+(t-r)\!\left(\partial_{\vx_{t}}\vu^{\star}\cdot\hat{\vv}+\partial_{t}\vu^{\star}\right)=\vv(\vx_{t},t).
+            \vu^{\ast}+(t-r)\!\left(\partial_{\vx_{t}}\vu^{\ast}\cdot\hat{\vv}+\partial_{t}\vu^{\ast}\right)=\vv(\vx_{t},t).
         \end{equation*}
         At the same point, the \emph{true} MeanFlow identity (with the marginal velocity as tangent) reads
         \begin{equation*}
             \vu^{\diamond}+(t-r)\!\left(\partial_{\vx_{t}}\vu^{\diamond}\cdot\vv+\partial_{t}\vu^{\diamond}\right)=\vv(\vx_{t},t),
         \end{equation*}
-        with $\vu^{\diamond}(\vx_{t},t,t)=\vv(\vx_{t},t)$. Subtracting and writing $\vu^{\star}=\vu^{\diamond}+\Delta$,
+        with $\vu^{\diamond}(\vx_{t},t,t)=\vv(\vx_{t},t)$. Subtracting and writing $\vu^{\ast}=\vu^{\diamond}+\Delta$,
         \begin{equation*}
-            \Delta+(t-r)\,\partial_{\vx_{t}}\vu^{\star}\,\vb+(t-r)\,\mathrm{D}_{t}\Delta=\bm{0}, \qquad \mathrm{D}_{t}\Delta\;\triangleq\;\partial_{t}\Delta+v\!\cdot\!\partial_{\vx_{t}}\Delta,
+            \Delta+(t-r)\,\partial_{\vx_{t}}\vu^{\ast}\,\vb+(t-r)\,\mathrm{D}_{t}\Delta=\bm{0}, \qquad \mathrm{D}_{t}\Delta\;\triangleq\;\partial_{t}\Delta+v\!\cdot\!\partial_{\vx_{t}}\Delta,
         \end{equation*}
         with the boundary condition $\Delta(\vx_{t},t,t)\!=\!\bm{0}$. Substituting $s\!=\!t{-}r$ at fixed $r$ converts this to a first-order linear ODE in $s$:
         \begin{equation*}
-            s\,\frac{\mathrm{d}\Delta}{\mathrm{d}s}+\Delta=-s\,\partial_{\vx_{t}}\vu^{\star}\,\vb+\gO(\|\vb\|^{2}),
+            s\,\frac{\mathrm{d}\Delta}{\mathrm{d}s}+\Delta=-s\,\partial_{\vx_{t}}\vu^{\ast}\,\vb+\gO(\|\vb\|^{2}),
         \end{equation*}
-        which has $s\Delta(s)\!=\!-\tfrac{s^{2}}{2}\partial_{\vx_{t}}\vu^{\star}\,\vb+C$; the boundary condition $\Delta(0)\!=\!\bm{0}$ forces $C\!=\!0$. Hence
+        which has $s\Delta(s)\!=\!-\tfrac{s^{2}}{2}\partial_{\vx_{t}}\vu^{\ast}\,\vb+C$; the boundary condition $\Delta(0)\!=\!\bm{0}$ forces $C\!=\!0$. Hence
         \begin{equation*}
-            \Delta(\vx_{t},r,t)=-\tfrac{1}{2}(t-r)\,\partial_{\vx_{t}}\vu^{\star}\,\vb+\gO((t{-}r)\,\|\vb\|^{2}),
+            \Delta(\vx_{t},r,t)=-\tfrac{1}{2}(t-r)\,\partial_{\vx_{t}}\vu^{\ast}\,\vb+\gO((t{-}r)\,\|\vb\|^{2}),
         \end{equation*}
         i.e., the stationary error is $\gO((t-r)\,\|\partial_{\vx_{t}}\vu\|\,\|\vb\|)$ and vanishes at the boundary $r\!\to\!t$. The factor of $\tfrac{1}{2}$ comes from integrating the material-derivative term, which contributes equally to the leading-order coefficient as the bias source term.
         \\[2pt]
-        \textbf{Target replacement.} Substituting $\hat{\vv}$ for $\vv_{\text{cond}}$ in the regression target yields the loss $\E\|\vu_{\vtheta}+(t-r)\,\mathrm{D}\vu/\mathrm{D}t-\hat{\vv}\|^{2}$. By stationarity, the loss minimum satisfies $\E[\vu^{\star}+(t-r)\,\mathrm{D}\vu^{\star}/\mathrm{D}t-\hat{\vv}\mid\vx_{t}]\!=\!\bm{0}$. Specializing to $r\!=\!t$, the gap term vanishes and the equation collapses to $\vu^{\star}(\vx_{t},t,t)\!=\!\hat{\vv}\!=\!\vv(\vx_{t},t)+\vb$, so the stationary error at the boundary is exactly $\vb$, independent of $(t,r)$.
+        \textbf{Target replacement.} Substituting $\hat{\vv}$ for $\vv_{\text{cond}}$ in the regression target yields the loss $\E\|\vu_{\vtheta}+(t-r)\,\mathrm{D}\vu/\mathrm{D}t-\hat{\vv}\|^{2}$. By stationarity, the loss minimum satisfies $\E[\vu^{\ast}+(t-r)\,\mathrm{D}\vu^{\ast}/\mathrm{D}t-\hat{\vv}\mid\vx_{t}]\!=\!\bm{0}$. Specializing to $r\!=\!t$, the gap term vanishes and the equation collapses to $\vu^{\ast}(\vx_{t},t,t)\!=\!\hat{\vv}\!=\!\vv(\vx_{t},t)+\vb$, so the stationary error at the boundary is exactly $\vb$, independent of $(t,r)$.
         \\[2pt]
-        \textbf{Asymmetry.} Tangent replacement carries a multiplicative $(t-r)$ factor on the bias and is therefore pinned to zero at the boundary $r\!=\!t$ that the FM anchor enforces; target replacement carries no such factor and the bias persists at every $t$, requiring a boundary regularizer at \emph{every} $(r,t)$ to remove.
+        \textbf{Asymmetry.} Tangent replacement carries a multiplicative $(t-r)$ factor on the bias and is therefore pinned to zero at the boundary $r\!=\!t$ that the FM anchor enforces; target replacement carries no such factor, and the bias persists at every $t$, requiring a boundary regularizer at \emph{every} $(r,t)$ to remove.
     \end{proof}
 
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -312,15 +312,15 @@
     \label[appendix]{appx: implementation}
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-    To validate the framework empirically (\Cref{sec: experiment}), we instantiate the $\beta\!=\!1$ corner of~\Cref{thm: control-variate-optimum} as a backbone-preserving training recipe. Two design choices realize the corner at near-zero compute overhead.
+    To validate the framework empirically in ~\cref{sec: experiment}, we instantiate the $\beta\!=\!1$ corner of~\cref{thm: control-variate-optimum} through two design choices at near-zero compute overhead:
 
-    \noindent\textbf{EMA proxy.} We take $\hat{\vv}\!=\!\vu_{\bar{\vtheta}}(\vx_{t},t,t)$ where $\bar{\vtheta}$ is a Polyak-averaged copy of $\vtheta$~\cite{polyak1992acceleration,tarvainen2017mean}, $\bar{\vtheta}\!\gets\!\mu\bar{\vtheta}\!+\!(1{-}\mu)\vtheta$ with $\mu\!\in\![0,1)$. The resulting loss replaces the conditional tangent in~\eqref{eq: mf-loss} with the EMA proxy:
+    \noindent\textbf{EMA proxy.} We take $\hat{\vv}\!=\!\vu_{\bar{\vtheta}}(\vx_{t},t,t)$ where $\bar{\vtheta}$ is a Polyak-averaged~\cite{polyak1992acceleration,tarvainen2017mean} (\emph{a.k.a. exponential moving-average}) copy of $\vtheta$, where $\bar{\vtheta}\!\gets\!\mu\bar{\vtheta}\!+\!(1{-}\mu)\vtheta$ with $\mu\!\in\![0,1)$. The resulting loss replaces the conditional tangent in~\eqref{eq: mf-loss} with the EMA proxy:
     \begin{equation}
         \mathcal{L}_{\text{MF}}^{\text{EMA}}(\vtheta)=
         \E_{r,t,\vx_{0},\vx_{1}}\!\left[\left\|\vu_{\vtheta}+(t{-}r)\,\texttt{sg}\!\left[\texttt{JVP}\!\bigl(\vu_{\vtheta},(\vx_{t},r,t),(\vu_{\bar{\vtheta},t},0,1)\bigr)\right]-\vv_{\text{cond}}\right\|_{2}^{2}\right],
         \label{eq: ema-mf-loss}
     \end{equation}
-    with $\vu_{\bar{\vtheta},t}\!\triangleq\!\vu(\vx_{t},t,t;\bar{\vtheta})$. Crucially, the regression target remains $\vv_{\text{cond}}$: the tangent and target play distinct statistical roles per~\Cref{subsec: two-roles}, and only the tangent needs to be replaced.
+    with $\vu_{\bar{\vtheta},t}\!\triangleq\!\vu(\vx_{t},t,t;\bar{\vtheta})$. Crucially, the regression target remains $\vv_{\text{cond}}$: the tangent and target play distinct statistical roles per~\cref{subsec: two-roles}, and we only need to replace the tangent.
 
     \noindent\textbf{Flow-matching anchor.} The proxy bias $\vb\!=\!\vu_{\bar{\vtheta},t}\!-\!\vv$ must be controlled or it propagates through the $\beta\,(\mJ{+}\mI)\vb$ bias term. We supervise the boundary condition $\vu(\vx_{t},t,t)\!=\!\vv(\vx_{t},t)$ directly with a small flow-matching loss
     \begin{equation}
@@ -332,11 +332,11 @@
         \gL_{\beta=1}(\vtheta)=\gL_{\text{MF}}^{\text{EMA}}(\vtheta)+\lambda\,\gL_{\text{FM}}(\vtheta),
         \label{eq: vamf-obj}
     \end{equation}
-    with $\lambda\!>\!0$. The training procedure is~\Cref{alg: va-mf}. Anchor hyperparameters used in our experiments: for 2-D toy and DGMM runs, $(\delta_{\min},\delta_{\max},\lambda)\!=\!(10^{-4},10^{-2},0.5)$; for the DiT-B/4 / ImageNet-$256$ $\beta\!=\!1$ run, $(\delta_{\min},\delta_{\max},\lambda)\!=\!(0,10^{-3},0.1)$.
+    with $\lambda\!>\!0$. The training procedure is~\cref{alg: va-mf}. Anchor hyperparameters used in our experiments: for 2-D toy and DGMM runs, $(\delta_{\min},\delta_{\max},\lambda)\!=\!(10^{-4},10^{-2},0.5)$; for the DiT-B/4 / ImageNet-$256$ $\beta\!=\!1$ run, $(\delta_{\min},\delta_{\max},\lambda)\!=\!(0,10^{-3},0.1)$.
 
     \input{assets/algorithms/vamf}
 
-    \noindent\textbf{Optimality.} The combination of EMA proxy plus FM anchor approximates the $\beta\!\to\!1$ limit of~\Cref{thm: control-variate-optimum} at the cost of one additional JVP per step.~\Cref{prop: vamf-grad,prop: bias-var,prop: target-tangent-asymmetry} (stated and proved in~\Cref{appx: theorem-proof}) characterize the recipe theoretically: the $\mJ\vv^{\prime}$ amplification of~\Cref{thm: jacobi-variance} is eliminated under the EMA tangent (\Cref{prop: vamf-grad}); the residual EMA bias is controlled by the FM anchor (\Cref{prop: bias-var}); and a target/tangent asymmetry justifies why the FM anchor at the boundary $r\!=\!t$ alone is sufficient — tangent-replacement bias is multiplicatively damped by $(t{-}r)$, while target-replacement bias is not (\Cref{prop: target-tangent-asymmetry}). The same asymmetry locates a failure mode of self-distillation-style variants that use a deterministic proxy for both roles, where the trivial fixed point $\vu^{\star}\!\equiv\!\hat{\vv}$ persists without continual external supervision~\cite{geng2025improvedmeanflowschallenges,zhang2026overcomingcurvaturebottleneckmeanflow}.
+    \noindent\textbf{Optimality.} The combination of EMA proxy plus FM anchor approximates the $\beta\!\to\!1$ limit of~\cref{thm: control-variate-optimum} at the cost of one additional JVP per step.~\Cref{prop: vamf-grad,prop: bias-var,prop: target-tangent-asymmetry} (stated and proved in~\cref{appx: theorem-proof}) characterize the recipe theoretically: the $\mJ\vv^{\prime}$ amplification of~\cref{thm: jacobi-variance} is eliminated under the EMA tangent (\Cref{prop: vamf-grad}); the residual EMA bias is controlled by the FM anchor (\Cref{prop: bias-var}); and a target/tangent asymmetry justifies why the FM anchor at the boundary $r\!=\!t$ alone is sufficient since the tangent-replacement bias is multiplicatively damped by $(t{-}r)$, while target-replacement bias is not (\Cref{prop: target-tangent-asymmetry}). The same asymmetry locates a failure mode of self-distillation-style variants that use a deterministic proxy for both roles, where the trivial fixed point $\vu^{\ast}\!\equiv\!\hat{\vv}$ persists without continual external supervision~\cite{geng2025improvedmeanflowschallenges,zhang2026overcomingcurvaturebottleneckmeanflow}.
 
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     \section{Additional Results}
@@ -346,38 +346,42 @@
     \subsection{2-D Toy Benchmark}
     \label[appendix]{appx: toy-details}
 
-    \Cref{tab: toy} reports the matched-method comparison of vanilla MeanFlow ($\beta\!=\!0$) against the full $\beta\!=\!1$ corner recipe (EMA tangent + FM anchor; hyperparameters in~\Cref{appx: implementation}, no trace weight, no adaptive weighting) on six 2-D datasets, averaged over three seeds at $200$k optimization steps. The $\beta\!=\!1$ recipe reduces SW$_{1}$ on five of six datasets, with the largest reduction ($54\%$) on \texttt{swiss\_roll}. \texttt{two\_spirals} is a known low-curvature outlier where vanilla MeanFlow already attains the lowest absolute SW$_{1}$; the empirical $\beta^{\ast}\!=\!0$ on the $\beta$-sweep agrees.
+    \Cref{tab: toy} reports the matched-method comparison of the original MeanFlow ($\beta\!=\!0$) against the full $\beta\!=\!1$ corner recipe (EMA tangent + FM anchor; hyperparameters in~\cref{appx: implementation}, no trace weight, no adaptive weighting) on six 2-D datasets, averaged over three seeds at $200$k optimization steps. The $\beta\!=\!1$ recipe reduces SW$_{1}$ on five of six datasets, with the largest reduction ($54\%$) on \texttt{swiss\_roll}. \texttt{two\_spirals} is a known low-curvature outlier where the original MeanFlow already attains the lowest absolute SW$_{1}$; the empirical $\beta^{\ast}\!=\!0$ on the $\beta$-sweep agrees.
 
     \input{assets/tables/toy}
 
-    \subsection{Full DGMM $\beta$-sweep grid}
+    \subsection{Full $\beta$-sweep grid on DGMM}
 
-    \Cref{tab: dgmm-beta-full} reports SW$_{1}$ at convergence for every $(d,\beta)$ pair, with mean$\pm$SEM over three seeds. The bolded cell per row is the empirical $\beta^{\ast}\!=\!\arg\min_{\beta}\mathrm{SW}_{1}(\beta)$; the summary view in~\Cref{tab: dgmm-beta-summary} (main text) compares only $\beta\!=\!0$ and $\beta^{\ast}$ per dimension. The grid makes the $\beta$-insensitivity of low-$d$ rows visible at full precision: SW$_{1}$ is uniform to three decimal places for $d\!\in\!\{4,8,16\}$.
+    \Cref{tab: dgmm-beta-full} reports SW$_{1}$ at convergence for every $(d,\beta)$ pair, with mean$\pm$SEM over three seeds. The bolded cell per row is the empirical $\beta^{\ast}\!=\!\arg\min_{\beta}\mathrm{SW}_{1}(\beta)$; the summary view in~\cref{tab: dgmm-beta-summary} (main text) compares only $\beta\!=\!0$ and $\beta^{\ast}$ per dimension. The grid makes the $\beta$-insensitivity of low-$d$ rows visible at full precision: SW$_{1}$ is uniform to three decimal places for $d\!\in\!\{4,8,16\}$.
 
     \input{assets/tables/dgmm-beta-full}
 
-    \subsection{DiT-B/4 / ImageNet-$256$ Latent-Space Training}
+    \subsection{Latent DiT-B/4 on ImageNet-$256$}
     \label[appendix]{appx: dit-results}
 
-    We test whether the variance-reduction mechanism of~\Cref{thm: jacobi-variance,thm: control-variate-optimum} scales beyond toys by training DiT~\cite{peebles2023scalablediffusion} variants on ImageNet in the latent space of a frozen Stable Diffusion VAE, following the recipe of~\cite{geng2025meanflowsonestepgenerative}. The four $\beta$ configurations share identical hyperparameters and code paths; only the loss differs (vanilla MeanFlow MSE for the interior $\beta$ runs versus the EMA-tangent loss in~\eqref{eq: vamf-obj} for the $\beta\!=\!1$ corner).
+    We test whether the variance-reduction mechanism of~\cref{thm: jacobi-variance,thm: control-variate-optimum} scales beyond toys by training DiT~\cite{peebles2023scalablediffusion} variants on ImageNet in the latent space of a frozen Stable Diffusion VAE, following the recipe of~\cite{geng2025meanflowsonestepgenerative}. The four $\beta$ configurations share identical hyperparameters and code paths; only the loss differs (\emph{i.e., the original MeanFlow MSE for the interior $\beta$ runs versus the EMA-tangent loss in~\eqref{eq: vamf-obj} for the $\beta\!=\!1$ corner}).
 
-    \noindent\textbf{Setup.} Logit-normal $(r,t)$ sampling with mean $-0.4$ and stddev $1$, overlap rate $0.75$, AdamW with constant learning rate $10^{-4}$, EMA decay $0.9999$, batch size $256$ across $32$ TPU v4 chips. All four configurations ($\beta\!\in\!\{0,0.25,0.5,1\}$) share the same DiT-B/4 backbone, data pipeline, optimizer, EMA schedule, and $(r,t)$ sampling distribution. The interior $\beta$ runs ($\beta\!\in\!\{0,0.25,0.5\}$) reuse the baseline configuration verbatim and add only the tangent-mixing rule of~\eqref{eq: tangent-mix}; the $\beta\!=\!1$ corner additionally disables the Karras-style adaptive loss weighting and adds the FM anchor of~\eqref{eq: fm-anchor} (DiT anchor hyperparameters in~\Cref{appx: implementation}). The extra EMA forward pass and FM-anchor evaluation per step add up to a $\sim\!22\%$ wall-clock overhead on TPU v4 ($2.20$ steps/s for $\beta\!=\!1$ versus $2.65$ steps/s for the baseline); the $\beta\!\in\!\{0.25,0.5\}$ interior runs incur only the EMA forward overhead ($\sim\!10\%$).
+    \noindent\textbf{Setup.} Logit-normal $(r,t)$ sampling with mean $-0.4$ and stddev $1$, overlap rate $0.75$, AdamW with constant learning rate $10^{-4}$, EMA decay $0.9999$, batch size $256$ across $32$ TPU v4 chips. All four configurations ($\beta\!\in\!\{0,0.25,0.5,1\}$) share the same DiT-B/4 backbone, data pipeline, optimizer, EMA schedule, and $(r,t)$ sampling distribution. The interior $\beta$ runs ($\beta\!\in\!\{0,0.25,0.5\}$) reuse the baseline configuration verbatim and add only the tangent-mixing rule of~\eqref{eq: tangent-mix}; the $\beta\!=\!1$ corner additionally turns off the Karras-style adaptive loss weighting and adds the FM anchor of~\eqref{eq: fm-anchor} (DiT anchor hyperparameters in~\cref{appx: implementation}). The extra EMA forward pass and FM-anchor evaluation per step add up to a $\sim\!22\%$ wall-clock overhead on TPU v4 ($2.20$ steps/s for $\beta\!=\!1$ versus $2.65$ steps/s for the baseline); the $\beta\!\in\!\{0.25,0.5\}$ interior runs incur only the EMA forward overhead ($\sim\!10\%$).
 
     \noindent\textbf{Four-point matched-step ordering.} \Cref{tab: dit-fid} reports FID$_{50\text{k}}$ at representative $5$k-step checkpoints for all four runs. After the early-training transient ($\le\!25$k steps), the empirical four-point ordering $\mathrm{FID}(\beta\!=\!0)\!<\!\mathrm{FID}(\beta\!=\!0.25)\!<\!\mathrm{FID}(\beta\!=\!0.5)\!<\!\mathrm{FID}(\beta\!=\!1)$ holds at \emph{every} $5$k-aligned matched-step checkpoint we logged ($54$ consecutive datapoints from step $30$k to step $295$k). The $\beta\!=\!0.25$ vs baseline gap stays positive throughout, ranging from $+9.5$ early in training (step $30$k) to a tight $+0.39$ at step $295$k. The $\beta\!=\!0.5$ vs baseline gap stabilizes around $+1.0\!\sim\!+1.5$ in the converged regime (steps $200$k to $295$k), and the $\beta\!=\!1$ vs baseline gap remains $+12\!\sim\!+14$ across the converged regime.
 
-    \noindent\textbf{Converged FID floors and four-point ordering.} All four configurations completed their scheduled $300$k-step training and have a matched-step eval at step $295$k (the baseline crashed at step $239{,}950$ and was resumed from its $240$k checkpoint to reach the same horizon as the other three). The four FID floors at step $295$k recover the bias-variance ordering of~\Cref{thm: control-variate-optimum}:
-    \begin{equation*}
-        \mathrm{FID}^{\star}(\beta\!=\!0)\;=\;11.37\;<\;\mathrm{FID}^{\star}(\beta\!=\!0.25)\;=\;11.76\;<\;\mathrm{FID}^{\star}(\beta\!=\!0.5)\;=\;12.51\;<\;\mathrm{FID}^{\star}(\beta\!=\!1)\;=\;23.36.
-    \end{equation*}
-    Quantitatively, taking offsets from the baseline floor $11.37$, $\Delta\mathrm{FID}(\beta\!=\!0.5)\!\approx\!1.14$ and $\Delta\mathrm{FID}(\beta\!=\!1)\!\approx\!11.99$. Anchoring the gradient-MSE prediction $\beta^{2}\!\cdot\!A$ at the $\beta\!=\!0.5$ point gives $A\!\approx\!4.58$, so the predicted offset at $\beta\!=\!1$ is $4.58$ — the empirical $11.99$ exceeds this by $\sim\!2.6\!\times$. The FID landscape is therefore \emph{super-linear} in the MSE-axis bias: it penalizes large bias more aggressively than gradient MSE does, which pulls the FID-optimal $\beta$ past the gradient-MSE interior minimizer to the unbiased corner $\beta\!=\!0$. The four-point ordering is the strongest empirical confirmation of the bias-variance decomposition we obtain at DiT scale.
+    \noindent\textbf{Converged FID floors and four-point ordering.} All four configurations completed their scheduled $300$k-step training and have a matched-step eval at step $295$k. The four FID floors at step $295$k recover the bias-variance ordering of~\cref{thm: control-variate-optimum}:
+    \begin{align*}
+        \mathrm{FID}(\beta\!=\!0)&\;=\;11.37\\
+        \mathrm{FID}(\beta\!=\!0.25)&\;=\;11.76\\
+        \mathrm{FID}(\beta\!=\!0.5)&\;=\;12.51\\
+        \mathrm{FID}(\beta\!=\!1)&\;=\;23.36\\
+        \mathrm{FID}(\beta\!=\!0)\;<\;\mathrm{FID}(\beta\!=\!0.25)&\;<\;\mathrm{FID}(\beta\!=\!0.5)\;<\;\mathrm{FID}(\beta\!=\!1)
+    \end{align*}
+    Quantitatively, taking offsets from the baseline floor $11.37$, $\Delta\mathrm{FID}(\beta\!=\!0.5)\!\approx\!1.14$ and $\Delta\mathrm{FID}(\beta\!=\!1)\!\approx\!11.99$. Anchoring the gradient-MSE prediction $\beta^{2}\!\cdot\!A$ at the $\beta\!=\!0.5$ point gives $A\!\approx\!4.58$, so the predicted offset at $\beta\!=\!1$ is $4.58$ — the empirical $11.99$ exceeds this by $\sim\!2.6\!\times$. The FID landscape is therefore \emph{super-linear} in the MSE-axis bias: it penalizes large bias more aggressively than gradient MSE does, which pulls the FID-optimal $\beta$ past the gradient-MSE interior minimizer to the unbiased corner $\beta\!=\!0$. The four-point ordering is the strongest empirical confirmation of the bias-variance decomposition we obtain at the DiT scale.
 
     \input{assets/tables/dit-fid}
 
-    \noindent\textbf{Bias and shrinkage trajectory.} To localize the predicted optimum we measure two diagnostics on the DiT checkpoints: an EMA-tracking proxy $\widehat{\|\vb\|^{2}}\!\triangleq\!\E_{\vx_{t}}\bigl[\|\vu_{\vtheta}(\vx_{t},t,t)\!-\!\vu_{\bar{\vtheta}}(\vx_{t},t,t)\|^{2}\bigr]$ (the boundary gap between current parameters and the EMA copy), and the irreducible noise floor $\sigma^{2}d\!\approx\!8.2{\times}10^{3}$ from $\Tr(\Sigma_{\vv^{\prime}})$ on the same batch.~\Cref{tab: dit-bias-shrinkage} reports the trajectory: the EMA-tracking proxy \emph{decays} through training, and the shrinkage factor $\sigma^{2}d/(\sigma^{2}d{+}\widehat{\|\vb\|^{2}})$ stays near $1$ throughout converged training. We caveat that $\widehat{\|\vb\|^{2}}$ is the EMA-tracking gap, not the true model bias $\|\vu_{\vtheta}(\vx_{t},t,t)\!-\!\vv(\vx_{t},t)\|^{2}$; cleanly estimating the latter requires access to the conditional distribution $p(\vx_{0}\!\mid\!\vx_{t})$, which is intractable on ImageNet. Combined with $\kappa\!\approx\!1$ from the Frobenius-norm Hutchinson trace, the scalar-isotropic substitution gives $\beta^{\ast}\!\in\![0.46,\,0.50]$ across the full trajectory; this is a coarse first-cut prediction that the direct matrix-form measurement (\Cref{subsec: exp-dit}) refines to $\beta^{\ast}_{\text{no bias}}\!\approx\!0.94$.
+    \noindent\textbf{Bias and shrinkage trajectory.} To localize the predicted optimum we measure two diagnostics on the DiT checkpoints: an EMA-tracking proxy $\widehat{\|\vb\|^{2}}\!\triangleq\!\E_{\vx_{t}}\bigl[\|\vu_{\vtheta}(\vx_{t},t,t)\!-\!\vu_{\bar{\vtheta}}(\vx_{t},t,t)\|^{2}\bigr]$ (the boundary gap between current parameters and the EMA copy), and the irreducible noise floor $\sigma^{2}d\!\approx\!8.2{\times}10^{3}$ from $\Tr(\Sigma_{\vv^{\prime}})$ on the same batch.~\cref{tab: dit-bias-shrinkage} reports the trajectory: the EMA-tracking proxy \emph{decays} through training, and the shrinkage factor $\sigma^{2}d/(\sigma^{2}d{+}\widehat{\|\vb\|^{2}})$ stays near $1$ throughout converged training. We caveat that $\widehat{\|\vb\|^{2}}$ is the EMA-tracking gap, not the true model bias $\|\vu_{\vtheta}(\vx_{t},t,t)\!-\!\vv(\vx_{t},t)\|^{2}$; cleanly estimating the latter requires access to the conditional distribution $p(\vx_{0}\!\mid\!\vx_{t})$, which is intractable on ImageNet. Combined with $\kappa\!\approx\!1$ from the Frobenius-norm Hutchinson trace, the scalar-isotropic substitution gives $\beta^{\ast}\!\in\![0.46,\,0.50]$ across the full trajectory; this is a coarse first-cut prediction that the direct matrix-form measurement (see~\cref{subsec: exp-dit}) refines to $\beta^{\ast}_{\text{no bias}}\!\approx\!0.94$.
 
     \input{assets/tables/dit-bias-shrinkage}
 
-    \noindent\textbf{Qualitative samples.} \Cref{fig: dit-qualitative-beta0,fig: dit-qualitative-beta05,fig: dit-qualitative-beta1} show $100$ class-conditional generations from the three available checkpoints at step $300$k, one figure per $\beta$ value. The three figures share the same noise key (seed $7$) and the same $100$ ImageNet class labels (drawn uniformly from $\{0,\dots,999\}$ with an independent label seed of $7$, no curation), so per-position differences across the three figures isolate the effect of the loss alone. The $\beta\!=\!0$ versus $\beta\!=\!1$ contrast is at the perceptual scale, consistent with the $\!\sim\!2\!\times$ FID gap; the intermediate $\beta\!=\!0.5$ figure is at the metric-difference scale and is not always visually separable from the baseline at this sample budget. The $\beta\!=\!0.25$ checkpoint is absent because that training run finished without persisting any checkpoint (the launch command's work-dir argument fell back to local-FS semantics due to a URL prefix typo, and FID was computed on-the-fly without an Orbax write); we leave the $\beta\!=\!0.25$ qualitative figure to a future revision in which the run is replayed with corrected logging.
+    \noindent\textbf{Qualitative samples.} \Cref{fig: dit-qualitative-beta0,fig: dit-qualitative-beta05,fig: dit-qualitative-beta1} show $100$ class-conditional generations from the three available checkpoints at step $300$k, one figure per $\beta$ value. The three figures share the same noise key (seed $7$) and the same $100$ ImageNet class labels (drawn uniformly from $\{0,\dots,999\}$ with an independent label seed of $7$, no curation), so per-position differences across the three figures isolate the effect of the loss alone. The $\beta\!=\!0$ versus $\beta\!=\!1$ contrast is at the perceptual scale, consistent with the $\!\sim\!2\!\times$ FID gap; the intermediate $\beta\!=\!0.5$ figure is at the metric-difference scale and is not always visually separable from the baseline at this sample budget.
 
     {%
         \small
@@ -388,21 +392,21 @@
     \begin{figure}[t]
         \centering
         \includegraphics[width=\textwidth]{assets/figures/dit_qualitative_beta0.pdf}
-        \caption{$100$ class-conditional samples from the $\beta\!=\!0$ baseline checkpoint at step $300$k (FID $11.37$). Same noise seed and class labels as~\Cref{fig: dit-qualitative-beta05,fig: dit-qualitative-beta1}.}
+        \caption{$100$ class-conditional samples from the $\beta\!=\!0$ baseline checkpoint at step $300$k (FID $11.37$). Same noise seed and class labels as~\cref{fig: dit-qualitative-beta05,fig: dit-qualitative-beta1}.}
         \label{fig: dit-qualitative-beta0}
     \end{figure}
 
     \begin{figure}[t]
         \centering
         \includegraphics[width=\textwidth]{assets/figures/dit_qualitative_beta05.pdf}
-        \caption{$100$ class-conditional samples from the $\beta\!=\!0.5$ checkpoint at step $300$k (FID $12.51$). Same noise seed and class labels as~\Cref{fig: dit-qualitative-beta0,fig: dit-qualitative-beta1}.}
+        \caption{$100$ class-conditional samples from the $\beta\!=\!0.5$ checkpoint at step $300$k (FID $12.51$). Same noise seed and class labels as~\cref{fig: dit-qualitative-beta0,fig: dit-qualitative-beta1}.}
         \label{fig: dit-qualitative-beta05}
     \end{figure}
 
     \begin{figure}[t]
         \centering
         \includegraphics[width=\textwidth]{assets/figures/dit_qualitative_beta1.pdf}
-        \caption{$100$ class-conditional samples from the $\beta\!=\!1$ corner checkpoint at step $300$k (FID $23.36$). Same noise seed and class labels as~\Cref{fig: dit-qualitative-beta0,fig: dit-qualitative-beta05}.}
+        \caption{$100$ class-conditional samples from the $\beta\!=\!1$ corner checkpoint at step $300$k (FID $23.36$). Same noise seed and class labels as~\cref{fig: dit-qualitative-beta0,fig: dit-qualitative-beta05}.}
         \label{fig: dit-qualitative-beta1}
     \end{figure}
 
