@@ -18,6 +18,7 @@
 #   PLATFORM=cpu STEPS=100000 ./run_beta_sweep.sh
 #   DATASETS="swiss_roll pinwheel" SEEDS="0 1 2" ./run_beta_sweep.sh
 #   BETAS="0.0 0.5 1.0" ./run_beta_sweep.sh
+#   MEASURE_GRAD_VAR_EVERY=2000 ./run_beta_sweep.sh   # enables Tr(Cov[g]) probing
 #
 # Outputs: ${WORK_DIR}/beta_${BETA}/${dataset}_vamf_tmix_${seed}.json
 
@@ -33,6 +34,8 @@ read -ra DATASETS <<< "${DATASETS:-checkerboard eight_gaussians two_moons swiss_
 read -ra SEEDS    <<< "${SEEDS:-42 0 1}"
 read -ra BETAS    <<< "${BETAS:-0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0}"
 PLATFORM="${PLATFORM:-cuda}"
+MEASURE_GRAD_VAR_EVERY="${MEASURE_GRAD_VAR_EVERY:-0}"
+MEASURE_GRAD_VAR_N_BATCHES="${MEASURE_GRAD_VAR_N_BATCHES:-8}"
 
 echo "Workspace : $WORKSPACE_DIR"
 echo "Work dir  : $WORK_DIR"
@@ -67,6 +70,8 @@ for beta in "${BETAS[@]}"; do
         --steps="$STEPS" \
         --seed="$seed" \
         --exact_trace=true \
+        --measure_grad_var_every="$MEASURE_GRAD_VAR_EVERY" \
+        --measure_grad_var_n_batches="$MEASURE_GRAD_VAR_N_BATCHES" \
         --work_dir="$beta_dir" \
         2>&1 | grep -E 'loss=|Training finished|Saved'
       echo "--- Done [$count/$total]: β=${beta} ${ds} seed=${seed} ---"
