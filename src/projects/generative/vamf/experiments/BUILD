@@ -66,3 +66,21 @@ ml_py_binary(
         "//src/utilities:logging",
     ],
 )
+
+ml_py_binary(
+    name = "sample_dit_qualitative",
+    srcs = ["sample_dit_qualitative.py"],
+    deps = [
+        "absl-py",
+        "etils",
+        "fiddle",
+        "flax",
+        "jax",
+        "jaxtyping",
+        "matplotlib",
+        "numpy",
+        "orbax-checkpoint",
+        "//src/projects/generative:config",
+        "//src/utilities:logging",
+    ],
+)
