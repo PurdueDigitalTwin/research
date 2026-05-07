@@ -14,7 +14,7 @@
     \label[appendix]{appx: notation}
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-    \Cref{tab: notation} lists all the notations we use in this work.
+    To promote the readibility of our readers, \cref{tab: notation} lists all the notations we use in this work.
     \input{assets/tables/notation}
 
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -23,46 +23,71 @@
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    \subsection{Proof of Marginal-Velocity Lemma}
+    \subsection{Proof of Lemma 1}
     \label[appendix]{appx: first}
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
     \begin{lemma}
-        Given conditional vector fields $\vv(\vx,t\mid{\vx_{0}})$ that generate probability paths $p(\vx,t\mid{\vx_{0}})$, for any data distribution $\rvx_{0}\sim p(\rvx_{0})$, define the marginal velocity field as
+        Given vector fields $\vv_{\text{cond}}$ generating conditional probability paths $p(\vx,t\mid\vx_{0})$, for any $\rvx_{0}\!\sim\!p(\rvx_{0})$, the expected conditional velocity field is equal to the marginal velocity field
         \begin{equation*}
-            \vv(\vx,t)\;\triangleq\;\E_{\vx_{0}\sim{p(\vx_{0}\mid{\vx_{t}=\vx})}}\!\left[\vv(\vx,t\mid{\vx_{0}})\right].
+            \vv(\vx,t)=\E_{\vx_{0}\sim{p(\vx_{0}\mid\vx_{t}=\vx)}}\!\left[\vv(\vx,t\mid\vx_{0})\right].
         \end{equation*}
-        Then $\vv(\vx,t)$ generates the marginal probability path $p(\vx,t)\!=\!\int p(\vx,t\mid\vx_{0})\,p(\vx_{0})\,\mathrm{d}\vx_{0}$ via the continuity equation.
     \end{lemma}
 
     \begin{proof}
-        We follow the standard flow-matching construction~\cite{lipman2023flowmatchinggenerativemodeling,tong2024improvinggeneralizingflowbasedgenerative}: the marginal velocity field is \emph{defined} by the displayed conditional expectation, and it remains to verify that this definition makes $\vv(\vx,t)$ generate $p(\vx,t)$ via the continuity equation. By the law of total probability and the definition of the conditional velocity field,
+        We follow the standard flow-matching construction~\cite{lipman2023flowmatchinggenerativemodeling,tong2024improvinggeneralizingflowbasedgenerative}. A sufficient and necessary condition for a velocity field $\vv(\vx,t)$ to generate a probability density path is given by the continuity equation~\cite{villani2009optimaltransport} which writes:
         \begin{equation}
-            p(\vx,t)\,\vv(\vx,t)=\int p(\vx,t\mid\vx_{0})\,\vv(\vx,t\mid\vx_{0})\,p(\vx_{0})\,\mathrm{d}\vx_{0}.
+            \frac{\partial}{\partial{t}}p(\vx,t)+\mathrm{div}\left(p(\vx,t)\vv(\vx,t)\right)=0.
+            \label{eq: continuity-eq}
         \end{equation}
-        Each conditional pair $(\vv(\vx,t\mid\vx_{0}),\,p(\vx,t\mid\vx_{0}))$ satisfies the continuity equation $\partial_{t}p(\vx,t\mid\vx_{0})+\text{div}(p(\vx,t\mid\vx_{0})\vv(\vx,t\mid\vx_{0}))=0$ by assumption~\cite{villani2009optimaltransport}. Integrating against $p(\vx_{0})$ and exchanging integration with $\partial_{t}$ and $\text{div}$ yields $\partial_{t}p(\vx,t)+\text{div}(p(\vx,t)\vv(\vx,t))=0$, so the constructed $\vv(\vx,t)$ generates $p(\vx,t)$. Dividing the displayed equation by $p(\vx,t)$ and applying Bayes' rule $p(\vx_{0}\mid\vx_{t}=\vx)=p(\vx,t\mid\vx_{0})\,p(\vx_{0})/p(\vx,t)$ recovers the conditional-expectation form. We treat this as the operating definition of the marginal velocity used throughout; uniqueness up to divergence-free vector fields, which we do not require, is a separate question we do not address.
+        Meanwhile, by the law of total probability and the definition of the conditional velocity field,
+        \begin{equation}
+            p(\vx,t)=\int_{\gX}p(\vx,t\mid\vx_{0})\,p(\vx_{0})\,\mathrm{d}\vx_{0},\qquad\forall\,p(\vx_{0}).
+        \end{equation}
+        Taking the derivative with respect to time step $t$ on both side and applying Bayes' rule yields
+        \begin{equation}
+            \begin{aligned}
+                \frac{\partial}{\partial{t}}p(\vx,t)
+                &=\int_{\gX}\frac{\partial}{\partial{t}}p(\vx,t\mid{\vx_{0}})\,p(\vx_{0})\mathrm{d}\vx_{0}\\
+                &=\int_{\gX}-\mathrm{div}\left(p(\vx,t\mid{\vx_{0}})\vv(\vx,t\mid{\vx_{0}})\right)\cdot p(\vx_{0})\mathrm{d}\vx_{0}\\
+                &=-\mathrm{div}\cdot\left(\int_{\gX}\vv(\vx,t\mid{\vx_{0}})\!\cdot\!p(\vx,t)\!\cdot\!p(\vx_{0}\mid{\vx_{t}=\vx})\mathrm{d}\boldsymbol{x}_{0}\right)\\
+                &=-\mathrm{div}\left(p(\vx,t)\E_{\vx_{0}\sim{p(\vx_{0}\mid\vx_{t}=\vx)}}\!\left[\vv(\vx,t\mid\vx_{0})\right]\right).
+            \end{aligned}
+            \label{eq: derivative-of-marginal-prob}
+        \end{equation}
+        Combining~\eqref{eq: continuity-eq} and~\eqref{eq: derivative-of-marginal-prob} recovers the relationship. Proof completes.
     \end{proof}
 
     \subsection{Proof of~\Cref{thm: jacobi-variance} (Jacobian Variance Amplification)}
 
     \begin{theorem}[Jacobian Variance Amplification]
-        The Jacobi factor amplifies the gradient variance of the original MeanFlow loss:
+        Let $\vg\!\triangleq\!\nabla_{\vtheta}\vu_{\vtheta}(\vx_{t},r,t)\!\in\!\mathbb{R}^{d\times p}$ be the parameter Jacobian of the average velocity. The trace of the conditional gradient covariance (\textit{i.e., the total variance}) of $\ell_{\text{MF}}(\vtheta)$ in~\eqref{eq: mf-loss} satisfies
         \begin{equation*}
-            \Var\!\left[\nabla_{\vtheta}\ell_{\text{MF}}(\vtheta)\mid\vx_{t}\right]\;\propto\;\Tr\!\left(\mJ\,\Sigma_{\vv^{\prime}}\,\mJ^{\!\top}\right).
+            \boxed{
+                \Tr\!\left(\Cov\!\left[\nabla_{\vtheta}\ell_{\text{MF}}\mid\vx_{t}\right]\right)
+                \;\propto\;
+                \Tr\!\left(\vg^{\!\top}\,\mJ\,\Sigma_{\vv^{\prime}}\,\mJ^{\!\top}\,\vg\right).
+            }
         \end{equation*}
     \end{theorem}
 
     \begin{proof}
-        Under the stop-gradient operator, the compound prediction $V_{\vtheta}^{\texttt{sg}}$ depends on $\vtheta$ only through $\vu_{\vtheta}(\vx_{t},r,t)$. Let $\nabla_{\vtheta}\vu_{\vtheta}\in\mathbb{R}^{d\times p}$ denote the parameter Jacobian of the network output. The per-step gradient is
+        By substituting $\vv_{\text{cond}}\!=\!\vv(\vx,t)+\vv^{\prime}$, the per-step loss $\ell_{\text{MF}}$ expands:
         \begin{equation}
-            \nabla_{\vtheta}\ell_{\text{MF}}=2\left(\nabla_{\vtheta}\vu_{\vtheta}\right)^{\!\top}\!\left(\vr_{\vtheta}^{\texttt{sg}}+\mJ\vv^{\prime}\right),
+            \begin{aligned}
+            \ell_{\text{MF}} &=\left\|\vu_{\vtheta}+(t-r)\,\texttt{sg}\!\left[\texttt{JVP}(\vu_{\vtheta},(\vx_{t},r,t),(\vv_{\text{cond}},0,1))\right]-\vv_{\text{cond}}\right\|_{2}^{2} \\
+            &= \left\|\vu_{\vtheta}+(t-r)\texttt{sg}\left[\partial_{\vx_{t}}\vu_{\vtheta}\!\cdot\!\vv(\vx,t)+\partial_{t}\vu_{\vtheta}\right]-\vv(\vx,t)+\left[(t-r)\partial_{\vx_{t}}\vu_{\vtheta}-\mI_{d}\right]\vv^{\prime}\right\|_{2}^{2} \\
+            &= \left\|\vr^{\texttt{sg}}_{\vtheta}+\mJ\vv^{\prime}\right\|_{2}^{2},
+            \end{aligned}
+        \end{equation}
+        where $\vr_{\vtheta}^{\texttt{sg}}$ is the mean-field residual and $\mJ=(t-r)\partial_{\vx_{t}}\vu_{\vtheta}-\mI_{d}$ is the Jacobi factor. With stop-gradient operator, the gradient of the per-sample loss pass through only the mean-field residual $\vr_{\vtheta}^{\texttt{sg}}$. Let $\vg\!\triangleq\!\nabla_{\vtheta}\vu_{\vtheta}\in\mathbb{R}^{d\times p}$ denote the parameter Jacobian of the network output. The per-step gradient is then given by
+        \begin{equation}
+            \nabla_{\vtheta}\ell_{\text{MF}}=2\vg^{\!\top}\!\left(\vr_{\vtheta}^{\texttt{sg}}+\mJ\vv^{\prime}\right),
             \label{eq: per-step-grad}
         \end{equation}
-        where $\vr_{\vtheta}^{\texttt{sg}}$ is the mean-field residual and $\mJ=(t-r)\partial_{\vx_{t}}\vu_{\vtheta}-\mI_{d}$ is the Jacobi factor. All three quantities ($\nabla_{\vtheta}\vu_{\vtheta}$, $\vr_{\vtheta}^{\texttt{sg}}$, and $\mJ$) are deterministic conditioned on $\vx_{t}$.
-
-        Since $\E_{\vx_{0}\mid\vx_{t}}[\vv^{\prime}]=\bm{0}$ by~\eqref{eq: margv-condv-relation}, the conditional mean gradient is:
+        where all three quantities ($\vg$, $\vr_{\vtheta}^{\texttt{sg}}$, and $\mJ$) are deterministic conditioned on $\vx_{t}$. Since $\E_{\vx_{0}\mid\vx_{t}}[\vv^{\prime}]=\bm{0}$ by~\eqref{eq: margv-condv-relation}, the conditional mean gradient then writes
         \begin{equation}
-            \E\!\left[\nabla_{\vtheta}\ell\mid\vx_{t}\right]=2\left(\nabla_{\vtheta}\vu_{\vtheta}\right)^{\!\top}\vr_{\vtheta}^{\texttt{sg}}.
+            \E\!\left[\nabla_{\vtheta}\ell\mid\vx_{t}\right]=2\vg^{\!\top}\left(\vr_{\vtheta}^{\texttt{sg}}+\bm{0}\right)=2\vg^{\!\top}\vr^{\texttt{sg}}_{\vtheta}.
         \end{equation}
         The centered gradient is $\nabla_{\vtheta}\ell-\E[\nabla_{\vtheta}\ell\mid\vx_{t}]=2(\nabla_{\vtheta}\vu_{\vtheta})^{\!\top}\mJ\vv^{\prime}$, so the conditional variance is:
         \begin{align}
@@ -71,16 +96,18 @@
             &=4\,\E\!\left[(\vv^{\prime})^{\!\top}\mJ^{\!\top}\underbrace{(\nabla_{\vtheta}\vu_{\vtheta})(\nabla_{\vtheta}\vu_{\vtheta})^{\!\top}}_{\mG_{\vtheta}\;\succeq\;\bm{0}}\mJ\vv^{\prime}\;\middle|\;\vx_{t}\right] \nonumber\\
             &=4\,\Tr\!\left(\mG_{\vtheta}\,\mJ\,\Sigma_{\vv^{\prime}}\,\mJ^{\!\top}\right)\;\propto\;\Tr\!\left(\mJ\,\Sigma_{\vv^{\prime}}\,\mJ^{\!\top}\right),
         \end{align}
-        where $\mG_{\vtheta}=(\nabla_{\vtheta}\vu_{\vtheta})(\nabla_{\vtheta}\vu_{\vtheta})^{\!\top}\in\mathbb{R}^{d\times d}$ is the parameter-space Gram matrix and the last step uses $\mG_{\vtheta}\succeq\bm{0}$ to establish proportionality via the cyclic property of the trace.
+        where $\mG_{\vtheta}=(\nabla_{\vtheta}\vu_{\vtheta})(\nabla_{\vtheta}\vu_{\vtheta})^{\!\top}\in\mathbb{R}^{d\times d}$ is the parameter-space Gram matrix and the last step uses $\mG_{\vtheta}\succeq\bm{0}$ to establish proportionality leveraging the cyclic property of the trace. Proof completes.
     \end{proof}
 
     \subsection{Proof of~\Cref{thm: semi-gradient-gap} (Semi-Gradient Gap)}
 
     \begin{theorem}[Semi-Gradient Gap]
-        The gradients of the MeanFlow loss with and without the stop-gradient operator differ by
+        The gradient of the MeanFlow loss $\gL_{\text{MF}}$ with and without the stop-gradient operator differ by
         \begin{equation*}
-            \underbrace{2(t{-}r)\,\E_{r,t,\vx_{0},\vx_{1}}\!\left[\bigl(\nabla_{\vtheta}\!\left(\partial_{\vx_{t}}\vu_{\vtheta}\!\cdot\!\vv(\vx_{t},t)+\partial_{t}\vu_{\vtheta}\right)\bigr)^{\!\top}\vr_{\vtheta}\right]}_{\text{mean-field gradient difference}}
-            +\underbrace{\E_{r,t,\vx_{0},\vx_{1}}\!\left[\nabla_{\vtheta}\Tr\!\left(\mJ\,\Sigma_{\vv^{\prime}}\,\mJ^{\!\top}\right)\right]}_{\text{variance-driven gradient difference}}.
+            \boxed{
+                \underbrace{2(t{-}r)\,\E\!\left[\bigl(\nabla_{\vtheta}\!\left(\partial_{\vx_{t}}\vu_{\vtheta}\!\cdot\!\vv+\partial_{t}\vu_{\vtheta}\right)\bigr)^{\!\top}\vr_{\vtheta}\right]}_{\text{mean-field gradient difference}}
+                +\underbrace{\E\!\left[\nabla_{\vtheta}\Tr\!\left(\mJ\Sigma_{\vv^{\prime}}\mJ^{\!\top}\right)\right]}_{\text{variance-driven gradient difference}}.
+            }
         \end{equation*}
     \end{theorem}
 
@@ -104,67 +131,73 @@
             &\nabla_{\vtheta}\E\!\left[\ell\right]-\nabla_{\vtheta}^{\texttt{sg}}\E\!\left[\ell\right] \nonumber\\
             &\quad=\underbrace{\nabla_{\vtheta}\left\|\vr_{\vtheta}\right\|^{2}-2\left(\nabla_{\vtheta}\vu_{\vtheta}\right)^{\!\top}\vr^{\texttt{sg}}}_{\text{mean-field gradient difference}}+\underbrace{\nabla_{\vtheta}\Tr\!\left(\mJ\,\Sigma_{\vv^{\prime}}\,\mJ^{\!\top}\right)}_{\text{variance-driven difference}}.
         \end{align}
-        Expanding the first term: $\nabla_{\vtheta}\|\vr\|^{2}=2(\nabla_{\vtheta}\vr_{\vtheta})^{\!\top}\vr_{\vtheta}$, and $\nabla_{\vtheta}\vr_{\vtheta}$ includes the derivative of the JVP terms $(t-r)(\partial_{\vx_{t}}\vu_{\vtheta}\cdot\vv+\partial_{t}\vu_{\vtheta})$ w.r.t.\ $\vtheta$, yielding the second-order mean-field difference $2(t-r)\E[(\nabla_{\vtheta}(\partial_{\vx_{t}}\vu_{\vtheta}\cdot\vv+\partial_{t}\vu_{\vtheta}))^{\!\top}\vr_{\vtheta}]$. At convergence $\vr_{\vtheta}\to\bm{0}$, this term vanishes, and the gap is dominated by the variance-driven term $\nabla_{\vtheta}\Tr(\mJ\,\Sigma_{\vv^{\prime}}\,\mJ^{\!\top})$.
+        Expanding the first term: $\nabla_{\vtheta}\|\vr\|^{2}=2(\nabla_{\vtheta}\vr_{\vtheta})^{\!\top}\vr_{\vtheta}$, and $\nabla_{\vtheta}\vr_{\vtheta}$ includes the derivative of the JVP terms $(t-r)(\partial_{\vx_{t}}\vu_{\vtheta}\cdot\vv+\partial_{t}\vu_{\vtheta})$ w.r.t.\ $\vtheta$, yielding the second-order mean-field difference $2(t-r)\E[(\nabla_{\vtheta}(\partial_{\vx_{t}}\vu_{\vtheta}\cdot\vv+\partial_{t}\vu_{\vtheta}))^{\!\top}\vr_{\vtheta}]$. At convergence $\vr_{\vtheta}\to\bm{0}$, this term vanishes, and the gap is dominated by the variance-driven term $\nabla_{\vtheta}\Tr(\mJ\,\Sigma_{\vv^{\prime}}\,\mJ^{\!\top})$. Proof completes.
     \end{proof}
 
     \subsection{Proof of~\Cref{thm: control-variate-optimum} (Optimal Control-Variate Coefficient)}
 
     \begin{theorem}[Optimal control-variate coefficient]
-        Under the scalar-isotropic approximation $\Sigma_{\vv^{\prime}}\!\approx\!\sigma^{2}\mI_{d}$ and $\mJ\!\approx\!\kappa\mI_{d}$, the conditional MSE of $\vg^{(\beta)}$ in~\eqref{eq: g-beta} is
+        Under the scalar-isotropic approximation $\Sigma_{\vv^{\prime}}\!\approx\!\sigma^{2}\mI_{d}$, $\mJ\!\approx\!\kappa\mI_{d}$, and the parameter-isotropy approximation $\vg\vg^{\!\top}\!\propto\!\mI_{d}$,
         \begin{equation*}
-            M(\beta) \;=\; \beta^{2}(\kappa{+}1)^{2}\|\vb\|^{2} \;+\; \sigma^{2}d\bigl((1{-}\beta)\kappa - \beta\bigr)^{2},
+            M(\beta) \;\propto\; \beta^{2}(\kappa{+}1)^{2}\|\vb\|^{2} + \sigma^{2}d\bigl((1{-}\beta)\kappa - \beta\bigr)^{2}.
         \end{equation*}
-        with unique minimizer $\beta^{\ast}\!=\!\frac{\kappa}{\kappa+1}\!\cdot\!\frac{\sigma^{2}d}{\sigma^{2}d+\|\vb\|^{2}}$ and optimum value $M(\beta^{\ast})\!=\!\sigma^{2}d\,\kappa^{2}\,\|\vb\|^{2}/(\sigma^{2}d+\|\vb\|^{2})$. For all $\kappa,\|\vb\|^{2}\!>\!0$, the optimum strictly dominates both $M(0)\!=\!\sigma^{2}\kappa^{2}d$ and $M(1)\!=\!(\kappa{+}1)^{2}\|\vb\|^{2}+\sigma^{2}d$.
+        For $\kappa\!>\!0$, $M(\beta)$ admits a unique minimizer
+        \begin{equation*}
+            \boxed{
+                \beta^{\ast} \;=\; \underbrace{\frac{\kappa}{\kappa+1}}_{\text{noise-cancellation}}\;\cdot\;\underbrace{\frac{\sigma^{2}d}{\sigma^{2}d + \|\vb\|^{2}}}_{\text{shrinkage}},
+            }
+        \end{equation*}
+        with optimum value $M(\beta^{\ast})\!\propto\!\sigma^{2}d\,\kappa^{2}\,\|\vb\|^{2}/(\sigma^{2}d+\|\vb\|^{2})$.
     \end{theorem}
 
     \begin{proof}
-        \textbf{Step 1: bias-variance decomposition.} From~\eqref{eq: g-beta},
-        \begin{equation*}
-            \vg^{(\beta)} \;=\; 2\,\vg^{\!\top}\!\Bigl[\bar{\vr} \;+\; \bigl((1{-}\beta)\,\mJ - \beta\,\mI\bigr)\,\vv^{\prime} \;+\; \beta\,(\mJ{+}\mI)\,\vb\Bigr].
-        \end{equation*}
-        Using $\E_{\vx_{0}\mid\vx_{t}}[\vv^{\prime}]\!=\!\bm{0}$, the conditional mean is $\E[\vg^{(\beta)}\mid\vx_{t}]\!=\!2\vg^{\!\top}(\bar{\vr}+\beta(\mJ{+}\mI)\vb)$ and the centered noise is $-2\vg^{\!\top}\bigl((1{-}\beta)\mJ-\beta\mI\bigr)\vv^{\prime}$ (relative to the ideal target $2\vg^{\!\top}\bar{\vr}$). The conditional MSE w.r.t.\ the ideal target therefore decomposes as
-        \begin{equation*}
+        From~\eqref{eq: g-beta}, we can decompose gradient with coefficient $\beta$ into:
+        \begin{equation}
+            \vg^{(\beta)} \;=\; 2\,\vg^{\!\top}\!\Bigl[\vr_{\vtheta} \;+\; \bigl((1{-}\beta)\,\mJ - \beta\,\mI\bigr)\,\vv^{\prime} \;+\; \beta\,(\mJ{+}\mI)\,\vb\Bigr].
+        \end{equation}
+        Leveraging the property $\E_{\vx_{0}\mid\vx_{t}}[\vv^{\prime}]\!=\!\bm{0}$, the conditional mean is $\E[\vg^{(\beta)}\mid\vx_{t}]\!=\!2\vg^{\!\top}(\vr_{\vtheta}+\beta(\mJ{+}\mI)\vb)$ and the centered noise is $-2\vg^{\!\top}\bigl((1{-}\beta)\mJ-\beta\mI\bigr)\vv^{\prime}$ (relative to the ideal target $2\vg^{\!\top}\vr_{\vtheta}$). The conditional MSE w.r.t.\ the ideal target therefore decomposes as
+        \begin{equation}
             \mathrm{MSE} \;=\; \underbrace{4\beta^{2}\,\bigl\|\vg^{\!\top}(\mJ{+}\mI)\vb\bigr\|^{2}}_{\text{bias}^{2}} \;+\; \underbrace{4\,\Tr\!\Bigl(\vg\vg^{\!\top}\bigl((1{-}\beta)\mJ-\beta\mI\bigr)\Sigma_{\vv^{\prime}}\bigl((1{-}\beta)\mJ-\beta\mI\bigr)^{\!\top}\Bigr)}_{\text{variance}}.
-        \end{equation*}
-        \textbf{Step 2: matrix-form expansion and strict convexity.} Let $\mA\!\triangleq\!\mJ{+}\mI$ and $\mG_{\vtheta}\!\triangleq\!\vg\vg^{\!\top}\!\succeq\!\bm{0}$. Substituting $((1{-}\beta)\mJ-\beta\mI)\!=\!\mJ-\beta\mA$ and using $\|\vg^{\!\top}\mA\vb\|^{2}\!=\!\Tr(\mG_{\vtheta}\mA\vb\vb^{\!\top}\mA^{\!\top})$, the conditional MSE writes as a quadratic in $\beta$:
+        \end{equation}
+        We then solve for the MSE and prove its strict convexity. Let $\mA\!\triangleq\!\mJ{+}\mI$ and $\mG_{\vtheta}\!\triangleq\!\vg\vg^{\!\top}\!\succeq\!\bm{0}$. Substituting $((1{-}\beta)\mJ-\beta\mI)\!=\!\mJ-\beta\mA$ and using $\|\vg^{\!\top}\mA\vb\|^{2}\!=\!\Tr(\mG_{\vtheta}\mA\vb\vb^{\!\top}\mA^{\!\top})$, the conditional MSE writes as a quadratic in $\beta$:
         \begin{equation}
             M(\beta) \;=\; \alpha_{0} \;-\; 2\,\alpha_{1}\,\beta \;+\; \alpha_{2}\,\beta^{2},
             \label{eq: m-beta-quadratic}
         \end{equation}
-        with (suppressing the constant prefactor $4$)
+        with
         \begin{align*}
             \alpha_{0} &\!\triangleq\!\Tr\!\bigl(\mG_{\vtheta}\,\mJ\,\Sigma_{\vv^{\prime}}\,\mJ^{\!\top}\bigr),\\
             \alpha_{1} &\!\triangleq\!\Tr\!\bigl(\mG_{\vtheta}\,\mJ\,\Sigma_{\vv^{\prime}}\,\mA^{\!\top}\bigr),\\
             \alpha_{2} &\!\triangleq\!\Tr\!\bigl(\mG_{\vtheta}\,\mA\,(\Sigma_{\vv^{\prime}}+\vb\vb^{\!\top})\,\mA^{\!\top}\bigr).
         \end{align*}
-        (We used the symmetry of $\mG_{\vtheta}$ and $\Sigma_{\vv^{\prime}}$ to consolidate the linear-in-$\beta$ trace into a single $\alpha_{1}$.) The Hessian is
-        \begin{equation*}
-            \frac{\partial^{2}M}{\partial \beta^{2}} \;=\; 2\alpha_{2} \;=\; 2\,\Tr\!\bigl(\mG_{\vtheta}\,\mA\,(\Sigma_{\vv^{\prime}}+\vb\vb^{\!\top})\,\mA^{\!\top}\bigr) \;\geq\; 0,
-        \end{equation*}
-        since each factor inside the trace is positive semi-definite ($\mG_{\vtheta}\!\succeq\!\bm{0}$, $\Sigma_{\vv^{\prime}}+\vb\vb^{\!\top}\!\succeq\!\bm{0}$, and $\mA(\Sigma_{\vv^{\prime}}+\vb\vb^{\!\top})\mA^{\!\top}\!=\!\mM\mM^{\!\top}\!\succeq\!\bm{0}$ for $\mM\!\triangleq\!\mA(\Sigma_{\vv^{\prime}}+\vb\vb^{\!\top})^{1/2}$). Hence $M(\beta)$ is convex in $\beta$. The Hessian is strictly positive whenever $\mG_{\vtheta}^{1/2}\mM\!\neq\!\bm{0}$, which holds outside two pathological regimes: (i)~$\mA\!=\!\bm{0}$, equivalently $\mJ\!=\!-\mI$ (network with $\partial_{\vx_{t}}\vu_{\vtheta}\!\equiv\!\bm{0}$, e.g., at saturated initialization), in which case the linear coefficient $\alpha_{1}$ also vanishes and $M(\beta)$ is constant; (ii)~$\vg\!=\!\bm{0}$ (frozen parameters). Outside these, $M(\beta)$ is \emph{strictly} convex with unique unconstrained minimizer
+        We exploit the symmetry of $\mG_{\vtheta}$ and $\Sigma_{\vv^{\prime}}$ to consolidate the linear-in-$\beta$ trace into a single $\alpha_{1}$. The Hessian is then positive:
+        \begin{equation}
+            \frac{\partial^{2}}{\partial \beta^{2}}M(\beta) \;=\; 2\alpha_{2} \;=\; 2\,\Tr\!\bigl(\mG_{\vtheta}\,\mA\,(\Sigma_{\vv^{\prime}}+\vb\vb^{\!\top})\,\mA^{\!\top}\bigr) \;\geq\; 0,
+        \end{equation}
+        since each factor inside the trace is positive semi-definite (\emph{i.e., $\mG_{\vtheta}\!\succeq\!\bm{0}$, $\Sigma_{\vv^{\prime}}+\vb\vb^{\!\top}\!\succeq\!\bm{0}$, and $\mA(\Sigma_{\vv^{\prime}}+\vb\vb^{\!\top})\mA^{\!\top}\!=\!\mM\mM^{\!\top}\!\succeq\!\bm{0}$ for $\mM\!\triangleq\!\mA(\Sigma_{\vv^{\prime}}+\vb\vb^{\!\top})^{1/2}$}). Therefore, $M(\beta)$ is convex in $\beta$. However, the Hessian is strictly positive \emph{iff} $\mG_{\vtheta}^{1/2}\mM\!\neq\!\bm{0}$, which holds outside two pathological regimes: (i)~$\mA\!=\!\bm{0}$, or equivalently $\mJ\!=\!-\mI$, in which case the linear coefficient $\alpha_{1}$ also vanishes and $M(\beta)$ is constant; (ii)~$\vg\!=\!\bm{0}$ (\emph{e.g., frozen parameters}). Otherwise, $M(\beta)$ is \emph{strictly} convex with unique unconstrained minimizer
         \begin{equation}
             \beta^{\ast}_{\text{matrix}} \;=\; \frac{\alpha_{1}}{\alpha_{2}} \;=\; \frac{\Tr(\mG_{\vtheta}\,\mJ\,\Sigma_{\vv^{\prime}}\,(\mJ{+}\mI)^{\!\top})}{\Tr(\mG_{\vtheta}\,(\mJ{+}\mI)(\Sigma_{\vv^{\prime}}+\vb\vb^{\!\top})(\mJ{+}\mI)^{\!\top})}.
             \label{eq: beta-star-matrix}
         \end{equation}
         Note that $\beta^{\ast}_{\text{matrix}}$ may fall outside $[0,1]$; the box-constrained optimum on the $\beta\!\in\![0,1]$ interval (cf.~\eqref{eq: tangent-mix}) is then $\mathrm{clip}(\beta^{\ast}_{\text{matrix}},0,1)$, attained at the nearer endpoint by convexity.
 
-        \textbf{Step 3: scalar approximation.} Substituting $\mJ\!=\!\kappa\mI_{d}$, $\Sigma_{\vv^{\prime}}\!=\!\sigma^{2}\mI_{d}$, $\mA\!=\!(\kappa{+}1)\mI_{d}$, and the parameter-isotropy approximation $\mG_{\vtheta}\!\propto\!\mI_{d}$ (which absorbs the parameter-direction normalization into a per-component MSE),
+        Finally, we derive the scalar approximation. Substituting $\mJ\!=\!\kappa\mI_{d}$, $\Sigma_{\vv^{\prime}}\!=\!\sigma^{2}\mI_{d}$, $\mA\!=\!(\kappa{+}1)\mI_{d}$, and the parameter-isotropy approximation $\mG_{\vtheta}\!\propto\!\mI_{d}$ yields
         \begin{equation*}
             \alpha_{0}\propto\sigma^{2}\kappa^{2}d,\quad
             \alpha_{1}\propto\sigma^{2}\kappa(\kappa{+}1)d,\quad
             \alpha_{2}\propto(\kappa{+}1)^{2}(\sigma^{2}d+\|\vb\|^{2}),
         \end{equation*}
         which equivalently gives
-        \begin{equation*}
+        \begin{equation}
             M(\beta) \;\propto\; \beta^{2}(\kappa{+}1)^{2}\|\vb\|^{2} \;+\; \sigma^{2}d\bigl((1{-}\beta)\kappa - \beta\bigr)^{2}.
-        \end{equation*}
+        \end{equation}
 
-        \textbf{Step 4: minimization.} Differentiating and setting to zero (or directly evaluating $\alpha_{1}/\alpha_{2}$),
-        \begin{align*}
+        Taking derivative with respect to $\beta$ and setting it to zero gives:
+        \begin{equation}
             \beta^{\ast}\!=\!\frac{\alpha_{1}}{\alpha_{2}}\!=\!\frac{\sigma^{2}\kappa(\kappa{+}1)d}{(\kappa{+}1)^{2}(\sigma^{2}d+\|\vb\|^{2})}\!=\!\frac{\kappa}{\kappa{+}1}\cdot\frac{\sigma^{2}d}{\sigma^{2}d+\|\vb\|^{2}}.
-        \end{align*}
+        \end{equation}
 
-        \textbf{Step 5: optimum value and corner dominance.} At $\beta^{\ast}$, $(1{-}\beta^{\ast})\kappa - \beta^{\ast} = \kappa\,\|\vb\|^{2}/(\sigma^{2}d+\|\vb\|^{2})$. Substituting back,
+        At $\beta^{\ast}$ above, we have $(1{-}\beta^{\ast})\kappa - \beta^{\ast} = \kappa\,\|\vb\|^{2}/(\sigma^{2}d+\|\vb\|^{2})$. Substituting it back recovers:
         \begin{equation*}
             M(\beta^{\ast}) \;\propto\; \frac{\sigma^{2}d\,\kappa^{2}\,\|\vb\|^{2}}{\sigma^{2}d+\|\vb\|^{2}}.
         \end{equation*}

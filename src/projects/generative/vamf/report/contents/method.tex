@@ -64,13 +64,13 @@ where $\mJ\!\triangleq\!(t{-}r)\partial_{\vx_{t}}\vu_{\vtheta}\!-\!\mI_{d}\!\in\
 
 \begin{theorem}[Jacobian Variance Amplification]
     Let $\vg\!\triangleq\!\nabla_{\vtheta}\vu_{\vtheta}(\vx_{t},r,t)\!\in\!\mathbb{R}^{d\times p}$ be the parameter Jacobian of the average velocity. The trace of the conditional gradient covariance (\textit{i.e., the total variance}) of $\ell_{\text{MF}}(\vtheta)$ in~\eqref{eq: mf-loss} satisfies
-    \begin{equation*}
+    \begin{equation}
         \boxed{
             \Tr\!\left(\Cov\!\left[\nabla_{\vtheta}\ell_{\text{MF}}\mid\vx_{t}\right]\right)
             \;\propto\;
             \Tr\!\left(\vg^{\!\top}\,\mJ\,\Sigma_{\vv^{\prime}}\,\mJ^{\!\top}\,\vg\right).
         }
-    \end{equation*}
+    \end{equation}
     \label[theorem]{thm: jacobi-variance}
 \end{theorem}
 
@@ -122,9 +122,9 @@ We derive the following theorem.
 
 \begin{theorem}[Optimal control-variate coefficient]
     Under the scalar-isotropic approximation $\Sigma_{\vv^{\prime}}\!\approx\!\sigma^{2}\mI_{d}$, $\mJ\!\approx\!\kappa\mI_{d}$, and the parameter-isotropy approximation $\vg\vg^{\!\top}\!\propto\!\mI_{d}$ (which reduces $M$ to a per-component MSE; cf.~\Cref{appx: theorem-proof}),
-    \begin{equation*}
+    \begin{equation}
         M(\beta) \;\propto\; \beta^{2}(\kappa{+}1)^{2}\|\vb\|^{2} + \sigma^{2}d\bigl((1{-}\beta)\kappa - \beta\bigr)^{2}.
-    \end{equation*}
+    \end{equation}
     For $\kappa\!>\!0$, $M(\beta)$ admits a unique minimizer
     \begin{equation}
         \boxed{
