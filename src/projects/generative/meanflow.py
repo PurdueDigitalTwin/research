@@ -32,7 +32,7 @@ def sample_t_r(
     distribution: str,
     **kwargs,
 ) -> typing.Tuple[jax.Array, jax.Array]:
-    """Samples begin and end timestamps randomly from a given distribution.
+    r"""Samples begin and end timestamps randomly from a given distribution.
 
     Attributes:
         key (jax.Array): JAX random key.
@@ -142,7 +142,7 @@ class SinusoidalEmbed(nn.Module):
 
 
 class TimestampEmbed(nn.Module):
-    """Encode scalar timestamps to vectors.
+    r"""Encode scalar timestamps to vectors.
 
     Attributes:
         features (int): Dimensionality of the output embeddings.
@@ -236,7 +236,7 @@ class TimestampEmbed(nn.Module):
 # Main modules
 # ==============================================================================
 class MeanFlowUNetModule(nn.Module):
-    """Generative model with a RefineNet backbone trained with `MeanFlow`.
+    r"""Generative model with a RefineNet backbone trained with `MeanFlow`.
 
     Attributes:
         features (int): Number of channels in the latent feature maps.
@@ -2496,8 +2496,12 @@ class VAMeanFlowUNetModel(MeanFlowUNetModel):
 
 
 __all__ = [
+    "SinusoidalEmbed",
+    "TimestampEmbed",
     "MeanFlowUNetModule",
     "MeanFlowUNetModel",
+    "MeanFlowDiTModule",
+    "MeanFlowDiTModel",
     "ImprovedMeanFlowUNetModel",
     "VAMeanFlowUNetModule",
     "VAMeanFlowUNetModel",
