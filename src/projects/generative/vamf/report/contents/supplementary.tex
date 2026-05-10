@@ -327,12 +327,12 @@
         \gL_{\text{FM}}(\vtheta)=\E_{t,\vx_{0},\vx_{1}}\!\left[\left\|\vu_{\vtheta}(\vx_{t},t{-}\delta,t)-\vv_{\text{cond}}\right\|_{2}^{2}\right],
         \label{eq: fm-anchor}
     \end{equation}
-    where $\delta\!\sim\!\gU[\delta_{\min},\delta_{\max}]$ with $\delta_{\max}\!\ll\!1$. We chose to evaluate the anchor at a small \emph{interior} time offset rather than exactly at the boundary $\delta\!=\!0$ for two reasons: (i) the same $\vu(\vx_{t},t{-}\delta,t)$ is what the EMA tangent eventually converges to, so the anchor and the JVP target share the same network-evaluation pattern, and (ii) we found training to be slightly more stable when the anchor probes a thin neighborhood of the boundary rather than a single $r\!=\!t$ slice. For small $\delta$, $\vu(\vx_{t},t{-}\delta,t)$ approximates the instantaneous velocity, and~\eqref{eq: margv-condv-relation} guarantees $\E[\vv_{\text{cond}}\mid\vx_{t}]\!=\!\vv(\vx_{t},t)$, so $\gL_{\text{FM}}$ drives $\vu_{\vtheta}(\vx_{t},t,t)\!\to\!\vv(\vx_{t},t)$, and via EMA, $\vu_{\bar{\vtheta}}(\vx_{t},t,t)\!\to\!\vv$ and hence $\vb\!\to\!\bm{0}$. The full $\beta\!=\!1$ corner loss is
+    where $\delta\!\sim\!\gU[\delta_{\min},\delta_{\max}]$ with $\delta_{\max}\!\ll\!1$. Here, we evaluate the anchor at a small \emph{interior} time offset rather than at the boundary $\delta\!=\!0$ for two reasons. First, the same $\vu(\vx_{t},t{-}\delta,t)$ is what the EMA tangent eventually converges to, so the anchor and the JVP target share the same network-evaluation pattern. Meanwhile, we found training to be slightly more stable when the anchor probes a thin neighborhood of the boundary rather than a single $r\!=\!t$ slice. For small $\delta$, $\vu(\vx_{t},t{-}\delta,t)$ approximates the instantaneous velocity, and~\eqref{eq: margv-condv-relation} guarantees $\E[\vv_{\text{cond}}\mid\vx_{t}]\!=\!\vv(\vx_{t},t)$, so $\gL_{\text{FM}}$ drives $\vu_{\vtheta}(\vx_{t},t,t)\!\to\!\vv(\vx_{t},t)$, and via EMA, $\vu_{\bar{\vtheta}}(\vx_{t},t,t)\!\to\!\vv$ and hence $\vb\!\to\!\bm{0}$. The full $\beta\!=\!1$ corner loss is
     \begin{equation}
         \gL_{\beta=1}(\vtheta)=\gL_{\text{MF}}^{\text{EMA}}(\vtheta)+\lambda\,\gL_{\text{FM}}(\vtheta),
         \label{eq: vamf-obj}
     \end{equation}
-    with $\lambda\!>\!0$. The training procedure is~\cref{alg: va-mf}. Anchor hyperparameters used in our experiments: for 2-D toy and DGMM runs, $(\delta_{\min},\delta_{\max},\lambda)\!=\!(10^{-4},10^{-2},0.5)$; for the DiT-B/4 / ImageNet-$256$ $\beta\!=\!1$ run, $(\delta_{\min},\delta_{\max},\lambda)\!=\!(0,10^{-3},0.1)$.
+    with $\lambda\!>\!0$. The training procedure is~\cref{alg: va-mf}. For the hyperparameters in our experiments, we use $(\delta_{\min},\delta_{\max},\lambda)\!=\!(10^{-4},10^{-2},0.5) $for 2-D toy and DGMM runs, and $(\delta_{\min},\delta_{\max},\lambda)\!=\!(0,10^{-3},0.1)$ for training the DiT-B/4 on ImageNet-$256$ with $\beta\!=\!1$.
 
     \input{assets/algorithms/vamf}
 
