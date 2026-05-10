@@ -24,3 +24,4 @@ However, an effective maintenance of the repository would require a joint effort
    :caption: Research Proposals
 
    reps/0-introduction
+   reps/40-variance-aware-meanflow
