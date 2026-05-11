@@ -123,7 +123,7 @@ def json_serialization(params: CameraParameters, path: str) -> None:
 
 def json_restore(path: str) -> CameraParameters:
     r"""Loads the camera parameters from a ``.json`` file."""
-    with open(path, "r") as fp:
+    with open(path) as fp:
         data = json.load(fp)
     return CameraParameters.from_dict(data)
 
@@ -310,3 +310,25 @@ def calibrate_from_images(
         square_size=float(square_size),
         num_views=len(object_points),
     )
+
+
+def undistort_frame(
+    frame: cv2.typing.MatLike,
+    params: CameraParameters,
+    new_camera_matrix: typing.Optional[npt.NDArray[np.float64]] = None,
+) -> cv2.typing.MatLike:
+    r"""Removes lens distortion from a single frame.
+
+    Args:
+        frame (MatLike): Input image to undistort.
+        params (CameraParameters): Camera parameters.
+        new_camera_matrix (Optional[NDArray]): Optional substitute camera
+            matrix for the undistorted view. If ``None``, use the input
+            camera parameter at ``params.camera_matrix``.
+
+    Returns:
+        Undistorted image with the same shape as the input.
+    """
+    K = params.camera_matrix
+    target_K = new_camera_matrix if new_camera_matrix is not None else K
+    return cv2.undistort(frame, K, params.dist_coeffs, None, target_K)

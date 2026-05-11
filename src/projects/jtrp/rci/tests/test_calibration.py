@@ -197,5 +197,26 @@ class TestCalibrateFromImages:
             calibration.calibrate_from_images([], (7, 6))
 
 
+class TestUndistortFrame:
+    r"""Unit tests for undistortion of frames using camera parameters."""
+
+    def test_zero_distortion_is_identity(self) -> None:
+        params = calibration.CameraParameters(
+            camera_matrix=np.array(
+                [[1000.0, 0.0, 480.0], [0.0, 1000.0, 360.0], [0.0, 0.0, 1.0]]
+            ),
+            dist_coeffs=np.zeros(5),
+            img_size=(960, 720),
+            rms_reprojection_error=0.0,
+            pattern_size=(7, 6),
+            square_size=0.025,
+            num_views=10,
+        )
+        frame = (np.random.rand(720, 960, 3) * 255).astype(np.uint8)
+        out = calibration.undistort_frame(frame, params)
+        assert out.shape == frame.shape
+        np.testing.assert_allclose(out, frame, atol=1)
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main(["-xv", __file__]))
