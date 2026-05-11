@@ -19,6 +19,8 @@ Example usage:
 """
 
 import dataclasses
+import json
+import os
 import typing
 
 import cv2
@@ -110,6 +112,20 @@ class CameraParameters:
             square_size=float(data["square_size"]),
             num_views=int(data["num_views"]),
         )
+
+
+# IO functions
+def json_serialization(params: CameraParameters, path: str) -> None:
+    r"""Saves the camera parameters to a ``.json`` file."""
+    with open(path, "w") as fp:
+        json.dump(params.to_dict(), fp=fp, indent=2)
+
+
+def json_restore(path: str) -> CameraParameters:
+    r"""Loads the camera parameters from a ``.json`` file."""
+    with open(path, "r") as fp:
+        data = json.load(fp)
+    return CameraParameters.from_dict(data)
 
 
 # Helper functions
