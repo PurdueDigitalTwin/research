@@ -7,6 +7,75 @@ import numpy as np
 
 
 @dataclasses.dataclass
+class CameraParameters:
+    r"""Data container for camera intrinsics and distortion parameters.
+
+    Attributes:
+        camera_matrix (NDArray[float]): A three-by-three intrinsic matrix.
+            :math:`K = [[f_x, s, c_x], [0, f_y, c_y], [0, 0, 1]]`, where
+            :math:`f_x, f_y` are the focal lengths in pixel units, :math:`s`
+            is the skew (often zero), and :math:`c_x, c_y` are the principal
+            point coordinates in pixel units.
+        dist_coeffs (NDArray[float]): Distortion coefficients in OpenCV format.
+            The number of coefficients depends on the distortion model used
+            during calibration. For the common 5-parameter radial-tangential
+            model, the order is :math:`[k_1, k_2, p_1, p_2, k_3]`, where
+            :math:`k_i` are radial distortion coefficients and :math:`p_i` are
+            tangential distortion coefficients.
+        img_size (Tuple[int, int]): The width and height of the image used
+            for calibration in pixels (px).
+        rms_reprojection_error (float): Projection error in pixel units (px).
+            This is the root mean square (RMS) of the reprojection error across
+            all calibration images and detected corners. It quantifies how well
+            the estimated intrinsics explain the observed corner positions.
+        pattern_size (Tuple[int, int]): The number of inner corners of the
+            calibration chessboard pattern in ``(cols, rows)`` format.
+        square_size (float): The side length per square of the calibration
+            chessboard pattern in meters (m).
+        num_views (int): The number of calibration images (views) that
+            contribute to the corner detections.
+    """
+
+    camera_matrix: npt.NDArray[np.float64]
+    dist_coeffs: npt.NDArray[np.float64]
+    img_size: typing.Tuple[int, int]
+    rms_reprojection_error: float
+    pattern_size: typing.Tuple[int, int]
+    square_size: float
+    num_views: int
+
+    def to_dict(self) -> typing.Dict[str, typing.Any]:
+        r"""Returns a serializable dictionary of the camera parameters."""
+        return dict(
+            camera_matrix=self.camera_matrix.tolist(),
+            dist_coeffs=self.dist_coeffs.tolist(),
+            img_size=list(int(s) for s in self.img_size),
+            rms_reprojection_error=float(self.rms_reprojection_error),
+            pattern_size=list(int(s) for s in self.pattern_size),
+            square_size=float(self.square_size),
+            num_views=int(self.num_views),
+        )
+
+    @classmethod
+    def from_dict(
+        cls: typing.Type["CameraParameters"],
+        data: typing.Dict[str, typing.Any],
+    ) -> "CameraParameters":
+        r"""Constructs a ``CameraParameters`` instance from a dictionary."""
+        img_size = [int(s) for s in data["img_size"]]
+        pattern_size = [int(s) for s in data["pattern_size"]]
+        return cls(
+            camera_matrix=np.array(data["camera_matrix"], dtype=np.float64),
+            dist_coeffs=np.array(data["dist_coeffs"], dtype=np.float64),
+            img_size=(img_size[0], img_size[1]),
+            rms_reprojection_error=float(data["rms_reprojection_error"]),
+            pattern_size=(pattern_size[0], pattern_size[1]),
+            square_size=float(data["square_size"]),
+            num_views=int(data["num_views"]),
+        )
+
+
+@dataclasses.dataclass
 class BoundingBox:
     r"""Axis-aligned bounding box in pixel coordinates.
 
@@ -54,6 +123,12 @@ class Detection:
         class_id (int): Integer class ID from YOLO.
         class_name (str): Human-readable class label (e.g., "car", "truck").
         confidence (float): Detection confidence score in :math:`[0, 1]`.
+        world_x (Optional[float]): World-plane X (e.g., Easting in ftUS) of
+            the projected bounding-box bottom-center. `None` if no
+            georeferencing was applied.
+        world_y (Optional[float]): World-plane Y (e.g., Northing in ftUS)
+            of the projected bounding-box bottom-center. `None` if no
+            georeferencing was applied.
     """
 
     frame_index: int
@@ -62,6 +137,8 @@ class Detection:
     class_id: int
     class_name: str
     confidence: float
+    world_x: typing.Optional[float] = None
+    world_y: typing.Optional[float] = None
 
 
 @dataclasses.dataclass
@@ -84,12 +161,12 @@ class Trajectory:
         return [d.frame_index for d in self.detections]
 
     @property
-    def center_positions(self) -> npt.NDArray[np.float_]:
+    def center_positions(self) -> npt.NDArray[np.float64]:
         r"""NDArray[float]: An array of bounding box center coordinates."""
         return np.array([d.bbox.center for d in self.detections])
 
     @property
-    def bounding_boxes(self) -> npt.NDArray[np.float_]:
+    def bounding_boxes(self) -> npt.NDArray[np.float64]:
         r"""NDArray[float]: An array of `[x1, y1, x2, y2]` coordinates."""
         return np.array(
             [
@@ -102,6 +179,21 @@ class Trajectory:
     def confidence_scores(self) -> typing.List[float]:
         r"""List[float]: A list of detection confidence scores."""
         return [d.confidence for d in self.detections]
+
+    @property
+    def world_positions(self) -> typing.Optional[npt.NDArray[np.float64]]:
+        r"""Optional[NDArray[float]]: ``(N, 2)`` world-plane coordinates.
+
+        Returns ``None`` if any detection lacks a world coordinate.
+        """
+        if not self.detections:
+            return None
+        coords = []
+        for d in self.detections:
+            if d.world_x is None or d.world_y is None:
+                return None
+            coords.append((d.world_x, d.world_y))
+        return np.array(coords, dtype=np.float64)
 
     @property
     def dominant_class(self) -> typing.Optional[str]:

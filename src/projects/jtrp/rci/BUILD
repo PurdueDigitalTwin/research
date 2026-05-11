@@ -12,6 +12,21 @@ ml_py_binary(
 )
 
 ml_py_library(
+    name = "structure",
+    srcs = ["structure.py"],
+    deps = ["numpy"],
+)
+
+ml_py_test(
+    name = "test_structure",
+    srcs = ["tests/test_structure.py"],
+    deps = [
+        "numpy",
+        ":structure",
+    ],
+)
+
+ml_py_library(
     name = "calibration",
     srcs = ["calibration.py"],
     deps = [
@@ -27,5 +42,6 @@ ml_py_test(
         "numpy",
         "opencv-python-headless",
         ":calibration",
+        ":structure",
     ],
 )

@@ -5,7 +5,7 @@ import tempfile
 import numpy as np
 import pytest
 
-from src.projects.jtrp.experimental import structure
+from src.projects.jtrp.rci import structure
 
 # Constants
 TMP_DIR = tempfile.gettempdir()

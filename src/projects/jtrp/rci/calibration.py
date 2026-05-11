@@ -18,7 +18,6 @@ Example usage:
 >>> parasms = calibration.calibrate_from_img(images, pattern, square_size=0.025)
 """
 
-import dataclasses
 import json
 import os
 import typing
@@ -26,6 +25,8 @@ import typing
 import cv2
 from numpy import typing as npt
 import numpy as np
+
+from src.projects.jtrp.rci import structure as _struct
 
 # Constants
 # NOTE: common chessboard inner-corner sizes in `(cols, rows)` format.
@@ -44,88 +45,18 @@ _COMMON_PATTERN_SIZE: typing.List[typing.Tuple[int, int]] = [
 ]
 
 
-# Data structure
-@dataclasses.dataclass
-class CameraParameters:
-    r"""Data container for camera intrinsics and distortion parameters.
-
-    Attributes:
-        camera_matrix (NDArray[float]): A three-by-three intrinsic matrix.
-            :math:`K = [[f_x, s, c_x], [0, f_y, c_y], [0, 0, 1]]`, where
-            :math:`f_x, f_y` are the focal lengths in pixel units, :math:`s`
-            is the skew (often zero), and :math:`c_x, c_y` are the principal
-            point coordinates in pixel units.
-        dist_coeffs (NDArray[float]): Distortion coefficients in OpenCV format.
-            The number of coefficients depends on the distortion model used
-            during calibration. For the common 5-parameter radial-tangential
-            model, the order is :math:`[k_1, k_2, p_1, p_2, k_3]`, where
-            :math:`k_i` are radial distortion coefficients and :math:`p_i` are
-            tangential distortion coefficients.
-        img_size (Tuple[int, int]): The width and height of the image used
-            for calibration in pixels (px).
-        rms_reprojection_error (float): Projection error in pixel units (px).
-            This is the root mean square (RMS) of the reprojection error across
-            all calibration images and detected corners. It quantifies how well
-            the estimated intrinsics explain the observed corner positions.
-        pattern_size (Tuple[int, int]): The number of inner corners of the
-            calibration chessboard pattern in ``(cols, rows)`` format.
-        square_size (float): The side length per square of the calibration
-            chessboard pattern in meters (m).
-        num_views (int): The number of calibration images (views) that
-            contribute to the corner detections.
-    """
-
-    camera_matrix: npt.NDArray[np.float64]
-    dist_coeffs: npt.NDArray[np.float64]
-    img_size: typing.Tuple[int, int]
-    rms_reprojection_error: float
-    pattern_size: typing.Tuple[int, int]
-    square_size: float
-    num_views: int
-
-    def to_dict(self) -> typing.Dict[str, typing.Any]:
-        r"""Returns a serializable dictionary of the camera parameters."""
-        return dict(
-            camera_matrix=self.camera_matrix.tolist(),
-            dist_coeffs=self.dist_coeffs.tolist(),
-            img_size=list(int(s) for s in self.img_size),
-            rms_reprojection_error=float(self.rms_reprojection_error),
-            pattern_size=list(int(s) for s in self.pattern_size),
-            square_size=float(self.square_size),
-            num_views=int(self.num_views),
-        )
-
-    @classmethod
-    def from_dict(
-        cls: typing.Type["CameraParameters"],
-        data: typing.Dict[str, typing.Any],
-    ) -> "CameraParameters":
-        r"""Constructs a ``CameraParameters`` instance from a dictionary."""
-        img_size = [int(s) for s in data["img_size"]]
-        pattern_size = [int(s) for s in data["pattern_size"]]
-        return cls(
-            camera_matrix=np.array(data["camera_matrix"], dtype=np.float64),
-            dist_coeffs=np.array(data["dist_coeffs"], dtype=np.float64),
-            img_size=(img_size[0], img_size[1]),
-            rms_reprojection_error=float(data["rms_reprojection_error"]),
-            pattern_size=(pattern_size[0], pattern_size[1]),
-            square_size=float(data["square_size"]),
-            num_views=int(data["num_views"]),
-        )
-
-
 # IO functions
-def json_serialization(params: CameraParameters, path: str) -> None:
+def json_serialization(params: _struct.CameraParameters, path: str) -> None:
     r"""Saves the camera parameters to a ``.json`` file."""
     with open(path, "w") as fp:
         json.dump(params.to_dict(), fp=fp, indent=2)
 
 
-def json_restore(path: str) -> CameraParameters:
+def json_restore(path: str) -> _struct.CameraParameters:
     r"""Loads the camera parameters from a ``.json`` file."""
     with open(path) as fp:
         data = json.load(fp)
-    return CameraParameters.from_dict(data)
+    return _struct.CameraParameters.from_dict(data)
 
 
 # Helper functions
@@ -240,7 +171,7 @@ def calibrate_from_images(
     imgs: typing.Sequence[cv2.typing.MatLike],
     pattern_size: typing.Tuple[int, int],
     square_size: float = 1.0,
-) -> CameraParameters:
+) -> _struct.CameraParameters:
     r"""Extract camera parameters from a sequence of chessboard images.
 
     Args:
@@ -301,7 +232,7 @@ def calibrate_from_images(
         None,  # type: ignore[arg-type]
         None,  # type: ignore[arg-type]
     )
-    return CameraParameters(
+    return _struct.CameraParameters(
         camera_matrix=np.asarray(K, dtype=np.float64),
         dist_coeffs=np.asarray(dist, dtype=np.float64).reshape(-1),
         img_size=(int(image_size[0]), int(image_size[1])),
@@ -314,7 +245,7 @@ def calibrate_from_images(
 
 def undistort_frame(
     frame: cv2.typing.MatLike,
-    params: CameraParameters,
+    params: _struct.CameraParameters,
     new_camera_matrix: typing.Optional[npt.NDArray[np.float64]] = None,
 ) -> cv2.typing.MatLike:
     r"""Removes lens distortion from a single frame.

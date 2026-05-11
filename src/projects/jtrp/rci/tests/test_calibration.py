@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from src.projects.jtrp.rci import calibration
+from src.projects.jtrp.rci import structure
 
 
 @pytest.fixture(scope="module")
@@ -92,7 +93,7 @@ class TestSerialization:
     r"""Unit tests for I/O functions of camera parameters."""
 
     def test_save_and_restore(self) -> None:
-        params = calibration.CameraParameters(
+        params = structure.CameraParameters(
             camera_matrix=np.array(
                 [[1000.0, 0.0, 480.0], [0.0, 1000.0, 360.0], [0.0, 0.0, 1.0]]
             ),
@@ -201,7 +202,7 @@ class TestUndistortFrame:
     r"""Unit tests for undistortion of frames using camera parameters."""
 
     def test_zero_distortion_is_identity(self) -> None:
-        params = calibration.CameraParameters(
+        params = structure.CameraParameters(
             camera_matrix=np.array(
                 [[1000.0, 0.0, 480.0], [0.0, 1000.0, 360.0], [0.0, 0.0, 1.0]]
             ),
