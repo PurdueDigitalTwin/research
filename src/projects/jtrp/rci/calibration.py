@@ -200,7 +200,7 @@ def auto_detect_pattern_size(
 
     Returns:
         A tuple whose first element is the detected pattern size in the format
-        ``(cols, rows)``, and the second element is the number of views in which the pattern was successfully detected.
+            ``(cols, rows)``, and the second element is the number of views in which the pattern was successfully detected.
 
     Raises:
         ValueError: If no candidate reaches ``min_views`` detections.
@@ -234,3 +234,79 @@ def auto_detect_pattern_size(
         )
 
     return best_pattern, best_count
+
+
+def calibrate_from_images(
+    imgs: typing.Sequence[cv2.typing.MatLike],
+    pattern_size: typing.Tuple[int, int],
+    square_size: float = 1.0,
+) -> CameraParameters:
+    r"""Extract camera parameters from a sequence of chessboard images.
+
+    Args:
+        imgs (Sequence[MatLike]): A sequence of calibration images with
+            identical dimensions.
+        pattern_size (Tuple[int, int]): The number of inner corners of the
+            chessboard pattern in ``(cols, rows)`` format.
+        square_size (float, optional): The side length per square of the
+            calibration chessboard pattern in meters (m). Default is :math:`1`.
+
+    Returns:
+        A ``CameraParameters`` instance containing the estimated camera
+            intrinsics and distortion parameters.
+
+    Raises:
+        ValueError: If fewer than three images yield a valid detection.
+    """
+    if not imgs:
+        raise ValueError("Input image sequence is empty.")
+
+    cols, rows = pattern_size
+    objp = np.zeros((rows * cols, 3), dtype=np.float32)
+    objp[:, :2] = np.indices((cols, rows)).T.reshape(-1, 2)
+
+    objp[:, :2] = np.indices((cols, rows)).T.reshape(-1, 2)
+    objp *= float(square_size)
+
+    object_points: typing.List[npt.NDArray[np.float32]] = []
+    image_points: typing.List[cv2.typing.MatLike] = []
+    image_size: typing.Optional[typing.Tuple[int, int]] = None
+
+    for img in imgs:
+        gray = img if img.ndim == 2 else cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        h, w = gray.shape[:2]
+        if image_size is None:
+            image_size = (int(w), int(h))
+        elif image_size != (int(w), int(h)):
+            raise ValueError(
+                "All calibration images must have identical shape; got "
+                f"{(w, h)} and {image_size}."
+            )
+        corners = detect_chessboard_corners(gray, pattern_size)
+        if corners is None:
+            continue
+        object_points.append(objp.copy())
+        image_points.append(corners)
+
+    if len(object_points) < 3:
+        raise ValueError(
+            f"Only {len(object_points)} successful detections; need >= 3."
+        )
+
+    assert image_size is not None
+    rms, K, dist, _, _ = cv2.calibrateCamera(
+        object_points,
+        image_points,
+        image_size,
+        None,  # type: ignore[arg-type]
+        None,  # type: ignore[arg-type]
+    )
+    return CameraParameters(
+        camera_matrix=np.asarray(K, dtype=np.float64),
+        dist_coeffs=np.asarray(dist, dtype=np.float64).reshape(-1),
+        img_size=(int(image_size[0]), int(image_size[1])),
+        rms_reprojection_error=float(rms),
+        pattern_size=(int(cols), int(rows)),
+        square_size=float(square_size),
+        num_views=len(object_points),
+    )
