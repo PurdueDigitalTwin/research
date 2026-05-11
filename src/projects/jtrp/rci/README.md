@@ -18,6 +18,13 @@ This part of the README is for users who want to understand the code structure a
 
 ### Code Structure
 
+The codebase is organized as follows:
+
+```text
+.
+├── main.py  # Main entry point for the vehicle data pipeline.
+```
+
 ### Running the Code
 
 ## Contributing
