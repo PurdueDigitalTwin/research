@@ -182,3 +182,55 @@ def detect_chessboard_corners(
         criteria=criteria,
     )
     return refined.astype(np.float32)
+
+
+def auto_detect_pattern_size(
+    imgs: typing.Sequence[cv2.typing.MatLike],
+    candidates: typing.Sequence[typing.Tuple[int, int]] = _COMMON_PATTERN_SIZE,
+    min_views: int = 3,
+) -> typing.Tuple[typing.Tuple[int, int], int]:
+    r"""Auto-detects the chessboard pattern size from a list of images.
+
+    Args:
+        images (Sequence[MatLike]): A sequence of calibration images.
+        candidates (Sequence[Tuple[int, int]], optional): A sequence of
+            candidate inner corner counts in ``(cols, rows)`` format. The function will iterate through this list and return the first pattern size that is detected in at least ``min_views`` images. Default is ``_COMMON_PATTERN_SIZE``.
+        min_views (int, optional): Minimum number of successful detections
+            required for choosing a pattern size. Default is :math:`3`.
+
+    Returns:
+        A tuple whose first element is the detected pattern size in the format
+        ``(cols, rows)``, and the second element is the number of views in which the pattern was successfully detected.
+
+    Raises:
+        ValueError: If no candidate reaches ``min_views`` detections.
+    """
+    if not imgs:
+        raise ValueError("Input image sequence is empty.")
+
+    best_pattern: typing.Optional[typing.Tuple[int, int]] = None
+    best_count = -1
+
+    grayscale_imgs = [
+        img if img.ndim == 2 else cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        for img in imgs
+    ]
+
+    for pattern in candidates:
+        count = 0
+        for img in grayscale_imgs:
+            if detect_chessboard_corners(img, pattern) is not None:
+                count += 1
+
+        if count >= best_count:
+            best_pattern = pattern
+            best_count = count
+
+    if best_pattern is None or best_count < min_views:
+        raise ValueError(
+            f"No candidate pattern detected in at least {min_views} views. "
+            f"Best pattern was {best_pattern} with {best_count} detections "
+            f"across {len(imgs)} images."
+        )
+
+    return best_pattern, best_count

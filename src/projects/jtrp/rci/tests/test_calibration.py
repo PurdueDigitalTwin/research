@@ -44,23 +44,36 @@ def _synth_cb_img(
     return canvas
 
 
-class TestDetectChessboardCorners:
-    r"""Unit tests for chessboard corner detection."""
-
-    def test_detects_synthetic_pattern(self, _synth_cb_img) -> None:
-        gray = cv2.cvtColor(_synth_cb_img, cv2.COLOR_BGR2GRAY)
-        corners = calibration.detect_chessboard_corners(gray, (7, 6))
-        assert corners is not None
-        assert corners.shape == (7 * 6, 1, 2)
-
-    def test_returns_none_for_non_chessboard(self) -> None:
-        gray = np.full((480, 640), 128, dtype=np.uint8)
-        corners = calibration.detect_chessboard_corners(gray, (7, 6))
-        assert corners is None
-
-    def test_accepts_color_input(self, _synth_cb_img) -> None:
-        corners = calibration.detect_chessboard_corners(_synth_cb_img, (7, 6))
-        assert corners is not None
+@pytest.fixture(scope="module")
+def _synth_views(
+    _synth_cb_img,
+    pattern_size: typing.Tuple[int, int] = (7, 6),
+    n: int = 6,
+) -> typing.List[np.ndarray]:
+    r"""Creates ``n`` slightly-perturbed renderings of a chessboard."""
+    views: typing.List[np.ndarray] = []
+    h, w = _synth_cb_img.shape[:2]
+    for i in range(n):
+        # Apply a small affine warp so the corner geometry varies between
+        # views; this is required for a non-degenerate calibration.
+        dx = (i - n / 2) * 8.0
+        dy = (i - n / 2) * 5.0
+        s = 1.0 + 0.02 * (i - n / 2)
+        M = np.array(
+            [
+                [s, 0.0, dx],
+                [0.0, s, dy],
+            ],
+            dtype=np.float64,
+        )
+        warped = cv2.warpAffine(
+            _synth_cb_img,
+            M,
+            (w, h),
+            borderValue=(220, 220, 220),
+        )
+        views.append(warped)
+    return views
 
 
 class TestSerialization:
@@ -92,6 +105,51 @@ class TestSerialization:
         assert loaded.pattern_size == params.pattern_size
         assert loaded.square_size == pytest.approx(params.square_size)
         assert loaded.num_views == params.num_views
+
+
+class TestDetectChessboardCorners:
+    r"""Unit tests for chessboard corner detection."""
+
+    def test_detects_synthetic_pattern(self, _synth_cb_img) -> None:
+        gray = cv2.cvtColor(_synth_cb_img, cv2.COLOR_BGR2GRAY)
+        corners = calibration.detect_chessboard_corners(gray, (7, 6))
+        assert corners is not None
+        assert corners.shape == (7 * 6, 1, 2)
+
+    def test_returns_none_for_non_chessboard(self) -> None:
+        gray = np.full((480, 640), 128, dtype=np.uint8)
+        corners = calibration.detect_chessboard_corners(gray, (7, 6))
+        assert corners is None
+
+    def test_accepts_color_input(self, _synth_cb_img) -> None:
+        corners = calibration.detect_chessboard_corners(_synth_cb_img, (7, 6))
+        assert corners is not None
+
+
+class TestAutoDetectPatternSize:
+    r"""Unit tests for automatic pattern size detection function."""
+
+    def test_picks_correct_pattern(self, _synth_views) -> None:
+        pattern, count = calibration.auto_detect_pattern_size(
+            _synth_views,
+            candidates=[(5, 5), (6, 6), (7, 6), (9, 6)],
+            min_views=3,
+        )
+        assert pattern == (7, 6)
+        assert count >= 3
+
+    def test_raises_when_no_pattern_detects(self) -> None:
+        blanks = [np.full((480, 640), 128, dtype=np.uint8) for _ in range(3)]
+        with pytest.raises(ValueError):
+            calibration.auto_detect_pattern_size(
+                blanks,
+                candidates=[(7, 6)],
+                min_views=2,
+            )
+
+    def test_empty_input_raises(self) -> None:
+        with pytest.raises(ValueError):
+            calibration.auto_detect_pattern_size([])
 
 
 if __name__ == "__main__":
