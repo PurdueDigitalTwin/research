@@ -18,8 +18,6 @@ Example usage:
 >>> parasms = calibration.calibrate_from_img(images, pattern, square_size=0.025)
 """
 
-import json
-import os
 import typing
 
 import cv2
@@ -43,20 +41,6 @@ _COMMON_PATTERN_SIZE: typing.List[typing.Tuple[int, int]] = [
     (6, 5),
     (10, 7),
 ]
-
-
-# IO functions
-def json_serialization(params: _struct.CameraParameters, path: str) -> None:
-    r"""Saves the camera parameters to a ``.json`` file."""
-    with open(path, "w") as fp:
-        json.dump(params.to_dict(), fp=fp, indent=2)
-
-
-def json_restore(path: str) -> _struct.CameraParameters:
-    r"""Loads the camera parameters from a ``.json`` file."""
-    with open(path) as fp:
-        data = json.load(fp)
-    return _struct.CameraParameters.from_dict(data)
 
 
 # Helper functions

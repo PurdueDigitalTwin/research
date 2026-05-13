@@ -89,37 +89,6 @@ def synth_views(synth_cb_img: typing.Callable) -> typing.Callable:
     return _make_views
 
 
-class TestSerialization:
-    r"""Unit tests for I/O functions of camera parameters."""
-
-    def test_save_and_restore(self) -> None:
-        params = structure.CameraParameters(
-            camera_matrix=np.array(
-                [[1000.0, 0.0, 480.0], [0.0, 1000.0, 360.0], [0.0, 0.0, 1.0]]
-            ),
-            dist_coeffs=np.array([-0.1, 0.05, 0.0, 0.0, 0.0]),
-            img_size=(960, 720),
-            rms_reprojection_error=0.42,
-            pattern_size=(7, 6),
-            square_size=0.025,
-            num_views=12,
-        )
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = os.path.join(tmpdir, "calib.json")
-            calibration.json_serialization(params, path)
-            loaded = calibration.json_restore(path)
-
-        np.testing.assert_allclose(loaded.camera_matrix, params.camera_matrix)
-        np.testing.assert_allclose(loaded.dist_coeffs, params.dist_coeffs)
-        assert loaded.img_size == pytest.approx(params.img_size)
-        assert loaded.rms_reprojection_error == pytest.approx(
-            params.rms_reprojection_error
-        )
-        assert loaded.pattern_size == params.pattern_size
-        assert loaded.square_size == pytest.approx(params.square_size)
-        assert loaded.num_views == params.num_views
-
-
 class TestDetectChessboardCorners:
     r"""Unit tests for chessboard corner detection."""
 
