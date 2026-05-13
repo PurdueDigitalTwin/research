@@ -1,4 +1,3 @@
-import os
 import typing
 
 from absl import app
@@ -19,6 +18,7 @@ def main(argv: typing.List[str]) -> int:
     r"""Main entry point for vehicle trajectory extraction."""
     del argv  # unused console kwargs
 
+    # Initiate the main loop and wait till keyboard interruption to exit.
     FLAGS = flags.FLAGS
     logging.rank_zero_info("Working directory %s.", FLAGS.work_dir)
 

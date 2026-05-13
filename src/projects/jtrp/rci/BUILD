@@ -11,6 +11,7 @@ ml_py_binary(
     ],
 )
 
+# -- library and unit tests ----------------------------------------------------
 ml_py_library(
     name = "structure",
     srcs = ["structure.py"],
@@ -43,5 +44,27 @@ ml_py_test(
         "opencv-python-headless",
         ":calibration",
         ":structure",
+    ],
+)
+
+ml_py_library(
+    name = "visualization",
+    srcs = ["visualization.py"],
+    deps = [
+        "opencv-python-headless",
+        "tqdm",
+        ":structure",
+        "//src/utilities:logging",
+    ],
+)
+
+ml_py_test(
+    name = "test_visualization",
+    srcs = ["tests/test_visualization.py"],
+    deps = [
+        "numpy",
+        "opencv-python-headless",
+        ":structure",
+        ":visualization",
     ],
 )
