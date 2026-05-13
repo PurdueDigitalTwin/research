@@ -12,15 +12,15 @@ class CameraParameters:
 
     Attributes:
         camera_matrix (NDArray[float]): A three-by-three intrinsic matrix.
-            :math:`K = [[f_x, s, c_x], [0, f_y, c_y], [0, 0, 1]]`, where
-            :math:`f_x, f_y` are the focal lengths in pixel units, :math:`s`
-            is the skew (often zero), and :math:`c_x, c_y` are the principal
+            ``K = [[f_x, s, c_x], [0, f_y, c_y], [0, 0, 1]]``, where
+            ``f_x, f_y`` are the focal lengths in pixel units, ``s``
+            is the skew (often zero), and ``c_x, c_y`` are the principal
             point coordinates in pixel units.
         dist_coeffs (NDArray[float]): Distortion coefficients in OpenCV format.
             The number of coefficients depends on the distortion model used
             during calibration. For the common 5-parameter radial-tangential
-            model, the order is :math:`[k_1, k_2, p_1, p_2, k_3]`, where
-            :math:`k_i` are radial distortion coefficients and :math:`p_i` are
+            model, the order is ``[k_1, k_2, p_1, p_2, k_3]``, where
+            ``k_i`` are radial distortion coefficients and ``p_i`` are
             tangential distortion coefficients.
         img_size (Tuple[int, int]): The width and height of the image used
             for calibration in pixels (px).
@@ -122,12 +122,12 @@ class Detection:
         bbox (BoundingBox): Bounding box in pixel coordinates.
         class_id (int): Integer class ID from YOLO.
         class_name (str): Human-readable class label (e.g., "car", "truck").
-        confidence (float): Detection confidence score in :math:`[0, 1]`.
+        confidence (float): Detection confidence score in ``[0, 1]``.
         world_x (Optional[float]): World-plane X (e.g., Easting in ftUS) of
-            the projected bounding-box bottom-center. `None` if no
+            the projected bounding-box bottom-center. ``None`` if no
             georeferencing was applied.
         world_y (Optional[float]): World-plane Y (e.g., Northing in ftUS)
-            of the projected bounding-box bottom-center. `None` if no
+            of the projected bounding-box bottom-center. ``None`` if no
             georeferencing was applied.
     """
 
@@ -167,7 +167,7 @@ class Trajectory:
 
     @property
     def bounding_boxes(self) -> npt.NDArray[np.float64]:
-        r"""NDArray[float]: An array of `[x1, y1, x2, y2]` coordinates."""
+        r"""NDArray[float]: An array of ``[x1, y1, x2, y2]`` coordinates."""
         return np.array(
             [
                 [d.bbox.x1, d.bbox.y1, d.bbox.x2, d.bbox.y2]
@@ -215,7 +215,7 @@ class TrajectorySet:
         frame_height (int): Video frame height in pixels.
         fps (float): Video frames per second.
         total_frames (int): Total number of frames in the video.
-        trajectories (Dict[int, Trajectory]): Mapping `track_id` to trajectory.
+        trajectories (Dict[int, Trajectory]): Mapping ``track_id`` to trajectory.
     """
 
     source_video: str
@@ -232,15 +232,15 @@ class TrajectorySet:
 
         .. note::
 
-            This method will automatically creates a new `Trajectory`
-            if the `track_id` did not exist.
+            This method will automatically creates a new ``Trajectory``
+            if the ``track_id`` did not exist.
 
         Args:
             detection (Detection): The detection to add.
         """
         if not isinstance(detection, Detection):
             raise TypeError(
-                "Expect `detection` to be a `Detection` instance, "
+                "Expect ``detection`` to be a ``Detection`` instance, "
                 f"but got {type(detection)} instead."
             )
 
@@ -248,3 +248,110 @@ class TrajectorySet:
         if tid not in self.trajectories:
             self.trajectories[tid] = Trajectory(track_id=tid)
         self.trajectories[tid].detections.append(detection)
+
+
+@dataclasses.dataclass
+class GroundControlPoint:
+    r"""A single ground control point.
+
+    Attributes:
+        label (str): Human-readable identifier (e.g., ``"1"``, ``"GCP-A"``).
+        world_x (float): World-plane X (e.g., Easting in ftus).
+        world_y (float): World-plane Y (e.g., Northing in ftus).
+        image_u (float): Image pixel column.
+        image_v (float): Image pixel row.
+    """
+
+    label: str
+    world_x: float
+    world_y: float
+    image_u: float
+    image_v: float
+
+    def to_dict(self) -> typing.Dict[str, typing.Any]:
+        return {
+            "label": self.label,
+            "world_x": float(self.world_x),
+            "world_y": float(self.world_y),
+            "image_u": float(self.image_u),
+            "image_v": float(self.image_v),
+        }
+
+    @classmethod
+    def from_dict(
+        cls,
+        data: typing.Dict[str, typing.Any],
+    ) -> "GroundControlPoint":
+        return cls(
+            label=str(data["label"]),
+            world_x=float(data["world_x"]),
+            world_y=float(data["world_y"]),
+            image_u=float(data["image_u"]),
+            image_v=float(data["image_v"]),
+        )
+
+
+@dataclasses.dataclass
+class GeoReference:
+    r"""A pixel↔world planar homography with provenance metadata.
+
+    The on-the-wire shape that backs georeferencing: dataclass fields here,
+    constructor (``georeferencing.compute_homography``) and mapping
+    helpers (``georeferencing.pixel_to_world``, etc.) co-located with
+    the planar-projection logic.
+
+    Attributes:
+        homography_pix_to_world (NDArray): ``3 \times 3`` matrix that
+            maps pixel coordinates to world-plane coordinates.
+        homography_world_to_pix (NDArray): ``3 \times 3`` matrix that
+            maps world-plane coordinates back to pixel coordinates
+            (cached inverse of ``homography_pix_to_world``).
+        world_units (str): Free-text label of world units (e.g., ``"ftus"``,
+            ``"m"``).
+        world_crs (str): Free-text description of the world CRS, e.g.,
+            ``"NAD83(2011) / Indiana East (ftUS)"``.
+        rms_reprojection_error_px (float): Image-space round-trip error
+            (pixels): the RMS distance between each input pixel GCP and the
+            same GCP after going world→pixel through
+            ``homography_world_to_pix``.
+        gcps (List[GroundControlPoint]): The GCPs used to fit the homography.
+    """
+
+    homography_pix_to_world: npt.NDArray
+    homography_world_to_pix: npt.NDArray
+    world_units: str
+    world_crs: str
+    rms_reprojection_error_px: float
+    gcps: typing.List[GroundControlPoint] = dataclasses.field(
+        default_factory=list
+    )
+
+    def to_dict(self) -> typing.Dict[str, typing.Any]:
+        return {
+            "homography_pix_to_world": self.homography_pix_to_world.tolist(),
+            "homography_world_to_pix": self.homography_world_to_pix.tolist(),
+            "world_units": self.world_units,
+            "world_crs": self.world_crs,
+            "rms_reprojection_error_px": float(self.rms_reprojection_error_px),
+            "gcps": [g.to_dict() for g in self.gcps],
+        }
+
+    @classmethod
+    def from_dict(
+        cls,
+        data: typing.Dict[str, typing.Any],
+    ) -> "GeoReference":
+        return cls(
+            homography_pix_to_world=np.asarray(
+                data["homography_pix_to_world"], dtype=np.float64
+            ),
+            homography_world_to_pix=np.asarray(
+                data["homography_world_to_pix"], dtype=np.float64
+            ),
+            world_units=str(data["world_units"]),
+            world_crs=str(data["world_crs"]),
+            rms_reprojection_error_px=float(data["rms_reprojection_error_px"]),
+            gcps=[
+                GroundControlPoint.from_dict(g) for g in data.get("gcps", [])
+            ],
+        )

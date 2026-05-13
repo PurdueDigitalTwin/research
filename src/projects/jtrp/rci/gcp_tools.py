@@ -19,8 +19,8 @@ import typing
 import cv2
 import numpy as np
 
-from src.projects.jtrp.rci import georeferencing
 from src.projects.jtrp.rci import serialization
+from src.projects.jtrp.rci import structure
 from src.utilities import logging
 
 
@@ -42,13 +42,13 @@ def detect_marked_gcps(
     Args:
         image (NDArray): BGR image (``cv2.imread`` result).
         white_threshold (int): Per-channel intensity threshold for the
-            "near-white" mask. Default :math:`235`.
-        min_area_px (int): Minimum contour area in :math:`\text{px}^2`.
-            Default :math:`50`.
-        max_area_px (int): Maximum contour area in :math:`\text{px}^2`.
+            "near-white" mask. Default ``235``.
+        min_area_px (int): Minimum contour area in ``\text{px}^2``.
+            Default ``50``.
+        max_area_px (int): Maximum contour area in ``\text{px}^2``.
             Reject the watermark / image borders by area cap. Default
-            :math:`20\,000`.
-        max_markers (int): Maximum candidates to return. Default :math:`8`.
+            ``20\,000``.
+        max_markers (int): Maximum candidates to return. Default ``8``.
 
     Returns:
         A list of ``(label, u, v, area_px)`` tuples where ``label`` is a
@@ -95,7 +95,7 @@ def save_marker_overlay(
     markers: typing.Sequence[typing.Tuple[str, float, float, float]],
     output_path: str,
 ) -> None:
-    """Saves a debug overlay with red circles + labels at each marker."""
+    r"""Saves a debug overlay with red circles and labels at each marker."""
     parent = os.path.dirname(os.path.abspath(output_path))
     if parent:
         os.makedirs(parent, exist_ok=True)
@@ -128,7 +128,7 @@ def assemble_gcp_json(
     table_index: int = 1,
     world_units: str = "ftus",
     world_crs: str = "NAD83(2011) / Indiana East (ftUS)",
-) -> typing.List[georeferencing.GroundControlPoint]:
+) -> typing.List[structure.GroundControlPoint]:
     r"""Builds a GCP JSON by joining a world-coord CSV with a pixel-coord CSV.
 
     If ``image_uv_csv`` is ``None``, GCPs are written with placeholder
@@ -153,11 +153,11 @@ def assemble_gcp_json(
         serialization.load_image_uv_csv(image_uv_csv) if image_uv_csv else {}
     )
 
-    gcps: typing.List[georeferencing.GroundControlPoint] = []
+    gcps: typing.List[structure.GroundControlPoint] = []
     for label, world_x, world_y in world_rows:
         u, v = uv_map.get(label, (-1.0, -1.0))
         gcps.append(
-            georeferencing.GroundControlPoint(
+            structure.GroundControlPoint(
                 label=label,
                 world_x=world_x,
                 world_y=world_y,
@@ -192,7 +192,7 @@ def assemble_gcp_json(
 
 # --- ORB-based marked-to-video registration ----------------------------------
 def read_video_frame(video_path: str, time_s: float) -> np.ndarray:
-    """Decodes a single frame from a video at the requested timestamp."""
+    r"""Decodes a single frame from a video at the requested timestamp."""
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         raise OSError(f"Cannot open video: {video_path}")
@@ -257,6 +257,7 @@ def _estimate_orb_homography(
 
 
 def _warp_points(pts: np.ndarray, H: np.ndarray) -> np.ndarray:
+    r"""Applies homography ``H`` to an array of points with shape ``(N, 2)``."""
     homog = np.concatenate([pts, np.ones((pts.shape[0], 1))], axis=1)
     proj = homog @ H.T
     return proj[:, :2] / proj[:, 2:3]
@@ -269,6 +270,7 @@ def _save_registration_overlay(
     video_uv: np.ndarray,
     out_path: str,
 ) -> None:
+    r"""Saves a debug overlay with marked GCPs and video frame side-by-side."""
     h1, w1 = marked.shape[:2]
     h2, w2 = video_frame.shape[:2]
     height = max(h1, h2)
@@ -315,11 +317,11 @@ def register_marked_to_video(
         gcp_json_out (str): Path to write the output GCP JSON with updated
             pixel coordinates.
         orb_features (int): Number of ORB features to extract.
-            Default is :math:`10000`.
+            Default is ``10000``.
         ratio_threshold (float): Threshold for Lowe's ratio test in ORB
-            matching. Default is :math:`0.75`.
+            matching. Default is ``0.75``.
         ransac_threshold_px (float): Threshold in pixels for RANSAC inlier
-            determination. Default is :math:`4.0`.
+            determination. Default is ``4.0``.
         debug_overlay_path (Optional[str]): Optional path to write a debug
             image showing the marked photo and video frame side-by-side
             with detected GCPs and matches overlaid. Default is ``None``.

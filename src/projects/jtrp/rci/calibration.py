@@ -27,7 +27,7 @@ import numpy as np
 from src.projects.jtrp.rci import structure as _struct
 
 # Constants
-# NOTE: common chessboard inner-corner sizes in `(cols, rows)` format.
+# NOTE: common chessboard inner-corner sizes in ``(cols, rows)`` format.
 # The data is ordered by likelihood for typical calibration boards.
 # Auto-detection will iterate through this list.
 _COMMON_PATTERN_SIZE: typing.List[typing.Tuple[int, int]] = [
@@ -61,7 +61,7 @@ def detect_chessboard_corners(
 
     Returns:
         Refined corner array of with a shape of ``(N, 1, 2)`` in pixel units,
-            where :math:`N` is the total number of detected corners. If no corners are detected, returns ``None``.
+            where ``N`` is the total number of detected corners. If no corners are detected, returns ``None``.
     """
     if img.ndim == 3:
         img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -111,7 +111,7 @@ def auto_detect_pattern_size(
         candidates (Sequence[Tuple[int, int]], optional): A sequence of
             candidate inner corner counts in ``(cols, rows)`` format. The function will iterate through this list and return the first pattern size that is detected in at least ``min_views`` images. Default is ``_COMMON_PATTERN_SIZE``.
         min_views (int, optional): Minimum number of successful detections
-            required for choosing a pattern size. Default is :math:`3`.
+            required for choosing a pattern size. Default is ``3``.
 
     Returns:
         A tuple whose first element is the detected pattern size in the format
@@ -164,7 +164,7 @@ def calibrate_from_images(
         pattern_size (Tuple[int, int]): The number of inner corners of the
             chessboard pattern in ``(cols, rows)`` format.
         square_size (float, optional): The side length per square of the
-            calibration chessboard pattern in meters (m). Default is :math:`1`.
+            calibration chessboard pattern in meters (m). Default is ``1``.
 
     Returns:
         A ``CameraParameters`` instance containing the estimated camera
