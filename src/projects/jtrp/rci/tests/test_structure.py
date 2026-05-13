@@ -12,7 +12,7 @@ TMP_DIR = tempfile.gettempdir()
 
 
 class TestBoundingBox:
-    r"""Test cases for `BoundingBox` instances."""
+    r"""Test cases for ``BoundingBox`` instances."""
 
     def test_center(self) -> None:
         bbox = structure.BoundingBox(x1=10.0, y1=20.0, x2=30.0, y2=60.0)
@@ -40,7 +40,7 @@ class TestBoundingBox:
 
 
 class TestDetection:
-    r"""Test cases for `Detection` instances."""
+    r"""Test cases for ``Detection`` instances."""
 
     def test_detection_creation(self) -> None:
         det = structure.Detection(
@@ -80,9 +80,11 @@ def _make_detection(
 
 
 class TestTrajectory:
-    r"""Test cases for `Trajectory` instances."""
+    r"""Test cases for ``Trajectory`` instances."""
 
     def test_frame_indices(self) -> None:
+        r"""Test that frame indices are correctly extracted from detections."""
+
         traj = structure.Trajectory(
             track_id=1,
             detections=[
@@ -94,6 +96,8 @@ class TestTrajectory:
         assert traj.frame_indices == [0, 1, 3]
 
     def test_center_positions_shape(self) -> None:
+        r"""Test that center_positions returns an array of the correct shape."""
+
         traj = structure.Trajectory(
             track_id=1,
             detections=[_make_detection(i) for i in range(5)],
@@ -103,6 +107,8 @@ class TestTrajectory:
         assert centers.shape == (5, 2)
 
     def test_center_positions_values(self) -> None:
+        r"""Test that center_positions returns the correct values."""
+
         traj = structure.Trajectory(
             track_id=1,
             detections=[_make_detection(0)],
@@ -112,6 +118,8 @@ class TestTrajectory:
         np.testing.assert_allclose(centers[0], [10.0, 10.0])
 
     def test_bounding_boxes_shape(self) -> None:
+        r"""Test that bounding_boxes returns an array of the correct shape."""
+
         traj = structure.Trajectory(
             track_id=1,
             detections=[_make_detection(i) for i in range(3)],
@@ -121,6 +129,8 @@ class TestTrajectory:
         assert boxes.shape == (3, 4)
 
     def test_confidence_scores(self) -> None:
+        r"""Test that confidence_scores returns the correct values."""
+
         traj = structure.Trajectory(
             track_id=1,
             detections=[
@@ -134,6 +144,8 @@ class TestTrajectory:
         ]
 
     def test_dominant_class(self) -> None:
+        r"""Test that dominant_class returns the most common class name."""
+
         traj = structure.Trajectory(
             track_id=1,
             detections=[
@@ -145,6 +157,8 @@ class TestTrajectory:
         assert traj.dominant_class == "car"
 
     def test_dominant_class_tie_breaks_to_most_common(self) -> None:
+        r"""Test that the dominant class is the most common one in a tie."""
+
         traj = structure.Trajectory(
             track_id=1,
             detections=[
@@ -159,9 +173,11 @@ class TestTrajectory:
 
 
 class TestTrajectorySet:
-    r"""Test cases for `TrajectorySet` instances."""
+    r"""Test cases for ``TrajectorySet`` instances."""
 
     def _make_trajectory_set(self) -> structure.TrajectorySet:
+        r"""Helper to create a TrajectorySet with sensible defaults."""
+
         return structure.TrajectorySet(
             source_video=os.path.join(TMP_DIR, "test.mp4"),
             frame_width=1920,
@@ -171,6 +187,8 @@ class TestTrajectorySet:
         )
 
     def test_add_detection_creates_trajectory(self) -> None:
+        r"""Test adding a detection creates a trajectory with correct ID."""
+
         tset = self._make_trajectory_set()
         with pytest.raises(TypeError):
             tset.add_detection(1)  # type: ignore
@@ -182,6 +200,7 @@ class TestTrajectorySet:
         assert len(tset.trajectories[1].detections) == 1
 
     def test_add_detection_groups_by_track_id(self) -> None:
+        r"""Test that detections are grouped into trajectories by track ID."""
         tset = self._make_trajectory_set()
         tset.add_detection(_make_detection(0, track_id=1))
         tset.add_detection(_make_detection(1, track_id=1))
@@ -192,10 +211,12 @@ class TestTrajectorySet:
         assert len(tset.trajectories[2].detections) == 1
 
     def test_empty_trajectory_set(self) -> None:
+        r"""Test that a newly created ``TrajectorySet`` has no trajectories."""
         tset = self._make_trajectory_set()
         assert len(tset.trajectories) == 0
 
     def test_metadata_preserved(self) -> None:
+        r"""Test that the metadata fields are correctly set and preserved."""
         tset = self._make_trajectory_set()
         assert tset.source_video == os.path.join(TMP_DIR, "test.mp4")
         assert tset.frame_width == 1920
