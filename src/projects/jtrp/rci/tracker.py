@@ -17,6 +17,7 @@ Two execution paths are supported:
 
 import typing
 
+from absl import logging
 import cv2
 import numpy as np
 import torch
@@ -27,15 +28,23 @@ import ultralytics
 from src.projects.jtrp.rci import calibration as calibration_lib
 from src.projects.jtrp.rci import georeferencing as georef_lib
 from src.projects.jtrp.rci import structure
-from src.utilities import logging
 
-# COCO vehicle class IDs used by default YOLO models.
-_DEFAULT_VEHICLE_CLASSES: typing.FrozenSet[int] = frozenset(
+# Vehicle class names retained from a detection result. Filtering by name
+# rather than by integer ID lets the same code handle both COCO-trained
+# detectors (yolo26l: car/truck/bus/motorcycle) and DOTA-trained OBB
+# detectors (yolo26l-obb: "large vehicle"/"small vehicle"). Ultralytics is
+# invoked with ``classes=None`` so all detections come through and we
+# post-filter here.
+_DEFAULT_VEHICLE_CLASS_NAMES: typing.FrozenSet[str] = frozenset(
     {
-        2,  # car
-        3,  # motorcycle
-        5,  # bus
-        7,  # truck
+        # COCO class names.
+        "car",
+        "truck",
+        "bus",
+        "motorcycle",
+        # class names for `yolo26-obb``.
+        "large vehicle",
+        "small vehicle",
     }
 )
 
@@ -57,7 +66,7 @@ def load_model(
     """
     model = ultralytics.YOLO(checkpoint_path)
     model.to(device)
-    logging.rank_zero_info(
+    logging.info(
         "Loaded YOLO model from %s on device %s",
         checkpoint_path,
         device,
@@ -86,16 +95,47 @@ def _open_video_or_raise(video_path: str) -> cv2.VideoCapture:
     return cap
 
 
+def _roi_to_contour(
+    roi: typing.Optional[structure.RegionOfInterest],
+) -> typing.Optional[np.ndarray]:
+    r"""Materialises a ROI polygon as a ``cv2.pointPolygonTest``-ready contour.
+
+    Returns ``None`` when ``roi`` is ``None`` so the caller can short-circuit
+    the filter entirely.
+    """
+    if roi is None:
+        return None
+    return np.asarray(roi.polygon, dtype=np.float32).reshape(-1, 1, 2)
+
+
+def _bbox_in_roi(
+    bbox: structure.BoundingBox,
+    roi_contour: typing.Optional[np.ndarray],
+) -> bool:
+    r"""Returns True if the bbox bottom-center falls inside (or on) the ROI.
+
+    Uses the bottom-center because that is the canonical ground-contact proxy already used by the
+    world-projection code; keeping the test consistent means a detection that gets a world coord
+    also gets ROI- accepted (and vice versa).
+    """
+    if roi_contour is None:
+        return True
+    u = (bbox.x1 + bbox.x2) / 2.0
+    v = bbox.y2
+    return cv2.pointPolygonTest(roi_contour, (float(u), float(v)), False) >= 0
+
+
 def extract_trajectories(
     model: ultralytics.YOLO,
     video_path: str,
     tracker_config: str = "botsort.yaml",
     confidence_threshold: float = 0.25,
     iou_threshold: float = 0.5,
-    vehicle_classes: typing.Optional[typing.FrozenSet[int]] = None,
+    vehicle_class_names: typing.Optional[typing.FrozenSet[str]] = None,
     img_size: int = 1280,
     camera_params: typing.Optional[structure.CameraParameters] = None,
     georeference: typing.Optional[structure.GeoReference] = None,
+    roi: typing.Optional[structure.RegionOfInterest] = None,
 ) -> structure.TrajectorySet:
     r"""Runs detection + tracking on a video and returns a trajectory set.
 
@@ -119,8 +159,9 @@ def extract_trajectories(
         ``structure.TrajectorySet`` containing all tracked vehicle
         trajectories.
     """
-    if vehicle_classes is None:
-        vehicle_classes = _DEFAULT_VEHICLE_CLASSES
+    if vehicle_class_names is None:
+        vehicle_class_names = _DEFAULT_VEHICLE_CLASS_NAMES
+    roi_contour = _roi_to_contour(roi)
 
     cap = _open_video_or_raise(video_path)
     frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -145,7 +186,6 @@ def extract_trajectories(
             stream=True,
             conf=confidence_threshold,
             iou=iou_threshold,
-            classes=list(vehicle_classes),
             imgsz=img_size,
             verbose=False,
         )
@@ -153,6 +193,8 @@ def extract_trajectories(
             results_iter=results_iter,
             trajectory_set=trajectory_set,
             georeference=georeference,
+            roi_contour=roi_contour,
+            vehicle_class_names=vehicle_class_names,
             total_frames=total_frames,
         )
     else:
@@ -162,15 +204,16 @@ def extract_trajectories(
             tracker_config=tracker_config,
             confidence_threshold=confidence_threshold,
             iou_threshold=iou_threshold,
-            vehicle_classes=list(vehicle_classes),
             img_size=img_size,
             camera_params=camera_params,
             georeference=georeference,
+            roi_contour=roi_contour,
+            vehicle_class_names=vehicle_class_names,
             trajectory_set=trajectory_set,
             total_frames=total_frames,
         )
 
-    logging.rank_zero_info(
+    logging.info(
         "Tracking complete: %d frames, %d unique tracks.",
         total_frames,
         len(trajectory_set.trajectories),
@@ -182,6 +225,8 @@ def _consume_results(
     results_iter,
     trajectory_set: structure.TrajectorySet,
     georeference: typing.Optional[structure.GeoReference],
+    roi_contour: typing.Optional[np.ndarray],
+    vehicle_class_names: typing.FrozenSet[str],
     total_frames: int,
 ) -> None:
     r"""Iterates over ultralytics results and appends detections."""
@@ -199,6 +244,8 @@ def _consume_results(
                 result=result,
                 trajectory_set=trajectory_set,
                 georeference=georeference,
+                roi_contour=roi_contour,
+                vehicle_class_names=vehicle_class_names,
             )
             pbar.set_postfix(
                 {"Num Trajectories": len(trajectory_set.trajectories)},
@@ -213,10 +260,11 @@ def _run_frame_by_frame(
     tracker_config: str,
     confidence_threshold: float,
     iou_threshold: float,
-    vehicle_classes: typing.List[int],
     img_size: int,
     camera_params: structure.CameraParameters,
     georeference: typing.Optional[structure.GeoReference],
+    roi_contour: typing.Optional[np.ndarray],
+    vehicle_class_names: typing.FrozenSet[str],
     trajectory_set: structure.TrajectorySet,
     total_frames: int,
 ) -> None:
@@ -243,7 +291,6 @@ def _run_frame_by_frame(
                     stream=False,
                     conf=confidence_threshold,
                     iou=iou_threshold,
-                    classes=vehicle_classes,
                     imgsz=img_size,
                     verbose=False,
                 )
@@ -253,6 +300,8 @@ def _run_frame_by_frame(
                         result=results[0],
                         trajectory_set=trajectory_set,
                         georeference=georeference,
+                        roi_contour=roi_contour,
+                        vehicle_class_names=vehicle_class_names,
                     )
                 frame_idx += 1
                 pbar.update(1)
@@ -265,43 +314,122 @@ def _run_frame_by_frame(
             pbar.close()
 
 
+def _extract_detection_tensors(
+    result,
+) -> typing.Optional[
+    typing.Tuple[
+        np.ndarray,
+        typing.Optional[np.ndarray],
+        np.ndarray,
+        np.ndarray,
+        np.ndarray,
+        typing.Mapping[int, str],
+    ]
+]:
+    r"""Pulls per-detection arrays from an ultralytics Result.
+
+    Prefers ``result.obb`` when the model is an OBB detector (yolo26-obb,
+    yolo11-obb, etc.). Falls back to ``result.boxes`` for axis-aligned
+    models. Returns ``None`` if the result has no tracked detections.
+
+    Returns:
+        ``(xyxy, obb_corners, cls_ids, confs, track_ids, names)`` where
+        ``obb_corners`` is ``None`` for AABB models and an ``(N, 4, 2)``
+        array of polygon corners for OBB models.
+    """
+    obb = getattr(result, "obb", None)
+    if obb is not None and getattr(obb, "id", None) is not None:
+        ids = obb.id
+        assert isinstance(ids, torch.Tensor)
+        xyxy = obb.xyxy.cpu().numpy()
+        corners = obb.xyxyxyxy.cpu().numpy()
+        cls_ids = obb.cls.cpu().numpy().astype(np.int64)
+        confs = obb.conf.cpu().numpy()
+        track_ids = ids.cpu().numpy().astype(np.int64)
+        return xyxy, corners, cls_ids, confs, track_ids, result.names
+    if result.boxes is not None and result.boxes.id is not None:
+        boxes = result.boxes
+        ids = boxes.id
+        assert isinstance(ids, torch.Tensor)
+        xyxy = boxes.xyxy.cpu().numpy()
+        cls_ids = boxes.cls.cpu().numpy().astype(np.int64)
+        confs = boxes.conf.cpu().numpy()
+        track_ids = ids.cpu().numpy().astype(np.int64)
+        return xyxy, None, cls_ids, confs, track_ids, result.names
+    return None
+
+
+def _ground_anchor(
+    bbox: structure.BoundingBox,
+    obb_corners: typing.Optional[np.ndarray],
+) -> typing.Tuple[float, float]:
+    r"""Returns the (u, v) ground-contact pixel for a detection.
+
+    For OBB detections, the lowest-y corner of the rotated rectangle is closer to the actual ground
+    footprint than the AABB's bottom edge. For AABB-only detections, we fall back to the bbox
+    bottom-center.
+    """
+    if obb_corners is not None:
+        idx = int(obb_corners[:, 1].argmax())
+        return float(obb_corners[idx, 0]), float(obb_corners[idx, 1])
+    return (bbox.x1 + bbox.x2) / 2.0, bbox.y2
+
+
 def _add_result_to_set(
     frame_idx: int,
     result,
     trajectory_set: structure.TrajectorySet,
     georeference: typing.Optional[structure.GeoReference],
+    roi_contour: typing.Optional[np.ndarray],
+    vehicle_class_names: typing.FrozenSet[str],
 ) -> None:
-    r"""Pulls `boxes/ids/cls/conf` out of one ultralytics Result and stores."""
-    if result.boxes is None or result.boxes.id is None:
+    r"""Pulls per-detection data out of one ultralytics Result and stores.
+
+    Handles both axis-aligned (``result.boxes``) and oriented
+    (``result.obb``) detectors. The ground-contact anchor used for ROI
+    filtering and world-coord projection is the bbox bottom-center for
+    AABB detections and the lowest-y OBB corner for OBB detections.
+    """
+    extracted = _extract_detection_tensors(result)
+    if extracted is None:
         return
-    boxes = result.boxes
-    ids = boxes.id
-    assert isinstance(ids, torch.Tensor)
+    xyxy, obb_corners, cls_ids, confs, track_ids, names = extracted
 
-    xyxy = boxes.xyxy.cpu().numpy()
-    cls_ids = boxes.cls.cpu().numpy().astype(np.int64)
-    confs = boxes.conf.cpu().numpy()
-    track_ids = ids.cpu().numpy().astype(np.int64)
-    names = result.names
+    for i in range(len(xyxy)):
+        class_name = names[int(cls_ids[i])]
+        if class_name not in vehicle_class_names:
+            continue
 
-    for i in range(len(boxes)):
         bbox = structure.BoundingBox(
             x1=float(xyxy[i, 0]),
             y1=float(xyxy[i, 1]),
             x2=float(xyxy[i, 2]),
             y2=float(xyxy[i, 3]),
         )
+        corners_i = obb_corners[i] if obb_corners is not None else None
+        anchor_u, anchor_v = _ground_anchor(bbox, corners_i)
+
+        if roi_contour is not None:
+            inside = (
+                cv2.pointPolygonTest(roi_contour, (anchor_u, anchor_v), False)
+                >= 0
+            )
+            if not inside:
+                continue
+
         world_x: typing.Optional[float] = None
         world_y: typing.Optional[float] = None
         if georeference is not None:
-            world_x, world_y = _project_bbox_to_world(bbox, georeference)
+            world_x, world_y = georef_lib.pixel_to_world(
+                georeference, anchor_u, anchor_v
+            )
 
         detection = structure.Detection(
             frame_index=frame_idx,
             track_id=int(track_ids[i]),
             bbox=bbox,
             class_id=int(cls_ids[i]),
-            class_name=names[int(cls_ids[i])],
+            class_name=class_name,
             confidence=float(confs[i]),
             world_x=world_x,
             world_y=world_y,
