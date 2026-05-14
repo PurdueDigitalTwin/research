@@ -9,12 +9,12 @@ import typing
 
 from absl import app
 from absl import flags
+from absl import logging
 import cv2
 
 from src.projects.jtrp.rci import calibration as calibration_lib
 from src.projects.jtrp.rci import gcp_tools
 from src.projects.jtrp.rci import serialization
-from src.utilities import logging
 
 # -- constants -----------------------------------------------------------------
 # Resolved at import time so the welcome banner is picked up from the bazel
@@ -32,15 +32,25 @@ _BANNER_PATH = os.path.join(
 # CWD.
 _DEFAULT_WORK_DIR = os.environ.get("BUILD_WORKING_DIRECTORY", os.getcwd())
 
-# Common ultralytics YOLOv11 detection checkpoints, ordered nano -> xlarge.
-# The empty-value last entry is a sentinel meaning "ask for a custom name /
+# YOLO detection checkpoints offered by the model selector. Local paths
+# are resolved against ``BUILD_WORKING_DIRECTORY`` so they work whether
+# the binary is launched from the bazel runfiles tree or directly. The
+# empty-value last entry is a sentinel meaning "ask for a custom name /
 # path" — selecting it falls back to the free-text prompt.
 _YOLO_MODEL_OPTIONS: typing.Sequence[typing.Tuple[str, str]] = (
-    ("yolo11n.pt", "nano   (~5 MB, fastest)"),
-    ("yolo11s.pt", "small  (~22 MB)"),
-    ("yolo11m.pt", "medium (~50 MB)"),
-    ("yolo11l.pt", "large  (~85 MB)"),
-    ("yolo11x.pt", "xlarge (~110 MB, most accurate)"),
+    (
+        os.path.join(_DEFAULT_WORK_DIR, "data/checkpoints/yolo26l-obb.pt"),
+        "yolo26 large OBB (local, oriented bbox — best for aerial views)",
+    ),
+    (
+        os.path.join(_DEFAULT_WORK_DIR, "data/checkpoints/yolo26l.pt"),
+        "yolo26 large (local, axis-aligned bbox)",
+    ),
+    ("yolo11n.pt", "yolo11 nano   (~5 MB, fastest stock)"),
+    ("yolo11s.pt", "yolo11 small  (~22 MB)"),
+    ("yolo11m.pt", "yolo11 medium (~50 MB)"),
+    ("yolo11l.pt", "yolo11 large  (~85 MB)"),
+    ("yolo11x.pt", "yolo11 xlarge (~110 MB)"),
     ("", "custom path or model name"),
 )
 
@@ -239,19 +249,6 @@ def _sample_video_frames(
 # ---------------------------------------------------------------------------
 # Welcome screen
 # ---------------------------------------------------------------------------
-
-
-# Minimal ASCII fallback when ``constants/welcome.txt`` is empty or missing.
-_DEFAULT_BANNER = """\
-+----------------------+
-|      JTRP - 5023     |
-|   Roadway Capacity   |
-|       Inventory      |
-|   drone -> NGSIM     |
-+----------------------+\
-"""
-
-
 def _load_welcome_banner(path: str = _BANNER_PATH) -> str:
     r"""Reads the welcome banner from ``constants/welcome.txt``.
 
@@ -410,12 +407,12 @@ def _step_calibrate(state: _SessionState) -> typing.Optional[str]:
     if parent:
         os.makedirs(parent, exist_ok=True)
     serialization.save_camera_parameters(params, output_path)
-    logging.rank_zero_info(
+    logging.info(
         "Calibration RMS reprojection error: %.4f px (over %d views).",
         params.rms_reprojection_error,
         params.num_views,
     )
-    logging.rank_zero_info("Wrote calibration to %s", output_path)
+    logging.info("Wrote calibration to %s", output_path)
     return output_path
 
 
@@ -562,6 +559,9 @@ def _step_extract_trajectories(
         print(f"  using calibration from previous step: {calibration_path}")
     if gcp_json_path:
         print(f"  using GCPs from previous step: {gcp_json_path}")
+    roi_path = _prompt_optional_path(
+        "Region-of-interest JSON path (blank to disable filter)"
+    )
     ngsim_output = _prompt(
         "NGSIM output CSV path (blank to skip)",
         default="",
@@ -588,6 +588,7 @@ def _step_extract_trajectories(
         calibration_path=calibration_path,
         gcp_json_path=gcp_json_path,
         georeference_path=None,
+        roi_path=roi_path,
         ngsim_output=(
             os.path.expanduser(ngsim_output) if ngsim_output else None
         ),
@@ -611,8 +612,6 @@ def _step_extract_trajectories(
 # ---------------------------------------------------------------------------
 # Top-level linear pipeline driver.
 # ---------------------------------------------------------------------------
-
-
 def _run_step(
     index: int,
     title: str,
@@ -636,7 +635,7 @@ def _run_step(
     try:
         return runner()
     except Exception as exc:  # noqa: BLE001
-        logging.rank_zero_error("Step %d failed: %s", index, exc)
+        logging.error("Step %d failed: %s", index, exc)
         return None
 
 
@@ -644,7 +643,7 @@ def main(argv: typing.List[str]) -> int:
     del argv  # unused
     work_dir = os.path.expanduser(flags.FLAGS.work_dir)
     os.makedirs(work_dir, exist_ok=True)
-    logging.rank_zero_info("Working directory %s.", work_dir)
+    logging.info("Working directory %s.", work_dir)
     state = _SessionState(work_dir=work_dir)
     _print_welcome(state)
     try:
@@ -700,7 +699,7 @@ def main(argv: typing.List[str]) -> int:
             print("\n  (interrupted)")
             return 1
         except Exception as exc:  # noqa: BLE001
-            logging.rank_zero_error("Trajectory extraction failed: %s", exc)
+            logging.error("Trajectory extraction failed: %s", exc)
             return 1
 
         print()

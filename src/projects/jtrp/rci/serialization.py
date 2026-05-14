@@ -3,8 +3,9 @@ import json
 import os
 import typing
 
+from absl import logging
+
 from src.projects.jtrp.rci import structure
-from src.utilities import logging
 
 # NOTE: Default column names for the INDOT "simple" GCP CSV file format.
 # TODO: If we need to support more formats, consider a more flexible parsing
@@ -95,7 +96,7 @@ def save_trajectories_csv(
         writer.writeheader()
         writer.writerows(all_detections)
 
-    logging.rank_zero_info(
+    logging.info(
         "Saved %d detections to %s",
         len(all_detections),
         output_path,
@@ -153,7 +154,7 @@ def save_trajectories_json(
     with open(output_path, "w") as f:
         json.dump(data, f, indent=2)
 
-    logging.rank_zero_info(
+    logging.info(
         "Saved %d trajectories to %s",
         len(trajectory_set.trajectories),
         output_path,
@@ -281,6 +282,30 @@ def load_georeference(path: str) -> structure.GeoReference:
     with open(path) as f:
         data = json.load(f)
     return structure.GeoReference.from_dict(data)
+
+
+# ---------------------------------------------------------------------------
+# Region of interest (``RegionOfInterest`` <-> JSON).
+# ---------------------------------------------------------------------------
+
+
+def save_roi_to_json(
+    roi: structure.RegionOfInterest,
+    path: str,
+) -> None:
+    r"""Saves a ``RegionOfInterest`` polygon to a JSON file."""
+    parent = os.path.dirname(os.path.abspath(path))
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(roi.to_dict(), f, indent=2)
+
+
+def load_roi_from_json(path: str) -> structure.RegionOfInterest:
+    r"""Loads a ``RegionOfInterest`` polygon from a JSON file."""
+    with open(path) as f:
+        data = json.load(f)
+    return structure.RegionOfInterest.from_dict(data)
 
 
 # ---------------------------------------------------------------------------
