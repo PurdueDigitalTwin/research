@@ -1,0 +1,29 @@
+# Dedicated pip hub for the JTRP-5023 RCI trajectory pipeline.
+#
+# The shared `ml_infra_cuda` hub combines torch with `jax-cuda12==0.5.0`,
+# `tensorflow-cpu`, and a long list of research deps. That combination
+# forces a stale `torch==2.0.1` (the only torch version pip-tools can
+# resolve alongside jax-cuda12's pinned nvidia-* wheel set), which is
+# too old for the YOLO26 weights that the project actually needs.
+#
+# This file holds *only* the JTRP pipeline's deps so the resolver can
+# pull torch from the PyTorch wheel index (`+cu126` local-version) and
+# ultralytics 8.5+ without fighting jax.
+--extra-index-url https://download.pytorch.org/whl/cu126
+
+absl-py==2.3.1
+lap>=0.5.12
+matplotlib==3.7.1
+numpy<2.0.0,>=1.20.0
+opencv-python-headless>=4.8.0
+packaging==26.0
+pillow==12.0.0
+pytest==9.0.1
+pytest-cov==7.0.0
+scipy>=1.6.0
+tqdm
+typing_extensions==4.15.0
+torch>=2.6.0
+torchvision>=0.21.0
+ultralytics>=8.4.40  # yolo26l.pt was saved by 8.3.222; 8.4.40+ handles the format
+wandb==0.23.1
