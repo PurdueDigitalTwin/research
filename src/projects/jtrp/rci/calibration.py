@@ -23,6 +23,7 @@ import typing
 import cv2
 from numpy import typing as npt
 import numpy as np
+from tqdm import auto as tqdm
 
 from src.projects.jtrp.rci import structure as _struct
 
@@ -131,15 +132,25 @@ def auto_detect_pattern_size(
         for img in imgs
     ]
 
-    for pattern in candidates:
-        count = 0
-        for img in grayscale_imgs:
-            if detect_chessboard_corners(img, pattern) is not None:
-                count += 1
+    _total = len(candidates) * len(grayscale_imgs)
+    with tqdm.tqdm(
+        total=_total,
+        desc="Auto-detecting pattern size",
+        colour="#CFB991",
+        leave=False,
+    ) as pbar:
+        for pattern in candidates:
+            count = 0
+            for img in grayscale_imgs:
+                if detect_chessboard_corners(img, pattern) is not None:
+                    count += 1
+                pbar.update(1)
 
-        if count >= best_count:
-            best_pattern = pattern
-            best_count = count
+            if count >= best_count:
+                best_pattern = pattern
+                best_count = count
+
+            pbar.set_postfix({"best_count": best_count}, refresh=True)
 
     if best_pattern is None or best_count < min_views:
         raise ValueError(

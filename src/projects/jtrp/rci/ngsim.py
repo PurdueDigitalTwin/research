@@ -33,11 +33,11 @@ import dataclasses
 import os
 import typing
 
+from absl import logging
 from numpy import typing as npt
 import numpy as np
 
 from src.projects.jtrp.rci import structure
-from src.utilities import logging
 
 # NGSIM v_Class mapping for COCO vehicle classes. NGSIM only documents
 # {1: motorcycle, 2: auto, 3: truck}; we extend with 4=bus.
@@ -322,7 +322,7 @@ def save_ngsim_csv(
         writer.writeheader()
         writer.writerows(rows)
 
-    logging.rank_zero_info(
+    logging.info(
         "Saved NGSIM-format CSV: %d rows across %d trajectories to %s",
         len(rows),
         accepted,

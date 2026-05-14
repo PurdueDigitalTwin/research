@@ -16,12 +16,12 @@ import json
 import os
 import typing
 
+from absl import logging
 import cv2
 import numpy as np
 
 from src.projects.jtrp.rci import serialization
 from src.projects.jtrp.rci import structure
-from src.utilities import logging
 
 
 # --- Marker detection ---------------------------------------------------------
@@ -179,14 +179,14 @@ def assemble_gcp_json(
 
     missing = [g.label for g in gcps if g.image_u < 0 or g.image_v < 0]
     if missing:
-        logging.rank_zero_warning(
+        logging.warning(
             "GCP JSON %s has %d placeholder pixel(s): %s",
             output_path,
             len(missing),
             ", ".join(missing),
         )
     else:
-        logging.rank_zero_info("Wrote %d GCPs to %s", len(gcps), output_path)
+        logging.info("Wrote %d GCPs to %s", len(gcps), output_path)
     return gcps
 
 
@@ -341,7 +341,7 @@ def register_marked_to_video(
         ratio_threshold=ratio_threshold,
         ransac_threshold=ransac_threshold_px,
     )
-    logging.rank_zero_info(
+    logging.info(
         "ORB homography: %d good matches, %d RANSAC inliers.",
         n_matches,
         n_inliers,
@@ -370,7 +370,7 @@ def register_marked_to_video(
         os.makedirs(out_dir, exist_ok=True)
     with open(gcp_json_out, "w") as f:
         json.dump(gcp_data, f, indent=2)
-    logging.rank_zero_info(
+    logging.info(
         "Wrote %d registered GCPs to %s",
         len(gcp_data["gcps"]),
         gcp_json_out,
@@ -384,8 +384,6 @@ def register_marked_to_video(
             video_uv,
             debug_overlay_path,
         )
-        logging.rank_zero_info(
-            "Wrote registration overlay to %s", debug_overlay_path
-        )
+        logging.info("Wrote registration overlay to %s", debug_overlay_path)
 
     return n_matches, n_inliers

@@ -1,11 +1,11 @@
 import typing
 
+from absl import logging
 import cv2
 from tqdm import auto as tqdm
 from tqdm.contrib import logging as tqdm_logging
 
 from src.projects.jtrp.rci import structure
-from src.utilities import logging
 
 # Color palette for track IDs (BGR format for OpenCV).
 _COLORS: typing.List[typing.Tuple[int, int, int]] = [
@@ -151,4 +151,4 @@ def render_annotated_video(
     pbar.close()
     cap.release()
     writer.release()
-    logging.rank_zero_info("Annotated video saved to %s", output_path)
+    logging.info("Annotated video saved to %s", output_path)

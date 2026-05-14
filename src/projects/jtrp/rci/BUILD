@@ -1,98 +1,100 @@
-load("//third_party:defs.bzl", "ml_py_binary", "ml_py_library", "ml_py_test")
+load("@jtrp_cuda//:requirements.bzl", "requirement")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
 
 package(default_visibility = ["//src/projects/jtrp:__subpackages__"])
 
 # -- libraries -----------------------------------------------------------------
-
-ml_py_library(
+py_library(
     name = "structure",
     srcs = ["structure.py"],
-    deps = ["numpy"],
+    deps = [requirement("numpy")],
 )
 
-ml_py_library(
+py_library(
     name = "calibration",
     srcs = ["calibration.py"],
     deps = [
-        "numpy",
-        "opencv-python-headless",
+        requirement("numpy"),
+        requirement("opencv-python-headless"),
+        requirement("tqdm"),
         ":structure",
     ],
 )
 
-ml_py_library(
+py_library(
     name = "georeferencing",
     srcs = ["georeferencing.py"],
     deps = [
-        "numpy",
-        "opencv-python-headless",
+        requirement("numpy"),
+        requirement("opencv-python-headless"),
         ":structure",
     ],
 )
 
-ml_py_library(
+py_library(
     name = "serialization",
     srcs = ["serialization.py"],
     deps = [
+        requirement("absl-py"),
         ":structure",
-        "//src/utilities:logging",
     ],
 )
 
-ml_py_library(
+py_library(
     name = "ngsim",
     srcs = ["ngsim.py"],
     deps = [
-        "numpy",
+        requirement("absl-py"),
+        requirement("numpy"),
         ":structure",
-        "//src/utilities:logging",
     ],
 )
 
-ml_py_library(
+py_library(
     name = "visualization",
     srcs = ["visualization.py"],
     deps = [
-        "opencv-python-headless",
-        "tqdm",
+        requirement("absl-py"),
+        requirement("opencv-python-headless"),
+        requirement("tqdm"),
         ":structure",
-        "//src/utilities:logging",
     ],
 )
 
-ml_py_library(
+py_library(
     name = "gcp_tools",
     srcs = ["gcp_tools.py"],
     deps = [
-        "numpy",
-        "opencv-python-headless",
+        requirement("absl-py"),
+        requirement("numpy"),
+        requirement("opencv-python-headless"),
         ":serialization",
         ":structure",
-        "//src/utilities:logging",
     ],
 )
 
-ml_py_library(
+py_library(
     name = "tracker",
     srcs = ["tracker.py"],
     deps = [
-        "lap",
-        "numpy",
-        "opencv-python-headless",
-        "torch",
-        "tqdm",
-        "ultralytics",
+        requirement("absl-py"),
+        requirement("lap"),
+        requirement("numpy"),
+        requirement("opencv-python-headless"),
+        requirement("torch"),
+        requirement("tqdm"),
+        requirement("ultralytics"),
         ":calibration",
         ":georeferencing",
         ":structure",
-        "//src/utilities:logging",
     ],
 )
 
-ml_py_library(
+py_library(
     name = "pipeline",
     srcs = ["pipeline.py"],
     deps = [
+        requirement("absl-py"),
         ":calibration",
         ":georeferencing",
         ":ngsim",
@@ -100,85 +102,90 @@ ml_py_library(
         ":structure",
         ":tracker",
         ":visualization",
-        "//src/utilities:logging",
     ],
 )
 
 # -- single entry point --------------------------------------------------------
 
-ml_py_binary(
+py_binary(
     name = "main",
     srcs = ["main.py"],
     data = glob(["constants/*"]),
     deps = [
-        "absl-py",
+        requirement("absl-py"),
+        requirement("opencv-python-headless"),
         ":calibration",
         ":gcp_tools",
         ":pipeline",
         ":serialization",
-        "//src/utilities:logging",
     ],
 )
 
 # -- tests ---------------------------------------------------------------------
 
-ml_py_test(
+py_test(
     name = "test_structure",
     srcs = ["tests/test_structure.py"],
     deps = [
-        "numpy",
+        requirement("numpy"),
+        requirement("pytest"),
         ":structure",
     ],
 )
 
-ml_py_test(
+py_test(
     name = "test_calibration",
     srcs = ["tests/test_calibration.py"],
     deps = [
-        "numpy",
-        "opencv-python-headless",
+        requirement("numpy"),
+        requirement("opencv-python-headless"),
+        requirement("pytest"),
         ":calibration",
         ":structure",
     ],
 )
 
-ml_py_test(
+py_test(
     name = "test_georeferencing",
     srcs = ["tests/test_georeferencing.py"],
     deps = [
-        "numpy",
+        requirement("numpy"),
+        requirement("pytest"),
         ":georeferencing",
         ":structure",
     ],
 )
 
-ml_py_test(
+py_test(
     name = "test_ngsim",
     srcs = ["tests/test_ngsim.py"],
     deps = [
-        "numpy",
+        requirement("numpy"),
+        requirement("pytest"),
         ":ngsim",
         ":structure",
     ],
 )
 
-ml_py_test(
+py_test(
     name = "test_serialization",
     srcs = ["tests/test_serialization.py"],
     deps = [
-        "numpy",
+        requirement("numpy"),
+        requirement("pytest"),
         ":georeferencing",
         ":serialization",
         ":structure",
     ],
 )
 
-ml_py_test(
+py_test(
     name = "test_visualization",
     srcs = ["tests/test_visualization.py"],
     deps = [
-        "numpy",
-        "opencv-python-headless",
+        requirement("numpy"),
+        requirement("opencv-python-headless"),
+        requirement("pytest"),
         ":structure",
         ":visualization",
     ],
