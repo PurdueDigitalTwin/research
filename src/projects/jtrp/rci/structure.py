@@ -355,3 +355,69 @@ class GeoReference:
                 GroundControlPoint.from_dict(g) for g in data.get("gcps", [])
             ],
         )
+
+
+@dataclasses.dataclass
+class RegionOfInterest:
+    r"""A polygon defining a valid-detection region in image-pixel space.
+
+    The tracker drops any detection whose bbox bottom-center falls outside
+    this polygon. Use it to reject confusers (road signs, billboards, etc.)
+    that sit beside the road but outside the drivable surface.
+
+    Attributes:
+        polygon (List[Tuple[float, float]]): An ordered list of ``(u, v)``
+            vertices in pixel coordinates. Need not be closed — the
+            polygon-test treats the first and last vertices as connected.
+        frame_width (Optional[int]): Width of the reference frame in pixels,
+            recorded for provenance; not used at filter time.
+        frame_height (Optional[int]): Height of the reference frame in pixels,
+            recorded for provenance; not used at filter time.
+        notes (str): Free-text description of how the polygon was authored.
+    """
+
+    polygon: typing.List[typing.Tuple[float, float]]
+    frame_width: typing.Optional[int] = None
+    frame_height: typing.Optional[int] = None
+    notes: str = ""
+
+    def __post_init__(self) -> None:
+        if len(self.polygon) < 3:
+            raise ValueError(
+                "RegionOfInterest polygon must have at least 3 vertices; "
+                f"got {len(self.polygon)}."
+            )
+
+    def to_dict(self) -> typing.Dict[str, typing.Any]:
+        return {
+            "polygon": [[float(u), float(v)] for u, v in self.polygon],
+            "frame_width": (
+                int(self.frame_width) if self.frame_width is not None else None
+            ),
+            "frame_height": (
+                int(self.frame_height)
+                if self.frame_height is not None
+                else None
+            ),
+            "notes": self.notes,
+        }
+
+    @classmethod
+    def from_dict(
+        cls,
+        data: typing.Dict[str, typing.Any],
+    ) -> "RegionOfInterest":
+        return cls(
+            polygon=[(float(u), float(v)) for u, v in data["polygon"]],
+            frame_width=(
+                int(data["frame_width"])
+                if data.get("frame_width") is not None
+                else None
+            ),
+            frame_height=(
+                int(data["frame_height"])
+                if data.get("frame_height") is not None
+                else None
+            ),
+            notes=str(data.get("notes", "")),
+        )
