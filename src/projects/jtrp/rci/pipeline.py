@@ -4,6 +4,8 @@ import dataclasses
 import os
 import typing
 
+from absl import logging
+
 from src.projects.jtrp.rci import calibration as calibration_lib
 from src.projects.jtrp.rci import georeferencing as georef_lib
 from src.projects.jtrp.rci import ngsim as ngsim_lib
@@ -11,7 +13,6 @@ from src.projects.jtrp.rci import serialization
 from src.projects.jtrp.rci import structure
 from src.projects.jtrp.rci import tracker
 from src.projects.jtrp.rci import visualization
-from src.utilities import logging
 
 
 @dataclasses.dataclass
@@ -62,6 +63,7 @@ class PipelineConfig:
     calibration_path: typing.Optional[str] = None
     gcp_json_path: typing.Optional[str] = None
     georeference_path: typing.Optional[str] = None
+    roi_path: typing.Optional[str] = None
     ngsim_output: typing.Optional[str] = None
     ngsim_location: str = "JTRP-5023"
     ngsim_smoothing_window: int = 2
@@ -85,8 +87,23 @@ def _maybe_load_calibration(
     r"""Optionally loads camera calibration parameters from a JSON file."""
     if path is None:
         return None
-    logging.rank_zero_info("Loading calibration parameters from %s", path)
+    logging.info("Loading calibration parameters from %s", path)
     return serialization.load_camera_parameters(path)
+
+
+def _maybe_load_roi(
+    path: typing.Optional[str],
+) -> typing.Optional[structure.RegionOfInterest]:
+    r"""Optionally loads a region-of-interest polygon from a JSON file."""
+    if path is None:
+        return None
+    logging.info("Loading region-of-interest polygon from %s", path)
+    roi = serialization.load_roi_from_json(path)
+    logging.info(
+        "ROI polygon has %d vertex(es); detections outside will be dropped.",
+        len(roi.polygon),
+    )
+    return roi
 
 
 def _maybe_build_georeference(
@@ -94,15 +111,11 @@ def _maybe_build_georeference(
     georef_path: typing.Optional[str],
 ) -> typing.Optional[structure.GeoReference]:
     if georef_path is not None:
-        logging.rank_zero_info(
-            "Loading pre-computed GeoReference from %s", georef_path
-        )
+        logging.info("Loading pre-computed GeoReference from %s", georef_path)
         return serialization.load_georeference(georef_path)
     if gcp_json_path is None:
         return None
-    logging.rank_zero_info(
-        "Computing GeoReference from GCPs at %s", gcp_json_path
-    )
+    logging.info("Computing GeoReference from GCPs at %s", gcp_json_path)
     gcps = serialization.load_gcps_from_json(gcp_json_path)
     bad = [g.label for g in gcps if g.image_u < 0 or g.image_v < 0]
     if bad:
@@ -111,7 +124,7 @@ def _maybe_build_georeference(
             f"label(s): {bad}. Edit the file before running."
         )
     geo = georef_lib.compute_homography(gcps)
-    logging.rank_zero_info(
+    logging.info(
         "GeoReference RMS reprojection error: %.3f px (over %d GCPs).",
         geo.rms_reprojection_error_px,
         len(gcps),
@@ -140,7 +153,7 @@ def run_pipeline(config: PipelineConfig) -> PipelineArtifacts:
     """
     os.makedirs(config.output_dir, exist_ok=True)
 
-    logging.rank_zero_info("Loading YOLO model: %s", config.model_checkpoint)
+    logging.info("Loading YOLO model: %s", config.model_checkpoint)
     model = tracker.load_model(
         checkpoint_path=config.model_checkpoint,
         device=config.device,
@@ -151,8 +164,9 @@ def run_pipeline(config: PipelineConfig) -> PipelineArtifacts:
     georeference = _maybe_build_georeference(
         config.gcp_json_path, config.georeference_path
     )
+    roi = _maybe_load_roi(config.roi_path)
 
-    logging.rank_zero_info("Processing video: %s", config.video_path)
+    logging.info("Processing video: %s", config.video_path)
     trajectory_set = tracker.extract_trajectories(
         model=model,
         video_path=config.video_path,
@@ -162,6 +176,7 @@ def run_pipeline(config: PipelineConfig) -> PipelineArtifacts:
         img_size=config.img_size,
         camera_params=camera_params,
         georeference=georeference,
+        roi=roi,
     )
 
     total = len(trajectory_set.trajectories)
@@ -173,7 +188,7 @@ def run_pipeline(config: PipelineConfig) -> PipelineArtifacts:
         }
         removed = total - len(filtered)
         trajectory_set.trajectories = filtered
-        logging.rank_zero_info(
+        logging.info(
             "Filtered %d short trajectories (min_length=%d); %d remain.",
             removed,
             config.min_track_length,
@@ -202,14 +217,14 @@ def run_pipeline(config: PipelineConfig) -> PipelineArtifacts:
         serialization.save_trajectories_json(trajectory_set, json_path)
         artifacts.trajectories_json = json_path
     if config.output_format not in ("csv", "json", "both"):
-        logging.rank_zero_warning(
+        logging.warning(
             "Unsupported output_format %r; skipping trajectory dump.",
             config.output_format,
         )
 
     if config.ngsim_output:
         if georeference is None:
-            logging.rank_zero_warning(
+            logging.warning(
                 "Skipping NGSIM export: no GeoReference is configured."
             )
         else:
@@ -235,7 +250,5 @@ def run_pipeline(config: PipelineConfig) -> PipelineArtifacts:
         )
         artifacts.annotated_video = annotated_path
 
-    logging.rank_zero_info(
-        "Pipeline complete. Outputs in: %s", config.output_dir
-    )
+    logging.info("Pipeline complete. Outputs in: %s", config.output_dir)
     return artifacts
