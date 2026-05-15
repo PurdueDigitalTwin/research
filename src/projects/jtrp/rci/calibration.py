@@ -184,9 +184,7 @@ def calibrate_from_images(
 
     cols, rows = pattern_size
     objp = np.zeros((rows * cols, 3), dtype=np.float32)
-    objp[:, :2] = np.indices((cols, rows)).T.reshape(-1, 2)
-
-    objp[:, :2] = np.indices((cols, rows)).T.reshape(-1, 2)
+    objp[:, :2] = np.indices((int(cols), int(rows))).T.reshape(-1, 2)
     objp *= float(square_size)
 
     object_points: typing.List[npt.NDArray[np.float32]] = []
