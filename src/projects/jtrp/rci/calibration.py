@@ -9,13 +9,8 @@ Example usage:
 >>> import glob
 >>> from src.projects.jtrp.rci import calibration
 >>>
->>> # Load image files
->>> images = calibration.load_image_files(glob.glob("calibration_*.jpg"))
->>> images.extend(
->>>     calibration.sample_video_frames("Camera Clibration.mp4", fps=2.0))
->>> )
 >>> pattern, _ = calibration.auto_detact_pattern_size(images)
->>> parasms = calibration.calibrate_from_img(images, pattern, square_size=0.025)
+>>> params = calibration.calibrate_from_img(images, pattern, square_size=0.025)
 """
 
 import typing
