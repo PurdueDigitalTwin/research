@@ -1,0 +1,19 @@
+\begin{table}[!t]
+    \centering
+    \caption{Concurrent MeanFlow remedies as special cases in our control-variate framework. Each method either drives $\beta\!\to\!1$ with a deterministic proxy, directly reduces the norm of amplification factor $\|\mJ\|^{2}$, or replaces the JVP construction altogether.}
+    \label{tab: concurrent-positioning}
+    \begin{tabular}{@{}lll@{}}
+        \toprule
+        \textbf{Method} & \textbf{Mechanism in our framework} & \textbf{Practical realization} \\
+        \midrule
+        AlphaFlow~\cite{zhang2025alphaflowunderstandingimprovingmeanflow} & avoid high-$\kappa$ regimes & $\alpha$-curriculum schedule \\
+        Improved MF~\cite{geng2025improvedmeanflowschallenges} & deterministic tangent ($\beta\!\to\!1$) & separate velocity head + sg \\
+        Modular MF~\cite{you2025modularmeanflow} & deterministic tangent ($\beta\!\to\!1$) & gradient-modulated loss family \\
+        Kim~\textit{et al.}~\cite{kim2025understandingacceleratingmeanflow} & deterministic tangent ($\beta\!\to\!1$) & staged training schedule \\
+        TVM~\cite{zhou2026terminalvelocitymatching} & remove the spatial Jacobian ($\mJ\!\to\!\bm{0}$) & terminal-time differentiation \\
+        Re-MeanFlow~\cite{zhang2026overcomingcurvaturebottleneckmeanflow} & reduce $\|\mJ\|$ & rectified-flow preprocessing \\
+        Decoupled MF~\cite{lee2025decoupledmeanflow} & bypass JVP construction & flow-map conditioning on later $t$ \\
+        \bottomrule
+    \end{tabular}
+    \vspace{-1em}
+\end{table}

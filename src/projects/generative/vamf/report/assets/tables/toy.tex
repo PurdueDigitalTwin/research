@@ -1,0 +1,28 @@
+\begin{table}[!t]
+    \centering
+    \caption{Sliced Wasserstein distance (lower is better) on the 2-D toy benchmark, averaged over three seeds $\{42,0,1\}$ at $200$k steps. SW$_p$ is evaluated on $4096$ samples with $500$ random projections; both metrics use the \emph{same} projection key per evaluation for variance-reduced paired estimates.}
+    \label{tab: toy}
+    \begin{tabular}{llcc}
+        \toprule
+        Dataset & Metric & MeanFlow ($\beta\!=\!0$) & $\beta\!=\!1$ \\
+        \midrule
+        \texttt{checkerboard}    & SW$_1$ & $0.175 \pm 0.036$ & $\mathbf{0.134 \pm 0.029}$ \\
+                                 & SW$_2$ & $0.234 \pm 0.042$ & $\mathbf{0.175 \pm 0.046}$ \\
+        \midrule
+        \texttt{eight\_gaussians}& SW$_1$ & $0.098 \pm 0.016$ & $\mathbf{0.085 \pm 0.010}$ \\
+                                 & SW$_2$ & $0.151 \pm 0.022$ & $\mathbf{0.146 \pm 0.023}$ \\
+        \midrule
+        \texttt{two\_moons}      & SW$_1$ & $0.093 \pm 0.028$ & $\mathbf{0.072 \pm 0.019}$ \\
+                                 & SW$_2$ & $0.177 \pm 0.068$ & $\mathbf{0.093 \pm 0.025}$ \\
+        \midrule
+        \texttt{swiss\_roll}     & SW$_1$ & $0.098 \pm 0.058$ & $\mathbf{0.045 \pm 0.003}$ \\
+                                 & SW$_2$ & $0.177 \pm 0.151$ & $\mathbf{0.060 \pm 0.007}$ \\
+        \midrule
+        \texttt{two\_spirals}    & SW$_1$ & $\mathbf{0.034 \pm 0.001}$ & $0.037 \pm 0.001$ \\
+                                 & SW$_2$ & $\mathbf{0.044 \pm 0.001}$ & $0.046 \pm 0.001$ \\
+        \midrule
+        \texttt{pinwheel}        & SW$_1$ & $0.094 \pm 0.011$ & $\mathbf{0.059 \pm 0.005}$ \\
+                                 & SW$_2$ & $0.128 \pm 0.014$ & $\mathbf{0.076 \pm 0.005}$ \\
+        \bottomrule
+    \end{tabular}
+\end{table}

@@ -81,3 +81,23 @@ ml_py_test(
         ":unet",
     ],
 )
+
+ml_py_library(
+    name = "vae",
+    srcs = ["vae.py"],
+    deps = [
+        "flax",
+        "huggingface_hub",
+        "jax",
+    ],
+)
+
+ml_py_test(
+    name = "test_vae",
+    srcs = ["test_vae.py"],
+    deps = [
+        "flax",
+        "jax",
+        ":vae",
+    ],
+)

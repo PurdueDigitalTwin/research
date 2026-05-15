@@ -1,0 +1,70 @@
+\section{Experiments}
+\label{sec: experiment}
+
+We empirically validate the our theory in~\Cref{sec: method} through probing the bias-variance trade-offs. Specifically, we sweep the tangent-mixing coefficient $\beta\!\in\![0,1]$ end-to-end and compare the results to the closed-form prediction based on~\Cref{thm: control-variate-optimum}.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\noindent\textbf{Instantiation of the $\beta\!=\!1$ corner.}
+To validate the framework empirically, we need a concrete realization of $\beta$ that we can sweep at scale. We replace the JVP tangent by an exponential moving-average~\cite{polyak1992acceleration} deterministic proxy $\hat{\vv}\!\gets\!\vu_{\bar{\vtheta}}(\vx_{t},t,t)$, and use a small flow-matching loss at $r\!=\!t$ to keep the proxy bias $\vb\!=\!\hat{\vv}-\vv$ small and bound the bias term $\beta(\mJ{+}\mI)\vb$ in~\eqref{eq: g-beta}. We keep the regression target $\vv_{\text{cond}}$ unchanged, exploiting the role asymmetry identified in~\cref{subsec: two-roles}. \Cref{appx: implementation} provides details about the full loss, training algorithm, and three propositions characterizing the resulting gradient form, residual bias, and the necessity of the target-tangent role split.
+
+\noindent\textbf{Experiment Setup.} We evaluate our theory on three regimes leveraging six two-dimensional toy datasets, dense Gaussian mixtures (DGMM) with various dimensions $d\!\in\!\{2,4,8,16,32,64\}$, and training DiT-B/4~\cite{peebles2023scalablediffusion} on ImageNet with Stable Diffusion latents\footnote{\url{https://huggingface.co/enterprise-explorers/sd-vae-ft-mse-flax}}. On the 2-D toy and DGMM datasets, we use a three-layer MLP with $128$ hidden units, train for $200{,}000$ steps with batch size $256$ and three random seeds $\{42, 0, 1\}$, and sweep the eleven-point grid $\beta\!\in\!\{0.0,0.1,\dots,1.0\}$ for the sample-quality, evaluated by final-step sliced Wasserstein-$1$ distance ($\mathrm{SW}_1$) on $4096$ samples with $500$ random projections under a fixed projection seed. On the toy datasets, we additionally run a sub-sweep at $\beta\!\in\!\{0,0.25,0.5,0.75,1\}$ that investigates the per-step total gradient variance $\Tr(\Cov[\nabla_{\vtheta}\ell_{\text{MF}}])$ using $K\!=\!8$ replica of mini-batches, each with $256$ samples, every $2{,}000$ steps and tail-averages over the second half of training. For the DiT, we perform a four-point sweep $\beta\!\in\!\{0,0.25,0.5,1\}$ and train the model for $300$k steps following the recipe in the original MeanFlow~\cite{geng2025meanflowsonestepgenerative}. We defer the full setup, FID table, and direct matrix-form measurement of $\beta^{\ast}$ are to~\Cref{appx: dit-results}.
+
+
+\begin{figure}[!t]
+    \centering
+    \includegraphics[width=\textwidth]{assets/figures/nr_vs_beta.pdf}
+    \caption{Empirical total gradient variance $\Tr(\Cov[\nabla_{\vtheta}\ell_{\text{MF}}])$ on six two-dimensional toy datasets with $\beta\!\in\!\{0,0.25,0.5,0.75,1\}$. The monotonic decrease of variances with respect to $\beta$ on almost every dataset aligns with the prediction in~\Cref{thm: jacobi-variance}.}
+    \label{fig: nr-vs-beta}
+    \vspace{-1em}
+\end{figure}
+
+\subsection{Variance reduction}
+\label{subsec: exp-grad-var}
+
+\Cref{fig: nr-vs-beta} reports the total gradient variances $\Tr(\Cov[\nabla_{\vtheta}\ell_{\text{MF}}])$ on all six 2-D datasets. We observe monotonic decreasing variances with respect to $\beta$ on almost every dataset. The empirical ordering tracks the variance term $\sigma^{2}d\bigl((1{-}\beta)\kappa - \beta\bigr)^{2}$ from~\Cref{thm: jacobi-variance} and~\Cref{thm: control-variate-optimum}, empirically validate that the conditional fluctuation $\vv^{\prime}$ is the dominant variance source in the MeanFlow gradients. Meanwhile, we notice that the reduction magnitude varies with the spectral magnitude $\|\mJ\|$ of the backbone model. The largest reductions appear on the \emph{high-curvature} datasets (\emph{e.g.,} \texttt{eight\_gaussians}, \texttt{checkerboard}), and the smallest ($1.20\!\times$) on \texttt{two\_spirals}. This is consistent to our theory: low geometric curvature pushes the network toward the flat regime $\partial_{\vx_{t}}\vu_{\vtheta}\!\to\!\frac{1}{t-r}\mI_{d}$, corresponding to $\kappa\!\approx\!0$, and our~\cref{thm: control-variate-optimum} predicts both a small per-step variance reduction and a left-shift of optimal coefficient $\beta^{\ast}\!\to\!0$ given by the noise-cancellation factor $\kappa/(\kappa{+}1)$.
+
+\begin{figure}[!t]
+    \centering
+    \includegraphics[width=\textwidth]{assets/figures/sw1_vs_beta.pdf}
+    \caption{Empirical sample-quality measured by sliced Wasserstein-$1$ distance $\mathrm{SW}_{1}(\beta)$ on six 2-D toy datasets with $\beta\!\in\!\{0.0,0.1,\dots,1.0\}$. Bars are grouped by dataset and colored by $\beta$ with standard error bar. The red star marks the empirical optimal coefficient $\beta^{\ast}$. Five of six datasets settle at $\beta^{\ast}\!\in\!\{0.8,1.0\}$ near the deterministic-tangent corner; \texttt{two\_spirals} alone settles at $\beta^{\ast}\!=\!0$.}
+    \label{fig: sw1-vs-beta}
+\end{figure}
+
+\subsection{Bias-variance trade-offs}
+\label{subsec: exp-m-beta}
+
+Whereas $\Tr(\Cov[\nabla_{\vtheta}\ell_{\text{MF}}])$ reveals the variance reduction induced by $\beta$, the sample-quality measured by $\mathrm{SW}_{1}(\beta)$ exposes the full bias-variance trade-off. \Cref{fig: sw1-vs-beta} traces $\mathrm{SW}_{1}(\beta)$ across the full $11$-point grid on six 2-D toy datasets. On the five high-curvature datasets, the empirical $\beta^{\ast}$ falls in between $\{0.8,1.0\}$, recovering the predicted $\beta\!\to\!1$ location with a small bias norm $\|\vb\|_{2}^{2}$ when the EMA proxy is accurate. On the lower-curvature \texttt{two\_spirals} dataset, consistent with~\cref{subsec: exp-grad-var}, the geometry drives $\partial_{\vx_{t}}\vu_{\vtheta}\!\to\!\frac{1}{t-r}\mI_{d}$, essentially pushing $\kappa$ toward zero. The predicted $\beta^{\ast}$ then shrinks toward the unbiased corner $\beta\!=\!0$ through the noise-cancellation factor $\kappa/(\kappa{+}1)$ in~\Cref{thm: control-variate-optimum}, and the empirical sweep result concurs. Meanwhile, we are surprised that the $\beta^{\ast}=1$ instantiation reduces SW$_{1}$ by $54\%$ compared to the original MeanFlow ($\beta=0$) on the \texttt{swiss\_roll} dataset.
+
+\input{assets/tables/dgmm-beta-summary}
+
+\subsection{Scaling with feature dimensions}
+\label{subsec: exp-dgmm}
+
+We investigate whether our theory holds with increasing in feature dimensions by sweeping the coefficient $\beta\!\in\!\{0,0.1,\dots,1\}$ on dense Gaussian mixture (DGMM) datasets in $\mathbb{R}^{d}$, varying $d\!\in\!\{2,4,8,16,32,64\}$. \Cref{tab: dgmm-beta-summary} summarizes the sample-quality gap between the original MeanFlow with $\beta\!=\!0$ and the empirical $\beta^{\ast}$ at each $d$. We report full results in~\Cref{tab: dgmm-beta-full} of~\Cref{appx: results}. On low-dimensional datasets with $d\!\in\!\{2,4,8,16,32\}$, SW$_{1}$ is essentially \emph{$\beta$-insensitive}, where the quality gap between $\beta\!=\!0$ and $\beta^{\ast}$ stays within one standard error of the mean (SEM). This is consistent with the prediction from~\cref{thm: control-variate-optimum} when the EMA proxy yields small $\|\vb\|_{2}^{2}$. The noise-cancellation factor $\kappa/(\kappa{+}1)$ saturates near $1$ across the whole $\beta$ range, leading to flat SW$_{1}(\beta)$. At $d\!=\!64$ the data hints at an interior minimum at $\beta^{\ast}\!=\!0.4$ with a $\sim\!9\%$ reduction over $\beta\!=\!0$, consistent with $\kappa$ coming off saturation with increasing data dimension $d$. In the following~\cref{subsec: exp-dit}, we will showcase that the same observation is consistent with larger and more complicated DiT model, where $\beta^{\ast}_{\mathrm{matrix}}\!\approx\!0.94$ also sits short of the deterministic-tangent corner.
+
+\subsection{Latent Diffusion Transformers on ImageNet}
+\label{subsec: exp-dit}
+
+We further investigate whether our theory generalizes to large model with high-dimensional features. \Cref{fig: dit-fid-curves} shows two complementary measurements from the experiments with DiT-B/4 on ImageNet. The left panel in~\Cref{fig: dit-fid-curves} validates that the gradient-variance reduction predicted by~\Cref{thm: jacobi-variance} carries over from 2-D toy benchmark datasets to DiT. Herein, we directly measure the per-step loss variance using the model trained with the original MeanFlow loss, using two distinct tangents: the stochastic conditional-velocity tangent $\vv_{\text{cond}}$ and the deterministic EMA tangent $\vu_{\bar{\vtheta}}(\vx_{t},t,t)$. We observe that the loss variance with deterministic-tangent stays roughly flat across $t$, while the stochastic-tangent variance grows by two orders of magnitude. The widening gap directly validates the Jacobi-factor amplification of~\Cref{thm: jacobi-variance}, where the stochastic tangent passes the conditional-velocity noise through $\mJ\!=\!(t{-}r)\partial_{\vx_{t}}\vu{-}\mI$, which the deterministic tangent eliminates by construction. We observe the same patter using checkpoint of the $\beta\!=\!1$ instantiation (see~\cref{appx: dit-results}), confirming that the amplification is a property of the architecture and data.
+
+The right panel in~\Cref{fig: dit-fid-curves} visualizes the FID at converge as a function of $\beta$, with $y$-axis the empirical $\Delta\mathrm{FID}(\beta)\!\triangleq\!\mathrm{FID}(\beta)\!-\!\mathrm{FID}(\beta=0)$. The result shows that an ordering of $\mathrm{FID}(\beta\!=\!0)\!<\!\mathrm{FID}(\beta\!=\!0.25)\!<\!\mathrm{FID}(\beta\!=\!0.5)\!<\!\mathrm{FID}(\beta\!=\!1)$ holds at matched-step checkpoints. We report per-checkpoint values in~\Cref{tab: dit-fid} of~\Cref{appx: dit-results}. The result establishes the following observation:
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\textwidth]{assets/figures/dit_fid_curves.pdf}
+    \caption{Experiment results training DiT-B/4 on ImageNet-$256$. \emph{Left:} Per-step loss variance under the stochastic ($\beta\!=\!0$) versus deterministic ($\beta\!=\!1$) tangent, measured on the baseline ($\beta=0$) checkpoint with the same data and noise. The deterministic-tangent variance is roughly $t$-flat while the stochastic-tangent variance grows by two orders of magnitude with $t$, confirming the Jacobi-factor amplification of~\Cref{thm: jacobi-variance}. \emph{Right:} FID at converged with respect to different $\beta$. We report empirical $\Delta\mathrm{FID}(\beta)\!=\!\mathrm{FID}(\beta)\!-\!\mathrm{FID}(\beta=0)$ at the matched training step $295$k with different $\beta$. The dashed gray curve is the quadratic $c\beta^{2}$. The FID at converge with $\beta\!=\!1$ sits a factor of $\sim\!2.6$ above the quadratic curve, indicating a super-linear relationship between the FID and the bias. The optimal coefficient calculated in matrix form is $\beta^{\ast}_{\text{matrix}}\!\approx\!0.94$.}
+    \label{fig: dit-fid-curves}
+    \vspace{-1em}
+\end{figure}
+
+\noindent\textbf{FID-MSE landscape mismatch.} We report the direct measurement of both ingredients in~\Cref{thm: control-variate-optimum} on the DiT checkpoints, including the EMA-tracking proxy $\widehat{\|\vb\|^{2}}$ and the irreducible noise floor $\sigma^{2}d$, in~\Cref{appx: dit-results}. The result predicts an optimal $\beta^{\ast}$ in the interior range $[0.46,\,0.50]$ under the scalar-isotropic approximation, while the matrix-form $\beta^{\ast}_{\text{matrix}}$ is even larger (see below). The empirical ordering of FID at convergence is hence consistent with the prediction. To test whether FID tracks the gradient-MSE \emph{quantitatively}, we fit a MSE-prediction curve $c\beta^{2}$ and compare the $\beta\!=\!1$ offset, where $c$ is given by
+\begin{equation}
+    c\gets\underset{c\in\R}{\arg\min}\left\|\Delta\mathrm{FID}(\beta)-c\beta^{2}\right\|_{2}^{2},\qquad\beta\in\left\{0.0, 0.25, 0.5\right\}.
+\end{equation}
+\Cref{fig: dit-fid-curves} shows a $\sim\!2.6\!\times$ super-linear amplification along the $\Delta\mathrm{FID}$ axis, indicating that the FID over-penalizes bias relative to gradient MSE. As a consequence, the FID-optimal $\beta$ shifts past the gradient-MSE interior minimizer all the way to the unbiased corner $\beta\!=\!0$.
+
+To verify that our isotropic approximation in~\cref{thm: control-variate-optimum} is not artifactual, we directly measured a matrix-form upper bound on $\beta^{\ast}_{\text{matrix}}$ on the baseline checkpoint by sampling actual $\vv^{\prime}$ values from the conditional distribution (see~\Cref{appx: theorem-proof}). The estimator omits the bias term $\|(\mJ{+}\mI)\vb\|^{2}$ from the denominator, giving
+\begin{equation}
+    \beta^{\ast}_{\text{no bias}}\!\triangleq\!\Tr(\mJ\Sigma_{\vv^{\prime}}(\mJ{+}\mI)^{\!\top})/\Tr((\mJ{+}\mI)\Sigma_{\vv^{\prime}}(\mJ{+}\mI)^{\!\top})\;\geq\;|\beta^{\ast}_{\text{matrix}}|,
+\end{equation}
+since the omitted bias term is \emph{non-negative}. We evaluate the bound at $t\!\in\!\{0.1,0.3,0.5,0.7,0.9\}$ with fixed gap $t-r\!=\!0.25$, and $512$ samples per $t$ using $\vu_{\vtheta}(\vx_{t},t,t)$ as the marginal-velocity proxy. The numerator is \emph{strictly positive} at every probed $t$, ruling out the unbiased-corner regime $\beta^{\ast}_{\text{matrix}}\!\le\!0$. Aggregated across $t$, we have $\beta^{\ast}_{\text{no bias}}\!\approx\!0.94$, which is close to the deterministic-tangent corner and \emph{larger} than the scalar-isotropic estimate $\beta^{\ast}\!\in\![0.46,0.50]$. The full $\beta^{\ast}_{\text{matrix}}$ then lies in $(0,0.94]$. Herein, we do not pin down the exact value due to the inaccesible true model bias $\vb\!=\!\vu_{\vtheta}(\vx_{t},t,t)-\vv(\vx_{t},t)$ on ImageNet without access to the conditional distribution $p(\vx_{0}\!\mid\!\vx_{t})$. The matrix-form measurement further strengthens, rather than weakens, the FID-MSE mismatch: the gradient-MSE optimum sits in $(0,0.94]$ while the FID optimum sits at the unbiased corner $\beta\!=\!0$.

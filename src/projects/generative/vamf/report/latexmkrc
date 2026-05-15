@@ -1,0 +1,15 @@
+$pdflatex = 'internal bibunits_pdflatex %O %S';
+
+sub bibunits_pdflatex {
+    my $ret = system('pdflatex', @_);
+    return $ret if $ret != 0;
+    # bibunit aux files land in -output-directory; check both that and CWD.
+    my @aux_files = (glob('release/target/bu*.aux'), glob('bu*.aux'));
+    foreach my $aux (@aux_files) {
+        (my $stem = $aux) =~ s/\.aux$//;
+        print "latexmkrc: running bibtex on $stem\n";
+        local $ENV{BIBINPUTS} = '.:' . ($ENV{BIBINPUTS} // '');
+        system('bibtex', $stem);
+    }
+    return 0;
+}

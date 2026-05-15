@@ -189,20 +189,28 @@ class HuggingFaceDataModule(datamodule.DataModule):
         return self._num_workers
 
     @property
-    def num_train_examples(self) -> int:
-        r"""int: Number of training examples."""
-        return len(self.hf_dataset["train"])  # type: ignore
+    def num_train_examples(self) -> typing.Optional[int]:
+        r"""int: Number of training examples (None for streaming)."""
+        ds = self.hf_dataset["train"]
+        if isinstance(ds, datasets.IterableDataset):
+            return None
+        return len(ds)  # type: ignore
 
     @property
-    def num_val_examples(self) -> int:
-        r"""int: Number of validation examples."""
-        # NOTE: using test set as validation set by default
-        return len(self.hf_dataset["validation"])  # type: ignore
+    def num_val_examples(self) -> typing.Optional[int]:
+        r"""int: Number of validation examples (None for streaming)."""
+        ds = self.hf_dataset.get("validation", None)
+        if ds is None or isinstance(ds, datasets.IterableDataset):
+            return None
+        return len(ds)  # type: ignore
 
     @property
-    def num_test_examples(self) -> int:
-        r"""int: Number of test examples."""
-        return len(self.hf_dataset["test"])  # type: ignore
+    def num_test_examples(self) -> typing.Optional[int]:
+        r"""int: Number of test examples (None for streaming)."""
+        ds = self.hf_dataset.get("test", None)
+        if ds is None or isinstance(ds, datasets.IterableDataset):
+            return None
+        return len(ds)  # type: ignore
 
     @property
     def rng(self) -> typing.Any:
@@ -357,10 +365,53 @@ class HuggingFaceImageDataModule(HuggingFaceDataModule):
         r"""tf.data.Dataset: The test dataset split."""
         return self._test_dataset
 
+    def _create_from_iterable(
+        self,
+        dataset: datasets.IterableDataset,
+    ) -> tf.data.Dataset:
+        """Create ``tf.data.Dataset`` from a streaming IterableDataset.
+
+        Uses ``tf.data.Dataset.from_generator`` to lazily consume
+        the HuggingFace iterable, applying the same per-item
+        processing as the index-based path.
+        """
+        columns = self.feature_keys
+        columns_dtypes = self.feature_types
+
+        def _generator():
+            for item in dataset:
+                out = {}
+                for col, cast_dtype in columns_dtypes.items():
+                    key = _align_keys(col)
+                    arr = np.array(item[col]).astype(cast_dtype)
+                    if key == "image":
+                        if arr.ndim == 2:
+                            arr = np.expand_dims(arr, axis=-1)
+                            arr = np.tile(arr, (1, 1, 3))
+                        if arr.shape[-1] == 4:
+                            arr = arr[..., :3]
+                    out[key] = arr
+                yield out
+
+        output_signature = {}
+        for col, dtype in columns_dtypes.items():
+            key = _align_keys(col)
+            td = tf.dtypes.as_dtype(dtype)
+            if key == "image":
+                # rank-3: (H, W, C) with unknown spatial dims
+                output_signature[key] = tf.TensorSpec(
+                    shape=(None, None, None), dtype=td
+                )
+            else:
+                output_signature[key] = tf.TensorSpec(shape=(), dtype=td)
+        return tf.data.Dataset.from_generator(
+            _generator, output_signature=output_signature
+        )
+
     def create_dataset(
         self,
         *,
-        dataset: datasets.Dataset,
+        dataset: typing.Union[datasets.Dataset, datasets.IterableDataset],
         batch_size: int,
         deterministic: bool,
         drop_remainder: bool,
@@ -397,34 +448,41 @@ class HuggingFaceImageDataModule(HuggingFaceDataModule):
         """
 
         # step 1: map fetch function to get data from huggingface dataset
-        get_fn = functools.partial(
-            _hf_dataset_get,
-            dataset=dataset,
-            columns=self.feature_keys,
-            columns_dtypes=self.feature_types,
-        )
-        tout = [tf.dtypes.as_dtype(t) for t in self.feature_types.values()]
-
-        @tf.function(
-            input_signature=(tf.TensorSpec(None, tf.int64),)  # type: ignore
-        )
-        def fetch_fn(index: tf.Tensor) -> typing.Dict[str, tf.Tensor]:
-            output = tf.py_function(
-                get_fn,
-                inp=[index],
-                Tout=tout,
+        if isinstance(dataset, datasets.IterableDataset):
+            ds = self._create_from_iterable(dataset)
+        else:
+            get_fn = functools.partial(
+                _hf_dataset_get,
+                dataset=dataset,
+                columns=self.feature_keys,
+                columns_dtypes=self.feature_types,
             )
-            return {
-                _align_keys(key): output[i]  # type: ignore
-                for i, key in enumerate(self.feature_keys)
-            }
+            tout = [tf.dtypes.as_dtype(t) for t in self.feature_types.values()]
 
-        ds = tf.data.Dataset.range(len(dataset))
-        ds = ds.map(
-            map_func=fetch_fn,
-            deterministic=deterministic,
-            num_parallel_calls=tf.data.AUTOTUNE,
-        )
+            @tf.function(
+                input_signature=(
+                    tf.TensorSpec(None, tf.int64),
+                )  # type: ignore
+            )
+            def fetch_fn(
+                index: tf.Tensor,
+            ) -> typing.Dict[str, tf.Tensor]:
+                output = tf.py_function(
+                    get_fn,
+                    inp=[index],
+                    Tout=tout,
+                )
+                return {
+                    _align_keys(key): output[i]  # type: ignore
+                    for i, key in enumerate(self.feature_keys)
+                }
+
+            ds = tf.data.Dataset.range(len(dataset))
+            ds = ds.map(
+                map_func=fetch_fn,
+                deterministic=deterministic,
+                num_parallel_calls=tf.data.AUTOTUNE,
+            )
 
         # step 2: map transformation function to preprocess images
         if isinstance(transform, typing.Callable):
@@ -669,13 +727,27 @@ class ImageNet1KDataModule(HuggingFaceImageDataModule):
         transform: typing.Optional[typing.Callable] = None,
         use_cache: bool = False,
         rng: jax.Array = random.PRNGKey(42),
+        data_dir: typing.Optional[str] = None,
     ) -> None:
-        self._hf_dataset = datasets.load_dataset(
-            path="ILSVRC/imagenet-1k",
-            token=os.getenv("HF_TOKEN", None),
-            revision="49e2ee26f3810fb5a7536bbf732a7b07389a47b5",
-            streaming=streaming,
-        )
+        if data_dir is not None:
+            self._hf_dataset = datasets.load_dataset(  # nosec B615
+                "parquet",
+                data_files={
+                    "train": data_dir.rstrip("/") + "/train-*.parquet",
+                    "validation": (
+                        data_dir.rstrip("/") + "/validation-*.parquet"
+                    ),
+                    "test": (data_dir.rstrip("/") + "/test-*.parquet"),
+                },
+                streaming=streaming,
+            )
+        else:
+            self._hf_dataset = datasets.load_dataset(
+                path="ILSVRC/imagenet-1k",
+                token=os.getenv("HF_TOKEN", None),
+                revision=("49e2ee26f3810fb5a7536bbf732a7b07389a47b5"),
+                streaming=streaming,
+            )
         super().__init__(
             batch_size=batch_size,
             deterministic=deterministic,
@@ -699,6 +771,264 @@ class ImageNet1KDataModule(HuggingFaceImageDataModule):
     @property
     def feature_types(self) -> typing.Dict[str, typing.Any]:
         return {"image": np.uint8, "label": np.int32}
+
+
+class AFHQv2DataModule(HuggingFaceImageDataModule):
+    r"""Animal Faces-HQ v2 (cat / dog / wild), :math:`512 \\times 512`.
+
+    Wraps ``huggan/AFHQv2`` with a server-side resize transform to the
+    target resolution (default :math:`256 \\times 256` to match the SD
+    VAE encoder used by ``MeanFlowDiTModel``). The HF dataset only
+    publishes a single ``train`` split (~15k images); we synthesize a
+    test split with a deterministic 95/5 hold-out so the base class's
+    train/test split assumptions are satisfied.
+
+    Yields ``{image: uint8 [H, W, 3], label: int32}`` with classes
+    ``{0: cat, 1: dog, 2: wild}``.
+
+    Args:
+        batch_size (int): The batch size for data loading.
+        image_size (int, optional): Resize edge in pixels.
+            Default is ``256``.
+        deterministic (bool, optional): Whether the dataloaders are
+            deterministic. Defaults to ``True``.
+        drop_remainder (bool, optional): Whether to drop the last
+            incomplete batch. Defaults to ``True``.
+        num_workers (int, optional): Number of shards for distributed
+            loading. Defaults to ``4``.
+        shuffle_buffer_size (int, optional): Buffer size for shuffling.
+            Defaults to ``10_000``.
+        test_fraction (float, optional): Fraction of the single train
+            split to hold out as test. Defaults to ``0.05``.
+        transform (Optional[Callable], optional): Extra per-sample
+            transform. Defaults to ``None``.
+        use_cache (bool, optional): Whether to use cached dataset.
+            Defaults to ``False``.
+        rng (jax.Array, optional): Random key for shuffling.
+            Defaults to ``random.PRNGKey(42)``.
+    """
+
+    def __init__(
+        self,
+        batch_size: int,
+        image_size: int = 256,
+        deterministic: bool = True,
+        drop_remainder: bool = True,
+        num_workers: int = 4,
+        shuffle_buffer_size: int = 10_000,
+        test_fraction: float = 0.05,
+        transform: typing.Optional[typing.Callable] = None,
+        use_cache: bool = False,
+        rng: jax.Array = random.PRNGKey(42),
+    ) -> None:
+        full_train = datasets.load_dataset(
+            path="huggan/AFHQv2",
+            split="train",
+            token=os.getenv("HF_TOKEN", None),
+            revision="f638548a7eccf134045249ed2ac708505bac6e2e",
+        )
+
+        def _resize_to(example):
+            example["image"] = (
+                example["image"]
+                .convert("RGB")
+                .resize((image_size, image_size))
+            )
+            return example
+
+        full_train = full_train.map(_resize_to, desc="resize-AFHQv2")
+        split = full_train.train_test_split(
+            test_size=test_fraction, seed=int(rng[0])
+        )
+        self._hf_dataset = datasets.DatasetDict(
+            {"train": split["train"], "test": split["test"]}
+        )
+        super().__init__(
+            batch_size=batch_size,
+            deterministic=deterministic,
+            drop_remainder=drop_remainder,
+            num_workers=num_workers,
+            shuffle_buffer_size=shuffle_buffer_size,
+            transform=transform,
+            use_cache=use_cache,
+            rng=rng,
+        )
+
+    @property
+    def hf_dataset(self) -> datasets.DatasetDict:
+        r"""datasets.DatasetDict: The HuggingFace dataset object."""
+        return self._hf_dataset
+
+    @property
+    def feature_keys(self) -> typing.List[str]:
+        return ["image", "label"]
+
+    @property
+    def feature_types(self) -> typing.Dict[str, typing.Any]:
+        return {"image": np.uint8, "label": np.int32}
+
+    @property
+    @typing_extensions.override
+    def num_val_examples(self) -> int:
+        r"""int: Number of validation examples."""
+        return len(self.hf_dataset["test"])  # type: ignore
+
+
+class ImageNetLatentDataModule(datamodule.DataModule):
+    r"""ImageNet pre-encoded VAE latents from numpy shards.
+
+    Loads ``(latent_mean, latent_logvar, label)`` from
+    ``.npz`` shard files on GCS or local disk, avoiding
+    the need to run the VAE encoder every training step.
+
+    Each shard is an ``.npz`` with keys ``latent_mean``
+    (float16, ``[N, 32, 32, 4]``), ``latent_logvar``
+    (float16, ``[N, 32, 32, 4]``), and ``label``
+    (int32, ``[N]``).
+
+    Args:
+        data_dir (str): Directory containing ``.npz`` shards.
+        batch_size (int): Global batch size.
+        shuffle_buffer_size (int): Number of samples to buffer
+            for shuffling within each shard.
+        deterministic (bool): Whether to enforce deterministic
+            loading order.
+        drop_remainder (bool): Whether to drop incomplete
+            batches.
+        num_workers (int): Number of parallel map calls.
+    """
+
+    def __init__(
+        self,
+        data_dir: str,
+        batch_size: int,
+        shuffle_buffer_size: int = 10_000,
+        deterministic: bool = True,
+        drop_remainder: bool = True,
+        num_workers: int = 4,
+        rng: typing.Any = None,
+    ) -> None:
+        self._data_dir = data_dir
+        self._batch_size = batch_size
+        self._shuffle_buffer_size = shuffle_buffer_size
+        self._deterministic = deterministic
+        self._drop_remainder = drop_remainder
+        self._num_workers = num_workers
+
+        seed = 42 if rng is None else int(rng[0])
+        self._train_dataset = self._build_dataset("train", shuffle_seed=seed)
+        self._eval_dataset = self._build_dataset("validation")
+
+    def _list_shards(self, split: str) -> typing.List[str]:
+        """List .npz shard paths for the given split."""
+        prefix = os.path.join(self._data_dir, f"{split}-")
+        if prefix.startswith("gs://"):
+            import gcsfs as _gcsfs
+
+            fs = _gcsfs.GCSFileSystem()
+            bucket_path = prefix[len("gs://") :]
+            bucket = bucket_path.split("/")[0]
+            rest = bucket_path[len(bucket) + 1 :]
+            matches = [f"gs://{p}" for p in fs.glob(f"{bucket}/{rest}*.npz")]
+        else:
+            import glob as _glob
+
+            matches = sorted(_glob.glob(prefix + "*.npz"))
+        return sorted(matches)
+
+    def _build_dataset(
+        self,
+        split: str,
+        shuffle_seed: typing.Optional[int] = None,
+    ) -> tf.data.Dataset:
+        """Build a ``tf.data.Dataset`` from numpy shards."""
+        shard_paths = self._list_shards(split)
+
+        def _generator():
+            import io as _io
+
+            for path in shard_paths:
+                if path.startswith("gs://"):
+                    import gcsfs as _gcsfs
+
+                    fs = _gcsfs.GCSFileSystem()
+                    with fs.open(path, "rb") as f:
+                        buf = _io.BytesIO(f.read())
+                    data = np.load(buf)
+                else:
+                    data = np.load(path)
+                mean = data["latent_mean"]
+                logvar = data["latent_logvar"]
+                label = data["label"]
+                for i in range(len(label)):
+                    yield {
+                        "latent_mean": mean[i],
+                        "latent_logvar": logvar[i],
+                        "label": label[i],
+                    }
+
+        ds = tf.data.Dataset.from_generator(
+            _generator,
+            output_signature={
+                "latent_mean": tf.TensorSpec((32, 32, 4), dtype=tf.float16),
+                "latent_logvar": tf.TensorSpec((32, 32, 4), dtype=tf.float16),
+                "label": tf.TensorSpec((), dtype=tf.int32),
+            },
+        )
+        if shuffle_seed is not None:
+            ds = ds.shuffle(
+                buffer_size=self._shuffle_buffer_size,
+                seed=shuffle_seed,
+                reshuffle_each_iteration=True,
+            )
+            ds = ds.repeat()
+        ds = ds.batch(
+            batch_size=self._batch_size,
+            deterministic=self._deterministic,
+            drop_remainder=self._drop_remainder,
+            num_parallel_calls=tf.data.AUTOTUNE,
+        )
+        return ds.prefetch(buffer_size=tf.data.AUTOTUNE)
+
+    @property
+    def batch_size(self) -> int:
+        """int: Global batch size."""
+        return self._batch_size
+
+    @property
+    def deterministic(self) -> bool:
+        """bool: Whether loading is deterministic."""
+        return self._deterministic
+
+    @property
+    def drop_remainder(self) -> bool:
+        """bool: Whether to drop incomplete batches."""
+        return self._drop_remainder
+
+    @property
+    def num_workers(self) -> int:
+        """int: Number of parallel workers."""
+        return self._num_workers
+
+    def train_dataloader(
+        self,
+    ) -> typing.Generator[PyTree, None, None]:
+        """Yields batches of pre-encoded latents."""
+        for data in self._train_dataset.as_numpy_iterator():
+            yield jax.tree_util.tree_map(lambda x: jnp.asarray(x), data)
+
+    def eval_dataloader(
+        self,
+    ) -> typing.Generator[PyTree, None, None]:
+        """Yields batches of pre-encoded latents."""
+        for data in self._eval_dataset.as_numpy_iterator():
+            yield jax.tree_util.tree_map(lambda x: jnp.asarray(x), data)
+
+    def test_dataloader(
+        self,
+    ) -> typing.Generator[PyTree, None, None]:
+        """Yields batches of pre-encoded latents."""
+        return self.eval_dataloader()
 
 
 class MNISTDataModule(HuggingFaceImageDataModule):
@@ -783,5 +1113,6 @@ __all__ = [
     "CIFAR10DataModule",
     "CIFAR100DataModule",
     "ImageNet1KDataModule",
+    "ImageNetLatentDataModule",
     "MNISTDataModule",
 ]

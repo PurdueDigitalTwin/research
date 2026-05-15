@@ -11,6 +11,7 @@ bazel_dep(name = "rules_cc", version = "0.2.9")
 bazel_dep(name = "rules_dotnet", version = "0.19.2")
 bazel_dep(name = "rules_proto", version = "7.1.0")
 bazel_dep(name = "rules_python", version = "1.6.3")
+bazel_dep(name = "rules_shell", version = "0.8.0")
 
 # support for c-sharp development through microsoft dotnet
 register_toolchains("@dotnet_toolchains//:all")

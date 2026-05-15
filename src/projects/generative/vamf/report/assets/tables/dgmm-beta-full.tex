@@ -1,0 +1,26 @@
+\begin{table}[!t]
+    \centering
+    \caption{DGMM $\beta$-sweep: full grid of mean$\pm$SEM SW$_{1}$ at convergence ($200$k steps, three seeds $\{42,0,1\}$). Bolded cell per column marks the empirical $\beta^{\ast}\!=\!\arg\min_{\beta}\mathrm{SW}_{1}(\beta)$ at that dimension. The summary view is in~\Cref{tab: dgmm-beta-summary}.}
+    \label{tab: dgmm-beta-full}
+    \resizebox{\textwidth}{!}{%
+    \begin{tabular}{c|cccccc}
+        \toprule
+        $\beta$ & \multicolumn{6}{c}{$d$} \\
+        \cmidrule(lr){2-7}
+            & $2$ & $4$ & $8$ & $16$ & $32$ & $64$ \\
+        \midrule
+        $0.0$ & $0.152{\scriptstyle\pm0.022}$ & $0.083{\scriptstyle\pm0.011}$ & $0.062{\scriptstyle\pm0.003}$ & $0.044{\scriptstyle\pm0.002}$ & $0.034{\scriptstyle\pm0.001}$ & $0.028{\scriptstyle\pm0.003}$ \\
+        $0.1$ & $0.151{\scriptstyle\pm0.025}$ & $0.083{\scriptstyle\pm0.011}$ & $0.062{\scriptstyle\pm0.003}$ & $0.044{\scriptstyle\pm0.002}$ & $\mathbf{0.034{\scriptstyle\pm0.001}}$ & $0.027{\scriptstyle\pm0.003}$ \\
+        $0.2$ & $0.149{\scriptstyle\pm0.024}$ & $0.083{\scriptstyle\pm0.011}$ & $0.062{\scriptstyle\pm0.003}$ & $0.044{\scriptstyle\pm0.002}$ & $0.037{\scriptstyle\pm0.003}$ & $0.028{\scriptstyle\pm0.003}$ \\
+        $0.3$ & $0.148{\scriptstyle\pm0.022}$ & $0.083{\scriptstyle\pm0.011}$ & $0.062{\scriptstyle\pm0.003}$ & $0.044{\scriptstyle\pm0.002}$ & $0.038{\scriptstyle\pm0.004}$ & $0.028{\scriptstyle\pm0.003}$ \\
+        $0.4$ & $0.149{\scriptstyle\pm0.022}$ & $0.083{\scriptstyle\pm0.011}$ & $0.062{\scriptstyle\pm0.003}$ & $0.044{\scriptstyle\pm0.002}$ & $0.041{\scriptstyle\pm0.007}$ & $\mathbf{0.025{\scriptstyle\pm0.000}}$ \\
+        $0.5$ & $0.150{\scriptstyle\pm0.022}$ & $0.084{\scriptstyle\pm0.011}$ & $0.062{\scriptstyle\pm0.003}$ & $0.044{\scriptstyle\pm0.002}$ & $0.041{\scriptstyle\pm0.007}$ & $0.026{\scriptstyle\pm0.001}$ \\
+        $0.6$ & $0.150{\scriptstyle\pm0.021}$ & $0.083{\scriptstyle\pm0.011}$ & $0.062{\scriptstyle\pm0.003}$ & $0.044{\scriptstyle\pm0.002}$ & $0.035{\scriptstyle\pm0.001}$ & $0.026{\scriptstyle\pm0.001}$ \\
+        $0.7$ & $0.148{\scriptstyle\pm0.020}$ & $0.083{\scriptstyle\pm0.011}$ & $0.062{\scriptstyle\pm0.003}$ & $0.044{\scriptstyle\pm0.002}$ & $0.034{\scriptstyle\pm0.001}$ & $0.026{\scriptstyle\pm0.001}$ \\
+        $0.8$ & $0.148{\scriptstyle\pm0.016}$ & $\mathbf{0.083{\scriptstyle\pm0.011}}$ & $0.062{\scriptstyle\pm0.003}$ & $0.044{\scriptstyle\pm0.002}$ & $0.036{\scriptstyle\pm0.002}$ & $0.027{\scriptstyle\pm0.002}$ \\
+        $0.9$ & $0.148{\scriptstyle\pm0.015}$ & $0.083{\scriptstyle\pm0.011}$ & $0.062{\scriptstyle\pm0.003}$ & $0.044{\scriptstyle\pm0.002}$ & $0.037{\scriptstyle\pm0.003}$ & $0.027{\scriptstyle\pm0.001}$ \\
+        $1.0$ & $\mathbf{0.146{\scriptstyle\pm0.015}}$ & $0.083{\scriptstyle\pm0.011}$ & $\mathbf{0.062{\scriptstyle\pm0.003}}$ & $\mathbf{0.044{\scriptstyle\pm0.003}}$ & $0.036{\scriptstyle\pm0.002}$ & $0.028{\scriptstyle\pm0.001}$ \\
+        \bottomrule
+    \end{tabular}%
+    }
+\end{table}

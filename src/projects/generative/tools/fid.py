@@ -1,4 +1,5 @@
 import functools
+import io
 import os
 import typing
 
@@ -14,6 +15,7 @@ from numpy import typing as npt
 import numpy as np
 from PIL import Image
 from scipy import linalg as splin
+import tensorflow as tf
 from tqdm import auto as tqdm
 from tqdm.contrib import logging as tqdm_logging
 
@@ -112,13 +114,20 @@ class FrechetInceptionDistance:
 
     Args:
         dataset (datasets.Dataset): The reference dataset used to compute
-            the reference statistics.
+            the reference statistics. Ignored when ``ref_cache_path``
+            points to an existing ``.npz`` file.
         image_key (str, optional): The column name in the dataset that
             contains the images. Default is `"image"`.
         batch_size (int, optional): The batch size for processing images.
             Default is `32`.
         mode (str, optional): The mode of image processing to use. Either
             `"tensorflow"` or `"clean"`. Default is `"tensorflow"`.
+        ref_cache_path (str, optional): Path to a ``.npz`` file for
+            caching reference statistics (mu, cov).  Supports local
+            paths and ``gs://`` URIs.  If the file exists, statistics
+            are loaded directly and the dataset is never opened.  If
+            the file does not exist, statistics are computed from
+            ``dataset`` and then saved to this path.
     """
 
     _mode: str
@@ -127,10 +136,16 @@ class FrechetInceptionDistance:
 
     def __init__(
         self,
-        dataset: datasets.Dataset,
+        dataset: typing.Union[
+            datasets.Dataset,
+            datasets.IterableDataset,
+            typing.Callable,
+            None,
+        ] = None,
         image_key: str = "image",
         batch_size: int = 32,
         mode: str = "tensorflow",
+        ref_cache_path: typing.Optional[str] = None,
     ) -> None:
         self._batch_size = batch_size
 
@@ -165,56 +180,139 @@ class FrechetInceptionDistance:
             functools.partial(self.extract_features, model=self._model),
         )
 
-        # compute reference statistics
+        # load or compute reference statistics
+        cached = self._try_load_cache(ref_cache_path)
+        if cached is not None:
+            self._ref_mu, self._ref_cov = cached
+        else:
+            if callable(dataset) and not isinstance(
+                dataset, (datasets.Dataset, datasets.IterableDataset)
+            ):
+                dataset = dataset()
+            if dataset is None:
+                raise ValueError(
+                    "No cached reference statistics found at "
+                    f"'{ref_cache_path}' and no dataset provided."
+                )
+            self._ref_mu, self._ref_cov = self._compute_ref_stats(
+                dataset, image_key
+            )
+            if ref_cache_path is not None:
+                logging.rank_zero_info(
+                    "Saving FID reference statistics to %s",
+                    ref_cache_path,
+                )
+                buf = io.BytesIO()
+                np.savez(buf, mu=self._ref_mu, cov=self._ref_cov)
+                buf.seek(0)
+                with tf.io.gfile.GFile(ref_cache_path, "wb") as fh:
+                    fh.write(buf.read())
+
+    @staticmethod
+    def _try_load_cache(
+        path: typing.Optional[str],
+    ) -> typing.Optional[
+        typing.Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]
+    ]:
+        """Load cached reference statistics from *path*.
+
+        Returns ``(mu, cov)`` if the cache exists, ``None`` otherwise.
+        """
+        if path is None:
+            return None
+        try:
+            with tf.io.gfile.GFile(path, "rb") as fh:
+                data = np.load(fh)
+                mu = data["mu"].astype(np.float64)
+                cov = data["cov"].astype(np.float64)
+            logging.rank_zero_info(
+                "Loaded cached FID reference statistics from %s", path
+            )
+            return mu, cov
+        except tf.errors.NotFoundError:
+            return None
+
+    def _compute_ref_stats(
+        self,
+        dataset: typing.Union[datasets.Dataset, datasets.IterableDataset],
+        image_key: str,
+    ) -> typing.Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+        """Compute reference statistics by streaming through the dataset.
+
+        Processes images in batches and accumulates feature
+        statistics online, avoiding loading the full dataset
+        into memory.
+
+        Returns:
+            Tuple of ``(mu, cov)`` arrays.
+        """
+        feat_dim = 2048
+        n = 0
+        sum_f = np.zeros(feat_dim, dtype=np.float64)
+        sum_ff = np.zeros((feat_dim, feat_dim), dtype=np.float64)
+        batch_buf: typing.List[npt.NDArray[np.uint8]] = []
+
+        try:
+            total = len(dataset)
+        except TypeError:
+            total = None
+
         with tqdm_logging.logging_redirect_tqdm():
             if jax.process_index() == 0:
                 pbar = tqdm.tqdm(
-                    total=len(dataset),
-                    desc="Processing reference images...",
+                    total=total,
+                    desc="Computing reference statistics...",
                     unit="images",
                 )
             else:
                 pbar = None
 
-            ref_images = []
             for item in dataset:
                 assert isinstance(item, typing.Dict)
                 image = item.get(image_key, None)
                 if image is None:
-                    raise ValueError(f"'{image_key}' not in data sample.")
-                image = self.process(np.array(image))
-                ref_images.append(image)
+                    raise ValueError(f"'{image_key}' not in dataset.")
+                if hasattr(image, "convert"):
+                    image = image.convert("RGB")
+                image = np.array(image)
+                if image.ndim == 2:
+                    image = np.stack([image] * 3, axis=-1)
+                batch_buf.append(self.process(image))
                 if pbar is not None:
                     pbar.update(1)
+
+                if len(batch_buf) >= self._batch_size:
+                    feats = np.asarray(
+                        self._compute_feat(
+                            jnp.array(batch_buf),
+                            params=self._variables["params"],
+                            batch_stats=self._variables["batch_stats"],
+                        )
+                    ).astype(np.float64)
+                    n += feats.shape[0]
+                    sum_f += feats.sum(axis=0)
+                    sum_ff += feats.T @ feats
+                    batch_buf = []
+
+            # flush remaining images
+            if batch_buf:
+                feats = np.asarray(
+                    self._compute_feat(
+                        jnp.array(batch_buf),
+                        params=self._variables["params"],
+                        batch_stats=self._variables["batch_stats"],
+                    )
+                ).astype(np.float64)
+                n += feats.shape[0]
+                sum_f += feats.sum(axis=0)
+                sum_ff += feats.T @ feats
+
             if pbar is not None:
                 pbar.close()
 
-            ref_features = []
-            if jax.process_index() == 0:
-                pbar = tqdm.tqdm(
-                    total=len(range(0, len(ref_images), self._batch_size)),
-                    desc="Extracting reference features...",
-                    unit="batches",
-                )
-            else:
-                pbar = None
-
-            for i in range(0, len(ref_images), self._batch_size):
-                batch_images = jnp.array(ref_images[i : i + self._batch_size])
-                feats = self._compute_feat(
-                    batch_images,
-                    params=self._variables["params"],
-                    batch_stats=self._variables["batch_stats"],
-                )
-                ref_features.append(feats)
-                if pbar is not None:
-                    pbar.update(1)
-            if pbar is not None:
-                pbar.close()
-
-        ref_feats = np.concatenate(ref_features, axis=0).astype(np.float64)
-        self._ref_mu = np.mean(ref_feats, axis=0)
-        self._ref_cov = np.cov(ref_feats, rowvar=False)
+        mu = sum_f / n
+        cov = (sum_ff - n * np.outer(mu, mu)) / (n - 1)
+        return mu, cov
 
     def __call__(self, images: npt.NDArray[np.uint8]) -> npt.NDArray:
         r"""Computes the FID score between the given images and the reference.

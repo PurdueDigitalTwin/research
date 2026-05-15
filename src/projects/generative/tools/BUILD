@@ -1,4 +1,4 @@
-load("//third_party:defs.bzl", "ml_py_library", "ml_py_test")
+load("//third_party:defs.bzl", "ml_py_binary", "ml_py_library", "ml_py_test")
 
 package(default_visibility = ["//src/projects/generative:__subpackages__"])
 
@@ -27,5 +27,37 @@ ml_py_test(
     deps = [
         "numpy",
         ":fid",
+    ],
+)
+
+ml_py_binary(
+    name = "precompute_fid_stats",
+    srcs = ["precompute_fid_stats.py"],
+    deps = [
+        "Pillow",
+        "absl-py",
+        "flax",
+        "huggingface_hub",
+        "jax",
+        "numpy",
+        "pyarrow",
+        "tensorflow-cpu",
+        "tqdm",
+        "//src/core:distributed",
+        "//src/projects/generative/model:inception",
+    ],
+)
+
+ml_py_binary(
+    name = "encode_latents",
+    srcs = ["encode_latents.py"],
+    deps = [
+        "absl-py",
+        "jax",
+        "numpy",
+        "tensorflow-cpu",
+        "//src/data:huggingface",
+        "//src/data:preprocess",
+        "//src/projects/generative/model:vae",
     ],
 )

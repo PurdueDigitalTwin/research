@@ -1,0 +1,19 @@
+\begin{algorithm}[t]
+    \caption{Training the $\beta\!=\!1$ instantiation with EMA tangent and FM anchor loss}
+    \label{alg: va-mf}
+    \begin{algorithmic}
+        \Require Dataset $\gD$, EMA decay $\mu$, anchor weight $\lambda$, anchor interval $[\delta_{\min},\delta_{\max}]$, learning rate $\eta$
+        \State Initialize $\bar{\vtheta}\gets\vtheta$
+        \For{$k=1,2,\ldots$}
+            \State Sample $(\vx_{0},\vx_{1})\sim\gD\times\gN(\bm{0},\mI_{d})$,\; $t\sim\gU[0,1]$,\; $r\sim\gU[0,t]$,\; $\delta\sim\gU[\delta_{\min},\delta_{\max}]$
+            \State $\vx_{t}\gets(1-t)\vx_{0}+t\,\vx_{1}$,\quad $\vv_{\text{cond}}\gets\vx_{1}-\vx_{0}$
+            \State $\vv_{\text{tang}}\gets\texttt{sg}\!\left[\vu_{\bar{\vtheta}}(\vx_{t},t,t)\right]$ \Comment{EMA tangent (one extra forward pass)}
+            \State $V_{\vtheta}\gets\vu_{\vtheta}(\vx_{t},r,t)+(t{-}r)\,\texttt{sg}\!\left[\texttt{JVP}(\vu_{\vtheta},(\vx_{t},r,t),(\vv_{\text{tang}},0,1))\right]$
+            \State $\ell_{\text{MF}}\gets\|V_{\vtheta}-\vv_{\text{cond}}\|_{2}^{2}$
+            \State $\ell_{\text{FM}}\gets\|\vu_{\vtheta}(\vx_{t},t{-}\delta,t)-\vv_{\text{cond}}\|_{2}^{2}$ \Comment{FM anchor (one extra forward pass)}
+            \State $\vtheta\gets\vtheta-\eta\,\nabla_{\vtheta}\!\left(\ell_{\text{MF}}+\lambda\,\ell_{\text{FM}}\right)$
+            \State $\bar{\vtheta}\gets\mu\bar{\vtheta}+(1-\mu)\vtheta$ \Comment{EMA update}
+        \EndFor
+        \State \Return $\vtheta$ \Comment{Generate: $\hat{\vx}_{0}=\vx_{1}-\vu_{\vtheta}(\vx_{1},0,1)$}
+    \end{algorithmic}
+\end{algorithm}

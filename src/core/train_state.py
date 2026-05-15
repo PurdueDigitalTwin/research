@@ -18,6 +18,8 @@ class TrainState(struct.PyTreeNode):
         opt_state (OptState): The state of the `optax` optimizer.
         ema_params (Dict): Exponential moving average of the parameters.
         ema_rate (float, optional): Decay rate for exponential moving average.
+        ema_update_period (int, optional): Update EMA every N steps.
+            When set to 1, EMA is updated every step (default behavior).
     """
 
     step: int
@@ -27,6 +29,7 @@ class TrainState(struct.PyTreeNode):
     opt_state: optax.OptState = struct.field(pytree_node=True)
     ema_params: typing.Dict = struct.field(pytree_node=True)
     ema_rate: float = 0.999
+    ema_update_period: int = 1
 
     def apply_gradients(
         self,
@@ -49,8 +52,16 @@ class TrainState(struct.PyTreeNode):
             params=self.params,
         )
         new_params = optax.apply_updates(params=self.params, updates=updates)
+
+        # Update EMA only every `ema_update_period` steps.
+        should_update_ema = (self.step + 1) % self.ema_update_period == 0
+        ema_decay = self.ema_rate**self.ema_update_period
         new_ema_params = jax.tree_util.tree_map(
-            lambda x, y: x + (1.0 - self.ema_rate) * (y - x),
+            lambda ema, p: jax.lax.cond(
+                should_update_ema,
+                lambda: ema + (1.0 - ema_decay) * (p - ema),
+                lambda: ema,
+            ),
             self.ema_params,
             new_params,
         )
@@ -70,6 +81,7 @@ class TrainState(struct.PyTreeNode):
         params: jaxtyping.PyTree,
         tx: optax.GradientTransformation,
         ema_rate: float = 0.999,
+        ema_update_period: int = 1,
         mutables: typing.Optional[jaxtyping.PyTree] = None,
         **kwargs,
     ) -> "TrainState":
@@ -80,6 +92,8 @@ class TrainState(struct.PyTreeNode):
             tx (GradientTransformation): The `optax` optimizer.
             ema_rate (float, optional): Decay rate for exponential moving
                 average of the model parameters. Default is :math:`0.999`.
+            ema_update_period (int, optional): Update EMA every N steps.
+                Default is ``1`` (every step).
             mutables (Optional[PyTree], optional): Additional mutable variables
                 other than network parameters. Default is ``None``.
 
@@ -94,6 +108,7 @@ class TrainState(struct.PyTreeNode):
             opt_state=opt_state,
             ema_params=copy.deepcopy(params),
             ema_rate=ema_rate,
+            ema_update_period=ema_update_period,
             mutables=mutables,
             **kwargs,
         )

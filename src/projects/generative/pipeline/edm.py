@@ -766,7 +766,7 @@ class EDMAugmentor(nn.Module):
                 height - 1 - (height - 1 - (y + ty) % (height * 2 - 2))
             )
             images = images.flatten()
-            images = images[(((b * channels) + c) * height + y) * width + x]
+            images = images[((b * height + y) * width + x) * channels + c]
             labels += [
                 jnp.divide(tx, (width * self.translate_int_max)),
                 jnp.divide(ty, (height * self.translate_int_max)),

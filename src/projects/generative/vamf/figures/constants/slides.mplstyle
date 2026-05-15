@@ -1,0 +1,99 @@
+# Talk / slide-deck style: dark background, sans-serif, larger sizing, vibrant
+# palette. Mirrors paper.mplstyle so the same figure code can render either
+# variant just by switching style.use(...).
+#
+# Usage (in a plotting script):
+#   from matplotlib import pyplot as plt
+#   plt.style.use(
+#       "src/projects/generative/vamf/figures/constants/slides.mplstyle"
+#   )
+
+# --- Typography ---------------------------------------------------------------
+font.family       : sans-serif
+font.sans-serif   : Open Sans, Helvetica, DejaVu Sans, Arial, sans-serif
+font.size         : 11
+text.color        : ffffff
+text.usetex       : False
+mathtext.fontset  : dejavusans
+pdf.fonttype      : 42
+ps.fonttype       : 42
+
+# --- Figure -------------------------------------------------------------------
+figure.facecolor  : 000000
+figure.edgecolor  : 000000
+figure.dpi        : 120
+figure.constrained_layout.use : False
+figure.autolayout : False
+
+# --- Axes ---------------------------------------------------------------------
+axes.facecolor    : 000000
+axes.edgecolor    : ffffff
+axes.labelcolor   : ffffff
+axes.titlecolor   : ffffff
+axes.linewidth    : 0.9
+axes.titlesize    : 12
+axes.titleweight  : bold
+axes.titlepad     : 5
+axes.labelsize    : 11
+axes.labelpad     : 3
+axes.spines.top   : False
+axes.spines.right : False
+axes.axisbelow    : True
+# Vibrant palette tuned for black backgrounds (high saturation + brightness).
+axes.prop_cycle   : cycler('color', ['4cc9f0', 'f72585', '7ed957', 'ffb627', 'b388eb', '00f5d4', 'ff8e3c', 'eaeaea'])
+
+# --- Grid ---------------------------------------------------------------------
+axes.grid         : True
+grid.color        : 333333
+grid.linestyle    : -
+grid.linewidth    : 0.5
+grid.alpha        : 0.7
+
+# --- Ticks --------------------------------------------------------------------
+xtick.color       : ffffff
+xtick.labelcolor  : ffffff
+xtick.labelsize   : 9.5
+xtick.direction   : out
+xtick.major.size  : 3
+xtick.major.width : 0.9
+xtick.minor.size  : 1.8
+xtick.minor.width : 0.6
+
+ytick.color       : ffffff
+ytick.labelcolor  : ffffff
+ytick.labelsize   : 9.5
+ytick.direction   : out
+ytick.major.size  : 3
+ytick.major.width : 0.9
+ytick.minor.size  : 1.8
+ytick.minor.width : 0.6
+
+# --- Lines, markers, patches --------------------------------------------------
+lines.linewidth       : 1.6
+lines.markersize      : 5
+lines.markeredgewidth : 0.6
+patch.linewidth       : 0.7
+patch.edgecolor       : ffffff
+
+# --- Legend -------------------------------------------------------------------
+legend.fontsize      : 9.5
+legend.frameon       : True
+legend.framealpha    : 0.85
+legend.fancybox      : False
+legend.facecolor     : 0d1117
+legend.edgecolor     : 444444
+legend.labelcolor    : ffffff
+legend.borderpad     : 0.5
+legend.handlelength  : 1.6
+legend.handletextpad : 0.5
+legend.columnspacing : 1.0
+legend.labelspacing  : 0.35
+
+# --- Saved output -------------------------------------------------------------
+savefig.dpi         : 200
+savefig.format      : pdf
+savefig.bbox        : tight
+savefig.pad_inches  : 0.05
+savefig.facecolor   : 000000
+savefig.edgecolor   : 000000
+savefig.transparent : False

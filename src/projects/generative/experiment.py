@@ -5,6 +5,7 @@ import platform
 import traceback
 import typing
 
+from etils import epath
 import fiddle as fdl
 from flax import jax_utils
 import jax
@@ -38,6 +39,26 @@ tf.config.experimental.set_visible_devices([], "TPU")
 
 # ==============================================================================
 # Helper Functions
+class _LazyFIDMetric:
+    r"""Defers FID metric initialization to first ``__call__``."""
+
+    def __init__(self, metric_config: fdl.Config) -> None:
+        self._config = metric_config
+        self._metric: typing.Optional[fid.FrechetInceptionDistance] = None
+
+    def __call__(self, **kwargs):
+        if self._metric is None:
+            logging.rank_zero_info("Lazily initializing FID metric...")
+            self._metric = fdl.build(self._config)
+            if not isinstance(self._metric, fid.FrechetInceptionDistance):
+                raise TypeError(
+                    "Expected FrechetInceptionDistance, "
+                    f"got {type(self._metric)}"
+                )
+            logging.rank_zero_info("FID metric initialized.")
+        return self._metric(**kwargs)
+
+
 def _log_step_outputs(
     outputs: _model.StepOutputs,
     prefix: str,
@@ -47,7 +68,10 @@ def _log_step_outputs(
     """Log a StepOutputs object to W&B under ``{prefix}/{key}{suffix}``."""
     if outputs.scalars is not None:
         wandb.log(
-            {f"{prefix}/{k}{suffix}": v for k, v in outputs.scalars.items()},
+            {
+                f"{prefix}/{k}{suffix}": float(jax.device_get(v).mean())
+                for k, v in outputs.scalars.items()
+            },
             step=step,
         )
     if outputs.images is not None:
@@ -61,7 +85,9 @@ def _log_step_outputs(
     if outputs.histograms is not None:
         wandb.log(
             {
-                f"{prefix}/{k}": wandb.Histogram(list(v))
+                f"{prefix}/{k}": wandb.Histogram(
+                    np.asarray(jax.device_get(v)).ravel().tolist()
+                )
                 for k, v in outputs.histograms.items()
             },
             step=step,
@@ -73,7 +99,9 @@ def evaluate(
     rngs: jax.Array,
     model: _model.Model,
     batch: typing.Dict[str, typing.Any],
-    fid_metric: fid.FrechetInceptionDistance,
+    fid_metric: typing.Optional[
+        typing.Union[fid.FrechetInceptionDistance, _LazyFIDMetric]
+    ],
     **kwargs,
 ) -> _model.StepOutputs:
     r"""Conduct a single evaluation step and compute metrics.
@@ -89,18 +117,35 @@ def evaluate(
         The evaluation outputs including metrics and generated images.
     """
 
+    # Number of classes for random label sampling during FID
+    # generation.  Falls back to reusing batch labels when the
+    # model does not expose num_classes (e.g. unconditional).
+    _num_classes = getattr(model, "num_classes", None)
+
     def _generate(
         params: PyTree,
         shape: typing.Sequence[typing.Union[int, typing.Any]],
         step_rngs: jax.Array,
     ) -> jax.Array:
         local_rng = jax.random.fold_in(step_rngs, jax.lax.axis_index("batch"))
+        gen_rng, label_rng = jax.random.split(local_rng)
+        # Sample random class labels so FID images span all
+        # classes, not just the few in the evaluation batch.
+        gen_batch = batch
+        if "label" in batch and _num_classes is not None:
+            gen_batch = {**batch}
+            gen_batch["label"] = jax.random.randint(
+                label_rng,
+                shape=(shape[0],),
+                minval=0,
+                maxval=_num_classes,
+            )
         outputs = model.forward(
-            rngs=local_rng,
+            rngs=gen_rng,
             params=params,
             shape=shape,
             deterministic=True,
-            batch=batch,
+            batch=gen_batch,
             **kwargs,
         )
         assert isinstance(outputs, _model.StepOutputs)
@@ -110,7 +155,16 @@ def evaluate(
 
         return img
 
-    shape = batch["image"].shape
+    # Use a small per-device batch for generation to avoid OOM
+    # during VAE decoding at high resolutions (e.g. 256x256).
+    if "image" in batch:
+        ref = batch["image"]
+    elif "latent_mean" in batch:
+        ref = batch["latent_mean"]
+    else:
+        raise ValueError("Batch must contain 'image' or 'latent_mean'")
+    gen_batch = min(ref.shape[0], 4)
+    shape = (gen_batch,) + ref.shape[1:]
     p_generate = functools.partial(_generate, shape=shape)
     p_generate = jax.pmap(p_generate, axis_name="batch")
     with tqdm_logging.logging_redirect_tqdm():
@@ -130,7 +184,8 @@ def evaluate(
             out = p_generate(params=params, step_rngs=step_rng)
             out = jnp.reshape(out, (-1,) + out.shape[-3:])
             _slice = min(50_000 - count, out.shape[0])
-            images.append(out[:_slice])
+            # Move to host immediately to free TPU HBM for FID
+            images.append(np.asarray(out[:_slice]))
             count += _slice
             if pbar is not None:
                 pbar.update(_slice)
@@ -138,15 +193,15 @@ def evaluate(
         pbar.close()
 
     outputs = _model.StepOutputs()
-    images = jnp.concatenate(images, axis=0)
+    images = np.concatenate(images, axis=0)
 
-    if jax.process_index() == 0:
+    if jax.process_index() == 0 and fid_metric is not None:
         # NOTE: only compute FID metric on process 0
-        fid_score = fid_metric(images=jax.device_get(images[0:50_000]))
+        fid_score = fid_metric(images=images[0:50_000])
         outputs.scalars = {"fid": fid_score}
 
     img_grid = visualization.make_grid(
-        images[0:32],
+        jnp.array(images[0:32]),
         n_rows=4,
         n_cols=8,
         padding=2,
@@ -172,13 +227,14 @@ def train_and_evaluate(
     if not tf.io.gfile.exists(log_dir):
         tf.io.gfile.makedirs(log_dir)
     checkpoint_dir = exp_config.trainer.checkpoint_dir
+    _resume_wandb = checkpoint_dir is not None and exp_config.mode == "train"
     logging.init_wandb(
         config=dataclasses.asdict(exp_config),
         project_name=str(exp_config.project_name),
         experiment_name=str(exp_config.exp_name),
         work_dir=log_dir,
-        resume=checkpoint_dir is not None,
-        checkpoint_dir=checkpoint_dir,
+        resume=_resume_wandb,
+        checkpoint_dir=checkpoint_dir if _resume_wandb else None,
     )
 
     # Log the current platform
@@ -258,6 +314,9 @@ def train_and_evaluate(
         params=params,
         tx=tx,
         ema_rate=exp_config.optimizer.ema_rate,
+        ema_update_period=getattr(
+            exp_config.optimizer, "ema_update_period", 1
+        ),
     )
     jax.block_until_ready(state)
     logging.rank_zero_info("Building train state... DONE!")
@@ -273,29 +332,72 @@ def train_and_evaluate(
             create=True,
             enable_async_checkpointing=False,
             cleanup_tmp_directories=True,
+            best_fn=lambda metric: metric["fid"],
+            best_mode="min",
+            multiprocessing_options=ocp.options.MultiprocessingOptions(),
         ),
     )
     if exp_config.trainer.checkpoint_every_n_steps is not None:
         checkpoint_every_n_steps = exp_config.trainer.checkpoint_every_n_steps
     else:
         checkpoint_every_n_steps = exp_config.trainer.eval_every_n_steps
-    if exp_config.trainer.checkpoint_dir is not None:
-        # TODO (juanwu): support loading from custom checkpoint dir
-        logging.rank_zero_error("Resuming from checkpoint not implemented.")
-        return 1
-
-    fid_metric = fdl.build(exp_config.metric)
-    if not isinstance(fid_metric, fid.FrechetInceptionDistance):
-        logging.rank_zero_error(
-            (
-                "Expect metric to be of an `FrechetInceptionDistance` "
-                "instance, but got %s."
-            ),
-            type(fid_metric),
-        )
-        return 1
+    if jax.process_index() == 0 and exp_config.metric is not None:
+        fid_metric = _LazyFIDMetric(exp_config.metric)
+    else:
+        fid_metric = None
 
     if exp_config.mode == "train":
+        if exp_config.trainer.checkpoint_dir is not None:
+            ckpt_path = exp_config.trainer.checkpoint_dir.rstrip("/")
+            logging.rank_zero_info("Resuming from checkpoint: %s", ckpt_path)
+            # NOTE: universal sharding for single-device load (pre-replication)
+            # This is useful to unify the checkpoint loading procedure since we
+            # are dealing with not only parallel TPU clusters but also single
+            # devices cases on our workstations as well as on Gilbreth
+            sharding = jax.sharding.SingleDeviceSharding(
+                jax.local_devices()[0]
+            )
+
+            # Restore EMA params (saved as `params/` by the trainer).
+            params_dir = epath.Path(ckpt_path) / "params"
+            params_restore_args = jax.tree_util.tree_map(
+                lambda _: ocp.ArrayRestoreArgs(sharding=sharding),
+                params,
+            )
+            params_handler = ocp.PyTreeCheckpointHandler()
+            ema_params_loaded = params_handler.restore(
+                directory=params_dir,
+                item=params,
+                transforms=None,
+                restore_args=params_restore_args,
+            )
+
+            # Restore the rest of the train state (saved with
+            # `ema_params={}` placeholder).
+            state_template = dataclasses.replace(state, ema_params={})
+            state_dir = epath.Path(ckpt_path) / "state"
+            state_restore_args = jax.tree_util.tree_map(
+                lambda _: ocp.ArrayRestoreArgs(sharding=sharding),
+                state_template,
+            )
+            state_handler = ocp.PyTreeCheckpointHandler()
+            state_restored = state_handler.restore(
+                directory=state_dir,
+                item=state_template,
+                transforms=None,
+                restore_args=state_restore_args,
+            )
+            # Re-attach EMA params to the restored state.
+            state = dataclasses.replace(
+                state_restored, ema_params=ema_params_loaded
+            )
+            params = state.params
+            jax.block_until_ready(state)
+            logging.rank_zero_info(
+                "Resumed train state at step %d (target %d).",
+                int(state.step),
+                exp_config.trainer.num_train_steps,
+            )
         logging.rank_zero_info("Compiling training step functions...")
         rng, train_key, eval_key = jax.random.split(rng, num=3)
         p_train_step = functools.partial(model.training_step, rngs=train_key)
@@ -326,25 +428,6 @@ def train_and_evaluate(
             while step < exp_config.trainer.num_train_steps:
                 train_metrics = collections.defaultdict(list)
                 for train_batch in datamodule.train_dataloader():
-                    if (
-                        step % exp_config.trainer.eval_every_n_steps == 0
-                        or step == exp_config.trainer.num_train_steps
-                    ):
-                        logging.rank_zero_info("Running evaluation...")
-                        outputs = evaluation_fn(params=state.ema_params)
-                        logging.rank_zero_info("Evaluation done.")
-                        _log_step_outputs(
-                            outputs=outputs,
-                            prefix="eval",
-                            step=step,
-                        )
-                        if outputs.scalars is not None and pbar is not None:
-                            scalar_str = ", ".join(
-                                f"{k}={jax.device_get(v).mean():.4f}"
-                                for k, v in outputs.scalars.items()
-                            )
-                            pbar.write(f"[eval end]: {scalar_str}")
-
                     train_batch = training.shard(train_batch)
                     with jax.profiler.StepTraceAnnotation(
                         name="train",
@@ -371,13 +454,32 @@ def train_and_evaluate(
                             suffix="_step",
                         )
 
+                    if step > 0 and (
+                        step % exp_config.trainer.eval_every_n_steps == 0
+                        or step == exp_config.trainer.num_train_steps
+                    ):
+                        logging.rank_zero_info("Running evaluation...")
+                        outputs = evaluation_fn(params=state.ema_params)
+                        logging.rank_zero_info("Evaluation done.")
+                        _log_step_outputs(
+                            outputs=outputs,
+                            prefix="eval",
+                            step=step,
+                        )
+                        if outputs.scalars is not None and pbar is not None:
+                            scalar_str = ", ".join(
+                                f"{k}={jax.device_get(v).mean():.4f}"
+                                for k, v in outputs.scalars.items()
+                            )
+                            pbar.write(f"[eval end]: {scalar_str}")
+
                     # update step and progress bar
                     step += 1
                     if pbar is not None:
                         pbar.update(1)
 
                     # checkpointing
-                    if (
+                    if step > 0 and (
                         step % checkpoint_every_n_steps == 0
                         or step >= exp_config.trainer.num_train_steps
                     ):
@@ -449,8 +551,72 @@ def train_and_evaluate(
             )
 
     elif exp_config.mode == "evaluate":
-        logging.rank_zero_error("Evaluation mode not implemented.")
-        _status = 1
+        # Evaluate mode: load checkpoint and compute FID.
+        ckpt_dir = exp_config.trainer.checkpoint_dir
+        if ckpt_dir is None:
+            ckpt_dir = tf.io.gfile.join(log_dir, "checkpoints")
+
+        eval_ckpt_mgr = ocp.CheckpointManager(
+            directory=ckpt_dir,
+            item_handlers={
+                "params": ocp.PyTreeCheckpointHandler(),
+            },
+            options=ocp.CheckpointManagerOptions(
+                create=False,
+                enable_async_checkpointing=False,
+                multiprocessing_options=(ocp.options.MultiprocessingOptions()),
+            ),
+        )
+
+        all_steps = sorted(eval_ckpt_mgr.all_steps())
+        if not all_steps:
+            logging.rank_zero_error("No checkpoints found in %s", ckpt_dir)
+            _status = 1
+        else:
+            eval_step = all_steps[-1]
+            logging.rank_zero_info(
+                "Found %d checkpoints. Evaluating step %d.",
+                len(all_steps),
+                eval_step,
+            )
+
+            abstract_params = jax.tree_util.tree_map(
+                lambda x: jax.ShapeDtypeStruct(x.shape, x.dtype),
+                params,
+            )
+            restored = eval_ckpt_mgr.restore(
+                eval_step,
+                items={"params": abstract_params},
+            )
+            # Orbax restores globally-sharded arrays; convert
+            # to host-local numpy before pmap-replicating.
+            local_params = jax.tree_util.tree_map(
+                lambda x: np.asarray(x.addressable_data(0)),
+                restored["params"],
+            )
+            ema_params = jax_utils.replicate(local_params)
+
+            rng, eval_key = jax.random.split(rng)
+            eval_batch = next(datamodule.eval_dataloader())
+            evaluation_fn = functools.partial(
+                evaluate,
+                model=model,
+                rngs=eval_key,
+                batch=eval_batch,
+                fid_metric=fid_metric,
+            )
+
+            logging.rank_zero_info("Running FID evaluation...")
+            outputs = evaluation_fn(params=ema_params)
+            _log_step_outputs(outputs=outputs, prefix="eval", step=eval_step)
+            if outputs.scalars is not None:
+                for k, v in outputs.scalars.items():
+                    logging.rank_zero_info(
+                        "eval/%s = %.4f",
+                        k,
+                        jax.device_get(v).mean(),
+                    )
+            logging.rank_zero_info("Evaluation complete.")
     else:
         logging.rank_zero_error("Mode %s not implemented.", exp_config.mode)
         _status = 1

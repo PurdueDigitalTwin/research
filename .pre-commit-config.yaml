@@ -142,7 +142,7 @@ repos:
     hooks:
       - id: codespell
         args:
-          - --skip=logs/**,data/**,*.ipynb
+          - --skip=logs/**,data/**,*.ipynb,*.sty,*.tex,*latexmkrc
           # - --ignore-words-list=abc,def
 
           # jupyter notebook cell output clearing
