@@ -18,6 +18,7 @@ import typing
 
 from absl import logging
 import cv2
+from numpy import typing as npt
 import numpy as np
 
 from src.projects.jtrp.rci import serialization
@@ -26,11 +27,12 @@ from src.projects.jtrp.rci import structure
 
 # --- Marker detection ---------------------------------------------------------
 def detect_marked_gcps(
-    image: np.ndarray,
+    image: cv2.typing.MatLike,
     white_threshold: int = 235,
     min_area_px: int = 50,
     max_area_px: int = 20_000,
     max_markers: int = 8,
+    y_bins: int = 50,
 ) -> typing.List[typing.Tuple[str, float, float, float]]:
     r"""Extracts candidate GCP pixel coordinates from a marked photo.
 
@@ -40,15 +42,18 @@ def detect_marked_gcps(
     deterministic top-to-bottom / left-to-right order.
 
     Args:
-        image (NDArray): BGR image (``cv2.imread`` result).
-        white_threshold (int): Per-channel intensity threshold for the
-            "near-white" mask. Default ``235``.
-        min_area_px (int): Minimum contour area in ``\text{px}^2``.
-            Default ``50``.
-        max_area_px (int): Maximum contour area in ``\text{px}^2``.
-            Reject the watermark / image borders by area cap. Default
-            ``20\,000``.
-        max_markers (int): Maximum candidates to return. Default ``8``.
+        image (cv2.typing.MatLike): BGR image (``cv2.imread`` result).
+        white_threshold (int, optional): Per-channel intensity threshold for the
+            "near-white" mask. Default is ``235``.
+        min_area_px (int, optional): Minimum contour area in ``\text{px}^2``.
+            Default is ``50``.
+        max_area_px (int, optional): Maximum contour area in ``\text{px}^2``.
+            Reject the watermark / image borders by area cap.
+            Default is ``20000``.
+        max_markers (int, optional): Maximum candidates to return.
+            Default is ``8``.
+        y_bins (int, optional): Number of vertical bins to use for coarse
+            top-to-bottom sorting. Default is ``50``.
 
     Returns:
         A list of ``(label, u, v, area_px)`` tuples where ``label`` is a
@@ -80,10 +85,10 @@ def detect_marked_gcps(
         raw.append((area, float(cx), float(cy)))
 
     # Keep the largest by area first.
-    raw.sort(key=lambda t: -t[0])
+    raw.sort(key=lambda t: int(-t[0]))
     raw = raw[:max_markers]
     # Then re-order by reading order.
-    raw.sort(key=lambda t: (round(t[2] / 50), t[1]))
+    raw.sort(key=lambda t: (int(round(t[2] / y_bins)), int(t[1])))
 
     return [
         (str(i), cx, cy, area) for i, (area, cx, cy) in enumerate(raw, start=1)
@@ -191,7 +196,7 @@ def assemble_gcp_json(
 
 
 # --- ORB-based marked-to-video registration ----------------------------------
-def read_video_frame(video_path: str, time_s: float) -> np.ndarray:
+def read_video_frame(video_path: str, time_s: float) -> cv2.typing.MatLike:
     r"""Decodes a single frame from a video at the requested timestamp."""
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
@@ -210,12 +215,12 @@ def read_video_frame(video_path: str, time_s: float) -> np.ndarray:
 
 
 def _estimate_orb_homography(
-    src: np.ndarray,
-    dst: np.ndarray,
+    src: cv2.typing.MatLike,
+    dst: cv2.typing.MatLike,
     n_features: int = 10_000,
     ratio_threshold: float = 0.75,
     ransac_threshold: float = 4.0,
-) -> typing.Tuple[np.ndarray, int, int]:
+) -> typing.Tuple[cv2.typing.MatLike, int, int]:
     r"""Estimates a src→dst homography via ORB + Lowe-ratio + RANSAC.
 
     Returns:
@@ -256,7 +261,7 @@ def _estimate_orb_homography(
     return H, len(good), n_inliers
 
 
-def _warp_points(pts: np.ndarray, H: np.ndarray) -> np.ndarray:
+def _warp_points(pts: npt.NDArray, H: npt.NDArray) -> npt.NDArray:
     r"""Applies homography ``H`` to an array of points with shape ``(N, 2)``."""
     homog = np.concatenate([pts, np.ones((pts.shape[0], 1))], axis=1)
     proj = homog @ H.T
@@ -264,10 +269,10 @@ def _warp_points(pts: np.ndarray, H: np.ndarray) -> np.ndarray:
 
 
 def _save_registration_overlay(
-    marked: np.ndarray,
-    video_frame: np.ndarray,
-    marked_uv: np.ndarray,
-    video_uv: np.ndarray,
+    marked: npt.NDArray,
+    video_frame: npt.NDArray,
+    marked_uv: npt.NDArray,
+    video_uv: npt.NDArray,
     out_path: str,
 ) -> None:
     r"""Saves a debug overlay with marked GCPs and video frame side-by-side."""
