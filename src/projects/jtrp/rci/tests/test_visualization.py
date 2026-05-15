@@ -6,8 +6,8 @@ import cv2
 import numpy as np
 import pytest
 
-from src.projects.jtrp.experimental import structure
-from src.projects.jtrp.experimental import visualization
+from src.projects.jtrp.rci import structure
+from src.projects.jtrp.rci import visualization
 
 
 def _create_synthetic_video(
@@ -35,7 +35,7 @@ def _make_trajectory_set(
     fps=10.0,
     num_frames=30,
 ) -> structure.TrajectorySet:
-    r"""Creates a `TrajectorySet` with detections over a synthetic video."""
+    r"""Creates a ``TrajectorySet`` with detections over a synthetic video."""
     tset = structure.TrajectorySet(
         source_video=video_path,
         frame_width=width,
@@ -84,7 +84,7 @@ def _make_trajectory_set(
 
 
 class TestGetColor:
-    r"""Unit tests for `_get_color` function."""
+    r"""Unit tests for ``_get_color`` function."""
 
     def test_deterministic(self) -> None:
         assert visualization._get_color(5) == visualization._get_color(5)
@@ -98,9 +98,10 @@ class TestGetColor:
 
 
 class TestRenderAnnotatedVideo:
-    r"""Unit tests for `render_annotated_video` function."""
+    r"""Unit tests for ``render_annotated_video`` function."""
 
     def test_output_file_created(self):
+        r"""Test that the output video file is created successfully."""
         with tempfile.TemporaryDirectory() as tmpdir:
             video_path = os.path.join(tmpdir, "input.mp4")
             output_path = os.path.join(tmpdir, "annotated.mp4")
@@ -112,6 +113,7 @@ class TestRenderAnnotatedVideo:
             assert os.path.isfile(output_path)
 
     def test_output_frame_count(self):
+        r"""Test the output video has the same number of frames as the input."""
         num_frames = 20
         with tempfile.TemporaryDirectory() as tmpdir:
             video_path = os.path.join(tmpdir, "input.mp4")
@@ -127,6 +129,7 @@ class TestRenderAnnotatedVideo:
             assert out_frames == num_frames
 
     def test_output_dimensions(self):
+        r"""Test the output video has the same dimensions as the input."""
         width, height = 320, 240
         with tempfile.TemporaryDirectory() as tmpdir:
             video_path = os.path.join(tmpdir, "input.mp4")
@@ -144,6 +147,7 @@ class TestRenderAnnotatedVideo:
             assert out_h == height
 
     def test_no_detections_produces_valid_video(self):
+        r"""Test a video with no detections still produces a valid output."""
         with tempfile.TemporaryDirectory() as tmpdir:
             video_path = os.path.join(tmpdir, "input.mp4")
             output_path = os.path.join(tmpdir, "annotated.mp4")
@@ -165,6 +169,7 @@ class TestRenderAnnotatedVideo:
             assert out_frames == 10
 
     def test_bbox_only_mode(self):
+        r"""Test rendering with only bounding boxes."""
         with tempfile.TemporaryDirectory() as tmpdir:
             video_path = os.path.join(tmpdir, "input.mp4")
             output_path = os.path.join(tmpdir, "annotated.mp4")

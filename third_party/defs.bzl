@@ -15,12 +15,12 @@ def _select_requirement(name):
     Returns:
         A select statement that picks the right dependency based on the
     """
-    if name in ["tensorflow-cpu"]:
+    if name in ["tensorflow"]:
         return select({
-            "//third_party:is_cpu": [cpu_req(name)],
-            "//third_party:is_cuda": [cuda_req(name)],
+            "//third_party:is_cuda": [cuda_req("tensorflow-cpu")],
             "//third_party:is_mps": [mps_req("tensorflow")],
-            "//third_party:is_tpu": [tpu_req(name)],
+            "//third_party:is_tpu": [tpu_req("tensorflow-cpu")],
+            "//conditions:default": [cpu_req(name)],
         })
 
     return select({

@@ -8,7 +8,7 @@ ml_py_library(
     deps = [
         "absl-py",
         "jax",
-        "tensorflow-cpu",
+        "tensorflow",
         "wandb",
     ],
 )

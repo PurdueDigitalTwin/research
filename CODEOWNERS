@@ -1,5 +1,16 @@
 # This file defines the owners of the code in this repository.
 # See https://docs.github.com/en/github/creating-cloning-and-archiving-repositories/about-code-owners for more information.
 
-*           @juanwulu
-docs/       @juanwulu  @mrbyflyg
+*           @PurdueDigitalTwin/monorepo
+
+[Documentation]
+/docs/       @PurdueDigitalTwin/monorepo
+
+[JTRP]
+/src/projects/jtrp/5023  @juanwulu
+
+[Generative]
+/src/projects/generative/vamf   @juanwulu
+
+[RL]
+/src/projects/rl    @juanwulu   @mrbyflyg
