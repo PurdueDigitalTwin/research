@@ -146,8 +146,8 @@ def extract_trajectories(
             ``"botsort.yaml"`` or ``"bytetrack.yaml"``.
         confidence_threshold (float): Minimum confidence to keep a detection.
         iou_threshold (float): IoU threshold for non-maximum suppression.
-        vehicle_classes (Optional[FrozenSet[int]]): COCO class IDs to retain.
-            Default is the ``{car, motorcycle, bus, truck}`` subset.
+        vehicle_class_names (Optional[FrozenSet[str]]): If provided, only
+            retain detections whose class name is within this set. If ``None``, retain all detections. Default is ``None``.
         img_size (int): Input image size for YOLO inference.
         camera_params (Optional[CameraParameters]): If provided, frames are
             undistorted before detection (frame-by-frame path).
