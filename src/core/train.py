@@ -258,6 +258,7 @@ def run(
                                 f"train/{k}": wandb.Image(np.asarray(v))
                                 for k, v in outputs.images.items()
                             },
+                            step=step,
                         )
                     if outputs.histograms is not None:
                         wandb.log(
