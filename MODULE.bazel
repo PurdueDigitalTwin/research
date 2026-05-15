@@ -82,8 +82,30 @@ pip.parse(
     python_version = "3.10",
     requirements_lock = "//third_party:requirements_3_10_mps_lock.txt",
 )
+
+# ------------------------------------------------------------------------------
+# Dedicated PyPI hub for JTRP projects
+pip.parse(
+    experimental_requirement_cycles = {"torch": [
+        "torch",
+        "triton",
+    ]},
+    hub_name = "jtrp_cpu",
+    python_version = "3.10",
+    requirements_lock = "//third_party/jtrp:requirements_lock.txt",
+)
+pip.parse(
+    experimental_requirement_cycles = {"torch": [
+        "torch",
+        "triton",
+    ]},
+    hub_name = "jtrp_cuda",
+    python_version = "3.10",
+    requirements_lock = "//third_party/jtrp:requirements_cuda_lock.txt",
+)
 use_repo(
     pip,
+    jtrp_cuda = "jtrp_cuda",
     ml_infra_cpu_3_10 = "ml_infra_cpu",
     ml_infra_cuda_3_10 = "ml_infra_cuda",
     ml_infra_mps_3_10 = "ml_infra_mps",

@@ -1,11 +1,11 @@
 import typing
 
+from absl import logging
 import cv2
 from tqdm import auto as tqdm
 from tqdm.contrib import logging as tqdm_logging
 
-from src.projects.jtrp.experimental import structure
-from src.utilities import logging
+from src.projects.jtrp.rci import structure
 
 # Color palette for track IDs (BGR format for OpenCV).
 _COLORS: typing.List[typing.Tuple[int, int, int]] = [
@@ -47,15 +47,15 @@ def render_annotated_video(
         trajectory_set (TrajectorySet): Trajectory data with source_video path.
         output_path (str): Path for the output annotated video.
         trail_length (int, optional): Number of past frames to draw trajectory
-            trail. Default is :math:`30`.
+            trail. Default is ``30``.
         show_bbox (bool, optional): Whether to plot the bounding boxes.
-            Default is `True`.
+            Default is ``True``.
         show_label (bool, optional): Whether to show track ID and class label.
-            Default is `True`.
+            Default is ``True``.
         show_trail (bool, optional): Whether to draw trajectory trails.
-            Default is `True`,
-        codec (str, optional): FourCC codec string (e.g., `"mp4v"`, `"XVID"`).
-            Default is `"mp4v"`.
+            Default is ``True``,
+        codec (str, optional): FourCC codec string (e.g., ``"mp4v"``, ``"XVID"``).
+            Default is ``"mp4v"``.
     """
     cap = cv2.VideoCapture(trajectory_set.source_video)
     if not cap.isOpened():
@@ -151,4 +151,4 @@ def render_annotated_video(
     pbar.close()
     cap.release()
     writer.release()
-    logging.rank_zero_info("Annotated video saved to %s", output_path)
+    logging.info("Annotated video saved to %s", output_path)
