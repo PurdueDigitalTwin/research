@@ -635,7 +635,7 @@ def _run_step(
     try:
         return runner()
     except Exception as exc:  # noqa: BLE001
-        logging.error("Step %d failed: %s", index, exc)
+        logging.exception("Step %d failed: %s", index, exc)
         return None
 
 
@@ -699,7 +699,7 @@ def main(argv: typing.List[str]) -> int:
             print("\n  (interrupted)")
             return 1
         except Exception as exc:  # noqa: BLE001
-            logging.error("Trajectory extraction failed: %s", exc)
+            logging.exception("Trajectory extraction failed: %s", exc)
             return 1
 
         print()
