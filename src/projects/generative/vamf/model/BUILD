@@ -9,6 +9,12 @@ ml_py_library(
 )
 
 ml_py_library(
+    name = "beta_schedule",
+    srcs = ["beta_schedule.py"],
+    deps = [],
+)
+
+ml_py_library(
     name = "diagnostic",
     srcs = ["diagnostic.py"],
     deps = [

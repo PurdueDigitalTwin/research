@@ -16,6 +16,7 @@ ml_py_binary(
         "typing_extensions",
         "//src/core:model",
         "//src/core:train_state",
+        "//src/projects/generative/vamf/model:beta_schedule",
         "//src/projects/generative/vamf/model:trace",
         "//src/utilities:logging",
     ],

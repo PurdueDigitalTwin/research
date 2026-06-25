@@ -21,6 +21,7 @@ import typing_extensions
 
 from src.core import model as _model
 from src.core import train_state as _train_state
+from src.projects.generative.vamf.model import beta_schedule as _beta_schedule
 from src.projects.generative.vamf.model import trace
 from src.utilities import logging as _logging
 
@@ -133,6 +134,35 @@ flags.DEFINE_float(
         "Only used by method=vamf_tmix. beta=0 recovers MeanFlow; "
         "beta=1 recovers VaMF-L2 (full EMA tangent)."
     ),
+)
+flags.DEFINE_enum(
+    name="beta_anneal_shape",
+    default="constant",
+    enum_values=["constant", "linear", "cosine", "step"],
+    help=(
+        "vamf_tmix tangent-beta schedule; "
+        "'constant' == static --tangent_beta."
+    ),
+)
+flags.DEFINE_float(
+    name="beta_start",
+    default=1.0,
+    help="beta at step 0.",
+)
+flags.DEFINE_float(
+    name="beta_end",
+    default=0.0,
+    help="beta after anneal window.",
+)
+flags.DEFINE_float(
+    name="beta_anneal_s0",
+    default=0.0,
+    help="anneal start / steps.",
+)
+flags.DEFINE_float(
+    name="beta_anneal_s1",
+    default=0.6,
+    help="anneal end / steps.",
 )
 flags.DEFINE_boolean(
     name="exact_trace",
@@ -780,7 +810,7 @@ class MeanFlowMLPModel(_model.Model):
 
         return output
 
-    def _loss_fn_and_aux(self, batch, state, rngs):
+    def _loss_fn_and_aux(self, batch, state, rngs, tangent_beta=None):
         """Build the loss closure used by training and gradient probes.
 
         Returns (loss_fn, aux) where loss_fn(params) -> (loss, metrics).
@@ -834,7 +864,11 @@ class MeanFlowMLPModel(_model.Model):
                     )
                 )
                 assert isinstance(ema_v, jax.Array)
-                b = self._tangent_beta
+                b = (
+                    self._tangent_beta
+                    if tangent_beta is None
+                    else tangent_beta
+                )
                 v_tang = (1.0 - b) * v_cond + b * ema_v
             else:
                 v_tang = v_cond
@@ -938,9 +972,12 @@ class MeanFlowMLPModel(_model.Model):
         batch: typing.Any,
         state: typing.Any,
         rngs: typing.Any,
+        tangent_beta=None,
         **kwargs,
     ) -> typing.Tuple[typing.Any, _model.StepOutputs]:
-        loss_fn, _ = self._loss_fn_and_aux(batch, state, rngs)
+        loss_fn, _ = self._loss_fn_and_aux(
+            batch, state, rngs, tangent_beta=tangent_beta
+        )
         grads, metrics = jax.grad(
             loss_fn,
             has_aux=True,
@@ -956,6 +993,7 @@ class MeanFlowMLPModel(_model.Model):
         batch: typing.Any,
         state: typing.Any,
         rngs: typing.Any,
+        tangent_beta=None,
     ) -> typing.Any:
         """Returns the raw parameter gradient for a single (batch, rngs) pair.
 
@@ -963,7 +1001,9 @@ class MeanFlowMLPModel(_model.Model):
         ``training_step`` but does not apply the gradient. Used by the
         gradient-variance diagnostic (Theorem 3 validation).
         """
-        loss_fn, _ = self._loss_fn_and_aux(batch, state, rngs)
+        loss_fn, _ = self._loss_fn_and_aux(
+            batch, state, rngs, tangent_beta=tangent_beta
+        )
         grads, _ = jax.grad(loss_fn, has_aux=True)(state.params)
         return grads
 
@@ -1042,7 +1082,7 @@ def main(argv: typing.List[str]) -> int:
     _logging.rank_zero_info("Building train state... DONE!")
 
     # ---- jit-compiled training step ----
-    def _train_step(state, key):
+    def _train_step(state, key, beta_val):
         k_data, k_loss = jrnd.split(key)
         x0 = sample_data(
             k_data,
@@ -1053,6 +1093,7 @@ def main(argv: typing.List[str]) -> int:
             batch=x0,
             state=state,
             rngs=k_loss,
+            tangent_beta=beta_val,
         )
 
     train_step = jax.jit(_train_step)
@@ -1062,10 +1103,12 @@ def main(argv: typing.List[str]) -> int:
     # split, returning the flattened parameter gradient. We invoke this
     # K times with K independent keys per measurement step to estimate
     # the per-step gradient mean and variance (Theorem 3 diagnostic).
-    def _grad_probe(state, key):
+    def _grad_probe(state, key, beta_val):
         k_data, k_loss = jrnd.split(key)
         x0 = sample_data(k_data, FLAGS.dataset, FLAGS.batch_size)
-        grads = model.compute_gradient(batch=x0, state=state, rngs=k_loss)
+        grads = model.compute_gradient(
+            batch=x0, state=state, rngs=k_loss, tangent_beta=beta_val
+        )
         flat, _ = flatten_util.ravel_pytree(grads)
         return flat
 
@@ -1109,7 +1152,19 @@ def main(argv: typing.List[str]) -> int:
 
     for step in range(FLAGS.steps):
         key, step_key = jrnd.split(key)
-        state, step_out = train_step(state, step_key)
+        beta_val = jnp.asarray(
+            _beta_schedule.beta_at_step(
+                step,
+                FLAGS.steps,
+                shape=FLAGS.beta_anneal_shape,
+                beta_start=FLAGS.beta_start,
+                beta_end=FLAGS.beta_end,
+                s0=FLAGS.beta_anneal_s0,
+                s1=FLAGS.beta_anneal_s1,
+            ),
+            dtype=jnp.float32,
+        )
+        state, step_out = train_step(state, step_key, beta_val)
 
         # Gradient-variance probe (Theorem 3 diagnostic).
         if (
@@ -1119,7 +1174,8 @@ def main(argv: typing.List[str]) -> int:
             K = FLAGS.measure_grad_var_n_batches
             key, *probe_keys = jrnd.split(key, K + 1)
             grads_flat = jnp.stack(
-                [grad_probe(state, kk) for kk in probe_keys], axis=0
+                [grad_probe(state, kk, beta_val) for kk in probe_keys],
+                axis=0,
             )  # (K, P)
             mean_grad = jnp.mean(grads_flat, axis=0)
             mean_norm_sq = float(jnp.sum(jnp.square(mean_grad)))
@@ -1161,7 +1217,11 @@ def main(argv: typing.List[str]) -> int:
 
     # ---- save results ----
     os.makedirs(FLAGS.work_dir, exist_ok=True)
-    fname = f"{FLAGS.dataset}_{FLAGS.method}_{FLAGS.seed}.json"
+    fname = (
+        f"{FLAGS.dataset}_{FLAGS.method}"
+        f"_{FLAGS.beta_anneal_shape}_s{FLAGS.beta_anneal_s1}"
+        f"_b{FLAGS.tangent_beta}_{FLAGS.seed}.json"
+    )
     out_path = os.path.join(FLAGS.work_dir, fname)
     final = history[-1] if history else {}
     final["elapsed_s"] = elapsed
@@ -1189,6 +1249,11 @@ def main(argv: typing.List[str]) -> int:
                     "tw_sigma": FLAGS.tw_sigma,
                     "target_alpha": FLAGS.target_alpha,
                     "tangent_beta": FLAGS.tangent_beta,
+                    "beta_anneal_shape": FLAGS.beta_anneal_shape,
+                    "beta_start": FLAGS.beta_start,
+                    "beta_end": FLAGS.beta_end,
+                    "beta_anneal_s0": FLAGS.beta_anneal_s0,
+                    "beta_anneal_s1": FLAGS.beta_anneal_s1,
                     "seed": FLAGS.seed,
                 },
                 "history": history,
@@ -1211,7 +1276,9 @@ def main(argv: typing.List[str]) -> int:
     )
     npz_path = os.path.join(
         FLAGS.work_dir,
-        f"{FLAGS.dataset}_{FLAGS.method}_{FLAGS.seed}.npz",
+        f"{FLAGS.dataset}_{FLAGS.method}"
+        f"_{FLAGS.beta_anneal_shape}_s{FLAGS.beta_anneal_s1}"
+        f"_b{FLAGS.tangent_beta}_{FLAGS.seed}.npz",
     )
     np.savez(
         npz_path,
