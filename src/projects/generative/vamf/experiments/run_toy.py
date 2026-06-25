@@ -1152,18 +1152,23 @@ def main(argv: typing.List[str]) -> int:
 
     for step in range(FLAGS.steps):
         key, step_key = jrnd.split(key)
-        beta_val = jnp.asarray(
-            _beta_schedule.beta_at_step(
-                step,
-                FLAGS.steps,
-                shape=FLAGS.beta_anneal_shape,
-                beta_start=FLAGS.beta_start,
-                beta_end=FLAGS.beta_end,
-                s0=FLAGS.beta_anneal_s0,
-                s1=FLAGS.beta_anneal_s1,
-            ),
-            dtype=jnp.float32,
-        )
+        if FLAGS.beta_anneal_shape == "constant":
+            beta_val = jnp.asarray(
+                FLAGS.tangent_beta, dtype=jnp.float32
+            )
+        else:
+            beta_val = jnp.asarray(
+                _beta_schedule.beta_at_step(
+                    step,
+                    FLAGS.steps,
+                    shape=FLAGS.beta_anneal_shape,
+                    beta_start=FLAGS.beta_start,
+                    beta_end=FLAGS.beta_end,
+                    s0=FLAGS.beta_anneal_s0,
+                    s1=FLAGS.beta_anneal_s1,
+                ),
+                dtype=jnp.float32,
+            )
         state, step_out = train_step(state, step_key, beta_val)
 
         # Gradient-variance probe (Theorem 3 diagnostic).
