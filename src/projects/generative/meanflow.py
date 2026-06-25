@@ -15,6 +15,7 @@ from src.projects.generative.model import dit
 from src.projects.generative.model import unet
 from src.projects.generative.model import vae as _vae
 from src.projects.generative.pipeline import edm
+from src.projects.generative.vamf.model import beta_schedule as _beta_schedule
 from src.projects.generative.vamf.model import trace as _trace
 
 # Type Aliases
@@ -983,6 +984,14 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
         # regardless of the value passed; when both are at defaults
         # (False / 0.0), behavior is identical to vanilla MeanFlow.
         tangent_beta: float = 0.0,
+        # B1 beta-anneal schedule: anneal tangent_beta over training.
+        # "constant" recovers static tangent_beta (backward-compat).
+        beta_anneal_shape: str = "constant",
+        beta_anneal_start: float = 1.0,
+        beta_anneal_end: float = 0.0,
+        beta_anneal_s0: float = 0.0,
+        beta_anneal_s1: float = 0.6,
+        beta_anneal_total_steps: int = 300_000,
         # Flow-matching anchor: auxiliary regression of u_theta(z, r,
         # t) against v_cond at small (t - r) interval. Drives the EMA
         # boundary tangent toward the true marginal velocity, removing
@@ -1025,6 +1034,12 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
             raise ValueError(
                 f"tangent_beta must be in [0, 1], got {self.tangent_beta}"
             )
+        self.beta_anneal_shape = beta_anneal_shape
+        self.beta_anneal_start = beta_anneal_start
+        self.beta_anneal_end = beta_anneal_end
+        self.beta_anneal_s0 = beta_anneal_s0
+        self.beta_anneal_s1 = beta_anneal_s1
+        self.beta_anneal_total_steps = beta_anneal_total_steps
         self.fm_anchor_weight = fm_anchor_weight
         self.fm_anchor_delta_min = fm_anchor_delta_min
         self.fm_anchor_delta_max = fm_anchor_delta_max
@@ -1228,7 +1243,18 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
         #   0 < beta < 1 : interpolates between the two CFG-mixed
         #               velocities to realize an interior point on
         #               the control-variate trade-off curve.
-        beta = self.tangent_beta
+        if self.beta_anneal_shape != "constant":
+            beta = _beta_schedule.jax_beta_at_step(
+                state.step,
+                self.beta_anneal_total_steps,
+                shape=self.beta_anneal_shape,
+                beta_start=self.beta_anneal_start,
+                beta_end=self.beta_anneal_end,
+                s0=self.beta_anneal_s0,
+                s1=self.beta_anneal_s1,
+            )
+        else:
+            beta = self.tangent_beta
         ema_params = state.ema_params
 
         def _loss_fn(
@@ -1270,10 +1296,19 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
             # β-mixed CFG velocity. The two component velocities are
             # always evaluated under stop-gradient (the JVP tangent is
             # treated as constant w.r.t. θ regardless of β).
-            if beta <= 0.0:
-                v_g = _cfg_vg(jax.lax.stop_gradient(params))
-            elif beta >= 1.0:
-                v_g = _cfg_vg(ema_params)
+            # When beta is a traced JAX scalar (from the anneal
+            # schedule), we must always evaluate both branches and
+            # use jnp.where to mix. When beta is a static Python
+            # float (constant schedule), we can skip unused evals.
+            if isinstance(beta, float):
+                if beta <= 0.0:
+                    v_g = _cfg_vg(jax.lax.stop_gradient(params))
+                elif beta >= 1.0:
+                    v_g = _cfg_vg(ema_params)
+                else:
+                    v_g_cur = _cfg_vg(jax.lax.stop_gradient(params))
+                    v_g_ema = _cfg_vg(ema_params)
+                    v_g = (1.0 - beta) * v_g_cur + beta * v_g_ema
             else:
                 v_g_cur = _cfg_vg(jax.lax.stop_gradient(params))
                 v_g_ema = _cfg_vg(ema_params)

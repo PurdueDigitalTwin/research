@@ -21,6 +21,11 @@ Design decisions locked with the author:
 
 import math
 
+try:
+    from jax import numpy as jnp
+except ImportError:  # pragma: no cover – pure-Python fallback
+    jnp = None  # type: ignore[assignment]
+
 _SHAPES = ("constant", "linear", "cosine", "step")
 
 
@@ -80,6 +85,56 @@ def beta_at_step(
         return float(beta_start + (beta_end - beta_start) * p)
     # cosine: p=0 -> beta_start, p=1 -> beta_end, monotone non-increasing
     return float(beta_end + (beta_start - beta_end) * 0.5 * (1.0 + math.cos(math.pi * p)))
+
+
+def jax_beta_at_step(
+    step,
+    total_steps,
+    *,
+    shape: str = "constant",
+    beta_start: float = 1.0,
+    beta_end: float = 0.0,
+    s0: float = 0.0,
+    s1: float = 0.6,
+):
+    """JAX-traceable ``beta_at_step`` for use inside pmap/jit.
+
+    Unlike ``beta_at_step`` (pure Python, host-side), this version
+    uses ``jnp`` arithmetic so ``step`` can be a traced integer
+    (e.g. ``state.step`` inside a pmap'd training_step). The
+    ``shape`` string is resolved at trace time (Python if/elif)
+    so it does not cause retracing as long as the model attribute
+    is constant across calls (which it always is).
+    """
+    if shape not in _SHAPES:
+        raise ValueError(
+            f"unknown shape {shape!r}; expected one of {_SHAPES}"
+        )
+    if jnp is None:
+        raise RuntimeError("jax_beta_at_step requires JAX")
+
+    if shape == "constant":
+        return jnp.float32(beta_start)
+
+    frac = jnp.float32(step) / jnp.float32(total_steps)
+
+    if shape == "step":
+        return jnp.where(frac < s1, beta_start, beta_end)
+
+    # linear / cosine: windowed progress p in [0, 1]
+    if s1 <= s0:
+        p = jnp.where(frac < s0, 0.0, 1.0)
+    else:
+        p = (frac - s0) / (s1 - s0)
+        p = jnp.clip(p, 0.0, 1.0)
+
+    if shape == "linear":
+        return jnp.float32(beta_start + (beta_end - beta_start) * p)
+    # cosine
+    return jnp.float32(
+        beta_end
+        + (beta_start - beta_end) * 0.5 * (1.0 + jnp.cos(jnp.pi * p))
+    )
 
 
 # ----------------------------------------------------------------------------

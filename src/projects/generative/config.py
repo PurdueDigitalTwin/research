@@ -512,6 +512,27 @@ def vamf_l2_aw1_dit_imagenet_256_latent() -> _config.ExperimentConfig:
     return config
 
 
+def vamf_b1_anneal_dit_imagenet_256_latent() -> _config.ExperimentConfig:
+    r"""VaMF B1 beta-anneal DiT-B/4 on ImageNet 256x256 latents.
+
+    Anneals ``tangent_beta`` from 1.0 to 0.0 over training using the
+    schedule from Phase 1 screening (DGMM-64). The anneal shape and
+    window (``beta_anneal_shape``, ``beta_anneal_s1``) should be set
+    via ``--experiment set:`` overrides to match the Phase 1 winner.
+    All other hyperparameters match the baseline for a clean comparison.
+    """
+    config = meanflow_dit_imagenet_256_latent()
+    config.exp_name = "vamf_b1_anneal_dit_b4_imagenet_256_latent"
+    config.model.beta_anneal_shape = "cosine"
+    config.model.beta_anneal_start = 1.0
+    config.model.beta_anneal_end = 0.0
+    config.model.beta_anneal_s0 = 0.0
+    config.model.beta_anneal_s1 = 0.6
+    config.model.beta_anneal_total_steps = 300_000
+    config.trainer.checkpoint_every_n_steps = 25_000
+    return config
+
+
 def meanflow_dit_afhqv2_256_pixel() -> _config.ExperimentConfig:
     r"""MeanFlow DiT-B/4 on AFHQv2 256x256 pixel space (online VAE).
 

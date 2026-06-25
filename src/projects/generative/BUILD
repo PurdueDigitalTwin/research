@@ -51,6 +51,7 @@ ml_py_library(
         "//src/projects/generative/model:unet",
         "//src/projects/generative/model:vae",
         "//src/projects/generative/pipeline:edm",
+        "//src/projects/generative/vamf/model:beta_schedule",
         "//src/projects/generative/vamf/model:trace",
     ],
 )
