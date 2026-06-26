@@ -1,3 +1,4 @@
+import os
 import os.path as osp
 import typing
 
@@ -32,6 +33,13 @@ def init_wandb(
         FileNotFoundError: If resuming and checkpoint directory does not exist.
         RuntimeError: If wandb run initialization fails.
     """
+    # Cloud paths (gs://) are not valid local directories for wandb's
+    # run-file storage. Fall back to WANDB_DIR or let wandb choose.
+    _wandb_local_dir = (
+        os.environ.get("WANDB_DIR")
+        if work_dir.startswith("gs://")
+        else work_dir
+    )
 
     if resume and (checkpoint_dir is not None):
         if not tf.io.gfile.exists(checkpoint_dir):
@@ -45,7 +53,7 @@ def init_wandb(
             id=run_id,
             resume="must",
             project=project_name,
-            dir=work_dir,
+            dir=_wandb_local_dir,
             group=experiment_name,
             job_type="coordinator" if jax.process_index() == 0 else "worker",
             settings=wandb.Settings(init_timeout=300),
@@ -55,7 +63,7 @@ def init_wandb(
             name="_".join([experiment_name, str(jax.process_index())]),
             config=config,
             project=project_name,
-            dir=work_dir,
+            dir=_wandb_local_dir,
             group=experiment_name,
             job_type="coordinator" if jax.process_index() == 0 else "worker",
             settings=wandb.Settings(init_timeout=300),
