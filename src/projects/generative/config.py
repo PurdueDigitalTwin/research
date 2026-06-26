@@ -561,6 +561,23 @@ def fm_dit_imagenet_256_latent() -> _config.ExperimentConfig:
     return config
 
 
+def fm_dit_imagenet_256_latent_uncond() -> _config.ExperimentConfig:
+    r"""Unconditional v_ref: FM loss with null-class for all samples.
+
+    Identical to ``fm_dit_imagenet_256_latent`` except every sample
+    receives the null-class token (index ``num_classes`` = 1000)
+    instead of its true label. Achieved via ``fm_only_cfg=True`` with
+    ``class_dropout_prob=1.0`` (100% dropout -> all null). This
+    matches the probe's unconditional evaluation and the paper's
+    unconditional MeanFlow theory (sigma^2 d ~ 8.2e3).
+    """
+    config = fm_dit_imagenet_256_latent()
+    config.exp_name = "fm_dit_b4_vref_uncond"
+    config.model.fm_only_cfg = True
+    config.model.class_dropout_prob = 1.0
+    return config
+
+
 def meanflow_dit_afhqv2_256_pixel() -> _config.ExperimentConfig:
     r"""MeanFlow DiT-B/4 on AFHQv2 256x256 pixel space (online VAE).
 
