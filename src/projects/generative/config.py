@@ -533,6 +533,34 @@ def vamf_b1_anneal_dit_imagenet_256_latent() -> _config.ExperimentConfig:
     return config
 
 
+def fm_dit_imagenet_256_latent() -> _config.ExperimentConfig:
+    r"""Standard flow-matching DiT-B/4 on ImageNet 256x256 latents.
+
+    Trains a velocity reference model v_ref(x_t, t) with the standard
+    conditional flow-matching loss E||v_ref(x_t,t) - v_cond||^2.
+    Uses the exact same DiT-B/4 backbone, VAE, data pipeline, and
+    t-sampler as ``meanflow_dit_imagenet_256_latent`` for
+    comparability. At convergence, v_ref -> E[v_cond | x_t, t] = v,
+    the marginal velocity field.
+
+    Purpose: independent reference for estimating the proxy bias
+    ||b||^2 = E||u_MF(x_t,t,t) - v(x_t,t)||^2 in Theorem 3
+    (beta* formula). Needs fewer steps than MeanFlow since the
+    target is the velocity itself, not the average velocity.
+
+    Checkpoint cadence is aggressive (every 5k) for preemption
+    tolerance on lower-priority VM.
+    """
+    config = meanflow_dit_imagenet_256_latent()
+    config.exp_name = "fm_dit_b4_imagenet_256_latent"
+    config.model.fm_only = True
+    config.model.fm_only_cfg = False
+    config.trainer.num_train_steps = 200_000
+    config.trainer.checkpoint_every_n_steps = 5_000
+    config.trainer.max_checkpoints_to_keep = 5
+    return config
+
+
 def meanflow_dit_afhqv2_256_pixel() -> _config.ExperimentConfig:
     r"""MeanFlow DiT-B/4 on AFHQv2 256x256 pixel space (online VAE).
 

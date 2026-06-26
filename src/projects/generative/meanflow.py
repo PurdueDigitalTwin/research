@@ -999,6 +999,15 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
         fm_anchor_weight: float = 0.0,
         fm_anchor_delta_min: float = 0.0,
         fm_anchor_delta_max: float = 1e-3,
+        # FM-only mode: train a standard flow-matching model
+        # v_ref(x_t, t) → v_cond. No MeanFlow identity / JVP.
+        # Used to obtain an independent velocity reference for
+        # the ‖b‖² estimand in Theorem 3.
+        fm_only: bool = False,
+        # When fm_only=True, skip class-dropout on the target
+        # (all samples use ground-truth v = e - x) by default.
+        # Set to True to keep the CFG formula for comparability.
+        fm_only_cfg: bool = False,
         vae_path: typing.Optional[str] = None,
         vae_scaling_factor: float = 0.18215,
         dtype: typing.Any = None,
@@ -1043,6 +1052,8 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
         self.fm_anchor_weight = fm_anchor_weight
         self.fm_anchor_delta_min = fm_anchor_delta_min
         self.fm_anchor_delta_max = fm_anchor_delta_max
+        self.fm_only = fm_only
+        self.fm_only_cfg = fm_only_cfg
 
         # DiT backbone (no EDM augmentation for ImageNet)
         self._augment = None
@@ -1234,6 +1245,22 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
 
         # Ground truth velocity (used in CFG formula + dropout)
         v = e - x
+
+        # ---- FM-only branch (v_ref training) ----
+        if self.fm_only:
+            return self._fm_only_training_step(
+                x=x,
+                e=e,
+                z=z,
+                v=v,
+                t=t,
+                labels=labels,
+                batch_dims=batch_dims,
+                state=state,
+                cfg_rng=cfg_rng,
+                dp_rng=dp_rng,
+                **kwargs,
+            )
 
         # JVP-tangent control variate (Theorem 3 of the paper).
         #   beta = 0  : vanilla MeanFlow tangent uses stop_gradient
@@ -1528,6 +1555,76 @@ class MeanFlowDiTModel(MeanFlowUNetModel):
             },
         )
 
+        return new_state, outputs
+
+    def _fm_only_training_step(
+        self,
+        *,
+        x: jax.Array,
+        e: jax.Array,
+        z: jax.Array,
+        v: jax.Array,
+        t: jax.Array,
+        labels: jax.Array,
+        batch_dims: typing.Tuple[int, ...],
+        state: _train_state.TrainState,
+        cfg_rng: jax.Array,
+        dp_rng: jax.Array,
+        **kwargs,
+    ) -> typing.Tuple[_train_state.TrainState, _model.StepOutputs]:
+        """Standard FM loss: u_theta(x_t, t, t) -> v_cond."""
+        if self.fm_only_cfg:
+            drop_mask = jnp.less(
+                jax.random.uniform(cfg_rng, shape=batch_dims),
+                self.class_dropout_prob,
+            )
+            y_inp = jnp.where(drop_mask, self.num_classes, labels)
+        else:
+            y_inp = labels
+
+        def _loss_fn(params):
+            ts = self._make_timestamps(t_in=t, r_in=t)
+            u = self._network.apply(
+                variables={"params": params},
+                inputs=z,
+                timestamps=ts,
+                labels=y_inp,
+                edm_cond=None,
+                deterministic=False,
+                rngs={"dropout": dp_rng},
+                **kwargs,
+            )
+            assert isinstance(u, jax.Array)
+            per_sample = jnp.sum(
+                jnp.square(u - jax.lax.stop_gradient(v)),
+                axis=(-1, -2, -3),
+            )
+            loss = jnp.mean(per_sample)
+            return loss, per_sample
+
+        grad_fn = jax.value_and_grad(_loss_fn, has_aux=True)
+        (loss, _per_sample), grads = grad_fn(state.params)
+        global_grad_norm = optax.global_norm(grads)
+        grads = jax.lax.pmean(grads, axis_name="batch")
+        new_state = state.apply_gradients(grads=grads)
+        outputs = _model.StepOutputs(
+            scalars={
+                "loss": loss.mean(),
+                "boundary_loss": loss.mean(),
+                "interior_loss": jnp.zeros_like(loss),
+                "velocity_loss": loss.mean(),
+                "dudt_magnitude": jnp.zeros_like(loss),
+                "global_grad_norm": global_grad_norm,
+                "tw_mean": jnp.ones_like(loss),
+                "sigma_mean": jnp.zeros_like(loss),
+                "fm_anchor_loss": jnp.zeros_like(loss),
+            },
+            histograms={
+                "t": t,
+                "r": t,
+                "t - r": jnp.zeros_like(t),
+            },
+        )
         return new_state, outputs
 
     @typing_extensions.override

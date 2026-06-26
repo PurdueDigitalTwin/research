@@ -56,13 +56,15 @@ flags.DEFINE_enum(
         "vamf_tw",
         "vamf_anneal",
         "vamf_tmix",
+        "fm",
     ],
     help=(
         "Method to run. 'vamf_anneal' mixes v_cond and u_bar(x_t,t,t) in "
         "the regression target (Theorem 2). 'vamf_tmix' mixes them in the "
         "JVP tangent (Theorem 3): tangent = (1-tangent_beta)*v_cond + "
         "tangent_beta*u_bar. tangent_beta=0 recovers MeanFlow; "
-        "tangent_beta=1 recovers VaMF-L2."
+        "tangent_beta=1 recovers VaMF-L2. 'fm' trains a standard "
+        "flow-matching model (no MeanFlow identity / JVP)."
     ),
 )
 
@@ -882,27 +884,28 @@ class MeanFlowMLPModel(_model.Model):
                     r_in,
                 )
 
-            drdt = jnp.zeros_like(r)
-            dtdt = jnp.ones_like(t)
-            u, dudt = jax.jvp(
-                u_fn,
-                (z, r, t),
-                (v_tang, drdt, dtdt),
-            )
-
-            gap = jnp.clip(t - r, a_min=0.0, a_max=1.0)
-            v_pred = u + gap[..., None] * jax.lax.stop_gradient(dudt)
-            # Annealed regression target: (1-alpha)*v_cond + alpha*u_bar(x_t,t,t).
-            # alpha=0 recovers the original v_cond target (VaMF-L2 / VaMF-TW
-            # behavior); alpha=1 is full EMA-target. v_tang already holds
-            # u_bar(x_t,t,t) under stop-gradient for the EMA methods.
-            if self._method == "vamf_anneal" and self._target_alpha > 0.0:
-                a = self._target_alpha
-                v_target = jax.lax.stop_gradient(
-                    (1.0 - a) * v_cond + a * v_tang
-                )
-            else:
+            if self._method == "fm":
+                # Standard flow-matching: u(z, t, t) → v_cond.
+                v_pred = u_fn(z, t, t)
                 v_target = jax.lax.stop_gradient(v_cond)
+            else:
+                drdt = jnp.zeros_like(r)
+                dtdt = jnp.ones_like(t)
+                u, dudt = jax.jvp(
+                    u_fn,
+                    (z, r, t),
+                    (v_tang, drdt, dtdt),
+                )
+
+                gap = jnp.clip(t - r, a_min=0.0, a_max=1.0)
+                v_pred = u + gap[..., None] * jax.lax.stop_gradient(dudt)
+                if self._method == "vamf_anneal" and self._target_alpha > 0.0:
+                    a = self._target_alpha
+                    v_target = jax.lax.stop_gradient(
+                        (1.0 - a) * v_cond + a * v_tang
+                    )
+                else:
+                    v_target = jax.lax.stop_gradient(v_cond)
             per_sample = jnp.sum(
                 jnp.square(v_pred - v_target),
                 axis=-1,
@@ -1153,9 +1156,7 @@ def main(argv: typing.List[str]) -> int:
     for step in range(FLAGS.steps):
         key, step_key = jrnd.split(key)
         if FLAGS.beta_anneal_shape == "constant":
-            beta_val = jnp.asarray(
-                FLAGS.tangent_beta, dtype=jnp.float32
-            )
+            beta_val = jnp.asarray(FLAGS.tangent_beta, dtype=jnp.float32)
         else:
             beta_val = jnp.asarray(
                 _beta_schedule.beta_at_step(
