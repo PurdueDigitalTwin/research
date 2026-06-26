@@ -227,14 +227,27 @@ def train_and_evaluate(
     if not tf.io.gfile.exists(log_dir):
         tf.io.gfile.makedirs(log_dir)
     checkpoint_dir = exp_config.trainer.checkpoint_dir
-    _resume_wandb = checkpoint_dir is not None and exp_config.mode == "train"
+    _wandb_run_file = tf.io.gfile.join(log_dir, "wandb.txt")
+    _auto_resume = (
+        checkpoint_dir is None
+        and exp_config.mode == "train"
+        and tf.io.gfile.exists(_wandb_run_file)
+    )
+    _resume_wandb = (
+        checkpoint_dir is not None or _auto_resume
+    ) and exp_config.mode == "train"
+    _wandb_ckpt = (
+        checkpoint_dir
+        if checkpoint_dir is not None
+        else (log_dir if _auto_resume else None)
+    )
     logging.init_wandb(
         config=dataclasses.asdict(exp_config),
         project_name=str(exp_config.project_name),
         experiment_name=str(exp_config.exp_name),
         work_dir=log_dir,
         resume=_resume_wandb,
-        checkpoint_dir=checkpoint_dir if _resume_wandb else None,
+        checkpoint_dir=_wandb_ckpt if _resume_wandb else None,
     )
 
     # Log the current platform
@@ -347,9 +360,20 @@ def train_and_evaluate(
         fid_metric = None
 
     if exp_config.mode == "train":
+        ckpt_path = None
         if exp_config.trainer.checkpoint_dir is not None:
             ckpt_path = exp_config.trainer.checkpoint_dir.rstrip("/")
             logging.rank_zero_info("Resuming from checkpoint: %s", ckpt_path)
+        elif checkpoint_manager.latest_step() is not None:
+            _latest = checkpoint_manager.latest_step()
+            ckpt_path = tf.io.gfile.join(log_dir, "checkpoints", str(_latest))
+            logging.rank_zero_info(
+                "Auto-resuming from latest checkpoint (step %d)" ": %s",
+                _latest,
+                ckpt_path,
+            )
+
+        if ckpt_path is not None:
             # NOTE: universal sharding for single-device load (pre-replication)
             # This is useful to unify the checkpoint loading procedure since we
             # are dealing with not only parallel TPU clusters but also single
