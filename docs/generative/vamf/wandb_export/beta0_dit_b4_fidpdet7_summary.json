@@ -1,0 +1,23 @@
+{
+  "_runtime": 137906.321503892,
+  "_step": 300000,
+  "_timestamp": 1777417972.0995288,
+  "_wandb": "{'runtime': 137906}",
+  "eval/fid": 11.53253944939447,
+  "eval/sampled images": "{'_type': 'image-file', 'format': 'png', 'height': 1030, 'path': 'media/images/eval/sampled images_295000_e9da455148beab6a615e.png', 'sha256': 'e9da455148beab6a615ea6f4a75e823fd3616c2c39aaa327e8ebed5794686fdb', 'size': 3802594, 'width': 2062}",
+  "train/boundary_loss_epoch": 3061.439158866374,
+  "train/boundary_loss_step": 3007.258056640625,
+  "train/dudt_magnitude_epoch": 1616.1273025137548,
+  "train/dudt_magnitude_step": 1583.0316162109375,
+  "train/global_grad_norm_epoch": 0.26433708871513606,
+  "train/global_grad_norm_step": 0.2204626500606537,
+  "train/interior_loss_epoch": 9739.055496736652,
+  "train/interior_loss_step": 9381.94140625,
+  "train/loss_epoch": 4731.300330891113,
+  "train/loss_step": 4626.853515625,
+  "train/r": "{'_type': 'histogram'}",
+  "train/t": "{'_type': 'histogram'}",
+  "train/t - r": "{'_type': 'histogram'}",
+  "train/velocity_loss_epoch": 2317.3920797135415,
+  "train/velocity_loss_step": 2258.04931640625
+}

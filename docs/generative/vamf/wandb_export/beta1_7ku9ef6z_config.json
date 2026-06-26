@@ -1,0 +1,35 @@
+{
+  "data": {
+    "module": "<Partial[ImageNetLatentDataModule(\n  data_dir='gs://pdt_training/juanwu/cache/imagenet-1k-latent',\n  shuffle_buffer_size=10000)]>",
+    "batch_size": 256,
+    "num_workers": 4,
+    "deterministic": true,
+    "drop_remainder": true
+  },
+  "mode": "train",
+  "seed": 42,
+  "dtype": "jax.numpy.float32",
+  "model": "<Partial[MeanFlowDiTModel(\n  in_channels=4,\n  image_size=32,\n  features=768,\n  patch_size=4,\n  depth=12,\n  num_heads=12,\n  ffn_ratio=4,\n  dropout_rate=0.0,\n  num_classes=1000,\n  class_dropout_prob=0.1,\n  cfg_omega=1.0,\n  cfg_kappa=0.5,\n  epsilon=1e-06,\n  timestamp_cond='t_and_t_minus_r',\n  timestamp_sampler='logit-normal',\n  timestamp_sampler_kwargs={'mean': -0.4, 'stddev': 1.0},\n  timestamp_overlap_rate=0.75,\n  adaptive_weight_power=0.0,\n  norm_eps=0.01,\n  use_trace_weight=False,\n  ema_tangent=True,\n  fm_anchor_weight=0.1,\n  fm_anchor_delta_min=0.0,\n  fm_anchor_delta_max=0.001,\n  vae_path='pcuenq/sd-vae-ft-mse-flax',\n  vae_scaling_factor=0.18215)]>",
+  "metric": "<Config[FrechetInceptionDistance(\n  dataset=functools.partial(<function load_dataset at 0x7f37df847250>, path='ILSVRC/imagenet-1k', token=None, revision='49e2ee26f3810fb5a7536bbf732a7b07389a47b5', split='train', streaming=True),\n  image_key='image',\n  batch_size=32,\n  ref_cache_path='gs://pdt_training/juanwu/cache/imagenet-1k-fid-ref-stats.npz')]>",
+  "trainer": {
+    "profile": false,
+    "checkpoint_dir": null,
+    "num_train_steps": 300000,
+    "log_every_n_steps": 50,
+    "eval_every_n_steps": 5000,
+    "max_checkpoints_to_keep": 3,
+    "checkpoint_every_n_steps": 10000
+  },
+  "exp_name": "vamf_l2_dit_b4_imagenet_256_20260501_140313",
+  "optimizer": {
+    "ema_rate": 0.9999,
+    "optimizer": "<Partial[adamw(b1=0.9, b2=0.95, weight_decay=0)]>",
+    "lr_schedule": "<Config[warmup_constant_schedule(\n  init_value=0.0001,\n  peak_value=0.0001,\n  warmup_steps=0)]>",
+    "grad_clip_value": 1,
+    "grad_clip_method": null,
+    "ema_update_period": 1
+  },
+  "precision": "HIGHEST",
+  "param_dtype": "jax.numpy.float32",
+  "project_name": "meanflow"
+}

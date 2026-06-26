@@ -1,0 +1,16 @@
+{
+  "_runtime": 227580.898279965,
+  "_step": 215150,
+  "_timestamp": 1776887141.89634,
+  "_wandb": "{'runtime': 227580}",
+  "eval/sampled images": "{'_type': 'image-file', 'format': 'png', 'height': 1030, 'path': 'media/images/eval/sampled images_215000_068db3e7799c0fea1229.png', 'sha256': '068db3e7799c0fea12297b075106fa0fba21203e1d155f17561114feb69075a3', 'size': 3733918, 'width': 2062}",
+  "train/boundary_loss_step": 2965.583984375,
+  "train/dudt_magnitude_step": 1488.1162109375,
+  "train/global_grad_norm_step": 0.193904846906662,
+  "train/interior_loss_step": 9107.19140625,
+  "train/loss_step": 4501.58203125,
+  "train/r": "{'_type': 'histogram'}",
+  "train/t": "{'_type': 'histogram'}",
+  "train/t - r": "{'_type': 'histogram'}",
+  "train/velocity_loss_step": 2177.2841796875
+}
