@@ -69,6 +69,24 @@ ml_py_binary(
 )
 
 ml_py_binary(
+    name = "eval_betastar_vref",
+    srcs = ["eval_betastar_vref.py"],
+    deps = [
+        "absl-py",
+        "etils",
+        "fiddle",
+        "jax",
+        "numpy",
+        "optax",
+        "orbax-checkpoint",
+        "//src/core:train_state",
+        "//src/projects/generative:config",
+        "//src/projects/generative/vamf/scripts:betastar_from_vref",
+        "//src/utilities:logging",
+    ],
+)
+
+ml_py_binary(
     name = "sample_dit_qualitative",
     srcs = ["sample_dit_qualitative.py"],
     deps = [
