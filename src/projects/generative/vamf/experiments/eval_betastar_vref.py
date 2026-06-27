@@ -75,17 +75,21 @@ def _restore_ema_params(model, checkpoint_dir: str) -> typing.Any:
     )
 
 
-def _restore_online_params(model, checkpoint_dir: str) -> typing.Any:
+def _restore_online_params(
+    model, checkpoint_dir: str, config_fn_name: str,
+) -> typing.Any:
     """Restore online (non-EMA) params from <checkpoint_dir>/state/."""
     from src.core import train_state as _ts
-    import optax
+    config_fn = getattr(_cfg, config_fn_name)
+    exp_config = config_fn()
     init_rng = jrnd.PRNGKey(0)
     params, _ = model.init(batch=None, rngs=init_rng)
+    lr_scheduler = fdl.build(exp_config.optimizer.lr_schedule)
+    p_optimizer = fdl.build(exp_config.optimizer.optimizer)
+    tx = p_optimizer(learning_rate=lr_scheduler)
     state = _ts.TrainState.create(
-        params=params,
-        tx=optax.adamw(learning_rate=1e-4, b1=0.9, b2=0.95,
-                       weight_decay=0),
-        ema_rate=0.9999,
+        params=params, tx=tx,
+        ema_rate=exp_config.optimizer.ema_rate,
     )
     state_template = state.replace(ema_params={})
     state_dir = epath.Path(
@@ -182,7 +186,9 @@ def main(argv):
 
     # --- Load MF online params for circularity cross-check ---
     _logging.rank_zero_info("Loading MeanFlow online params (for EMA-proxy cross-check)...")
-    mf_online_params = _restore_online_params(mf_model, F.mf_checkpoint_dir)
+    mf_online_params = _restore_online_params(
+        mf_model, F.mf_checkpoint_dir, F.mf_config_fn,
+    )
 
     # --- Build apply closures ---
     mf_apply_fn = _build_apply_fn(mf_model, mf_ema_params)
