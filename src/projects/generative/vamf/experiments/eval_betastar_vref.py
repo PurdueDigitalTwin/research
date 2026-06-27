@@ -82,7 +82,10 @@ def _restore_online_params(model, checkpoint_dir: str) -> typing.Any:
     init_rng = jrnd.PRNGKey(0)
     params, _ = model.init(batch=None, rngs=init_rng)
     state = _ts.TrainState.create(
-        params=params, tx=optax.adam(1e-4), ema_rate=0.9999,
+        params=params,
+        tx=optax.adamw(learning_rate=1e-4, b1=0.9, b2=0.95,
+                       weight_decay=0),
+        ema_rate=0.9999,
     )
     state_template = state.replace(ema_params={})
     state_dir = epath.Path(
