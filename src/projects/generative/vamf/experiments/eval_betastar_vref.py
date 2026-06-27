@@ -31,12 +31,14 @@ from src.projects.generative.vamf.scripts import betastar_from_vref as _bs
 from src.utilities import logging as _logging
 
 flags.DEFINE_string(
-    "mf_checkpoint_dir", None, True,
+    "mf_checkpoint_dir", None,
     "MeanFlow baseline checkpoint step dir (e.g. .../240000).",
+    required=True,
 )
 flags.DEFINE_string(
-    "vref_checkpoint_dir", None, True,
+    "vref_checkpoint_dir", None,
     "Converged unconditional v_ref checkpoint step dir (e.g. .../55000).",
+    required=True,
 )
 flags.DEFINE_string(
     "mf_config_fn", "meanflow_dit_imagenet_256_latent",
@@ -46,7 +48,9 @@ flags.DEFINE_string(
     "vref_config_fn", "fm_dit_imagenet_256_latent_uncond",
     "Config function for the v_ref model.",
 )
-flags.DEFINE_string("output_path", None, True, "JSON output path.")
+flags.DEFINE_string(
+    "output_path", None, "JSON output path.", required=True,
+)
 flags.DEFINE_float("beta_no_bias", 0.94, "Paper's matrix-form bound.")
 flags.DEFINE_integer("n_batches", 16, "Batches per t (batch_size=64).")
 flags.DEFINE_integer("pool_size", 2048, "Latent pool size.")
